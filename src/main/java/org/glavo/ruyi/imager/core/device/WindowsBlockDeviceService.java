@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.device;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -114,20 +115,20 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
-            throw new IOException("Interrupted while enumerating Windows disks.", e);
+            throw new IOException(Messages.get("core.device.windowsInterrupted"), e);
         }
 
         if (!completed) {
             process.destroyForcibly();
-            throw new IOException("Timed out while enumerating Windows disks.");
+            throw new IOException(Messages.get("core.device.windowsTimedOut"));
         }
 
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
         int exitCode = process.exitValue();
         if (exitCode != 0) {
-            String message = error.isBlank() ? "PowerShell exited with code " + exitCode + "." : error.strip();
-            throw new IOException("Failed to enumerate Windows disks: " + message);
+            String message = error.isBlank() ? Messages.get("core.device.powershellExit", exitCode) : error.strip();
+            throw new IOException(Messages.get("core.device.windowsEnumerationFailed", message));
         }
 
         return parseDevices(output);

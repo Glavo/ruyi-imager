@@ -10,6 +10,7 @@ import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryEntry;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryMetadata;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -119,7 +120,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     @Override
     public Path downloadImage(ImageEntry image, ProgressReporter reporter) throws IOException {
         if (image.distfiles().isEmpty()) {
-            throw new IOException("Image has no distfiles: " + image.atom());
+            throw new IOException(Messages.get("core.download.imageNoDistfiles", image.atom()));
         }
 
         Path downloadDirectory = directories.cacheDirectory()
@@ -142,7 +143,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 .resolve(image.name())
                 .resolve(image.version());
         Path result = materializer.materialize(image, List.copyOf(downloadedDistfiles), artifactDirectory, reporter);
-        reporter.report(ProgressEvent.indeterminate("download", "Downloaded " + image.atom() + "."));
+        reporter.report(ProgressEvent.indeterminate("download", Messages.get("core.download.imageComplete", image.atom())));
         return result;
     }
 
@@ -516,7 +517,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     private static TomlParseResult parseToml(Path path) throws IOException {
         TomlParseResult result = Toml.parse(path);
         if (result.hasErrors()) {
-            StringBuilder builder = new StringBuilder("Failed to parse TOML file ").append(path).append(':');
+            StringBuilder builder = new StringBuilder(Messages.get("core.toml.parseFailed", path));
             for (TomlParseError error : result.errors()) {
                 builder.append(System.lineSeparator()).append(error);
             }

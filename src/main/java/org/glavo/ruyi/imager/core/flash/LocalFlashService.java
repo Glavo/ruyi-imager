@@ -9,6 +9,7 @@ import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
@@ -52,23 +53,23 @@ public final class LocalFlashService implements FlashService {
         Path source = resolveSource(request, reporter);
         long sourceSize = Files.size(source);
         if (target.sizeBytes() > 0L && sourceSize > target.sizeBytes()) {
-            return OperationResult.failure("Image is larger than target device.");
+            return OperationResult.failure(Messages.get("core.flash.imageTooLarge"));
         }
         if (Files.isSameFile(source, target.path())) {
-            return OperationResult.failure("Refusing to flash an image onto itself.");
+            return OperationResult.failure(Messages.get("core.flash.selfWrite"));
         }
 
-        reporter.report(new ProgressEvent("flash", "Writing image to target.", 0L, sourceSize));
+        reporter.report(new ProgressEvent("flash", Messages.get("core.flash.writing"), 0L, sourceSize));
         writeImage(source, target.path(), sourceSize, reporter);
 
         if (request.verify()) {
-            reporter.report(new ProgressEvent("verify", "Verifying written image.", 0L, sourceSize));
+            reporter.report(new ProgressEvent("verify", Messages.get("core.flash.verifying"), 0L, sourceSize));
             if (!verifyImage(source, target.path(), sourceSize, reporter)) {
-                return OperationResult.failure("Written image failed verification.");
+                return OperationResult.failure(Messages.get("core.flash.verifyFailed"));
             }
         }
 
-        return OperationResult.success("Image flashed successfully.");
+        return OperationResult.success(Messages.get("core.flash.success"));
     }
 
     /// Validates target safety flags.
@@ -77,16 +78,16 @@ public final class LocalFlashService implements FlashService {
     /// @return failure message, or null when target is acceptable.
     private static @Nullable String validateTarget(BlockDevice target) {
         if (target.system()) {
-            return "Refusing to write to a system disk.";
+            return Messages.get("core.flash.refuseSystem");
         }
         if (target.mounted()) {
-            return "Refusing to write to a mounted device.";
+            return Messages.get("core.flash.refuseMounted");
         }
         if (target.readOnly()) {
-            return "Refusing to write to a read-only device.";
+            return Messages.get("core.flash.refuseReadOnly");
         }
         if (!Files.exists(target.path())) {
-            return "Target device path does not exist: " + target.path();
+            return Messages.get("core.flash.targetMissing", target.path());
         }
         return null;
     }
@@ -101,20 +102,20 @@ public final class LocalFlashService implements FlashService {
         @Nullable Path localImage = request.localImage();
         if (localImage != null) {
             if (!Files.isRegularFile(localImage)) {
-                throw new IOException("Local image does not exist: " + localImage);
+                throw new IOException(Messages.get("core.flash.localImageMissing", localImage));
             }
             return localImage;
         }
 
         @Nullable ImageEntry image = request.image();
         if (image == null) {
-            throw new IOException("No image source was selected.");
+            throw new IOException(Messages.get("core.flash.noSource"));
         }
         if (!"dd-v1".equals(image.strategy())) {
-            throw new IOException("Only dd-v1 images can be flashed to a block device target.");
+            throw new IOException(Messages.get("core.flash.onlyDd"));
         }
         if (image.partitionMap().size() != 1) {
-            throw new IOException("dd-v1 image requires exactly one target mapping in this CLI flow.");
+            throw new IOException(Messages.get("core.flash.oneTarget"));
         }
         return images.downloadImage(image, reporter);
     }
@@ -141,7 +142,7 @@ public final class LocalFlashService implements FlashService {
                 while (buffer.hasRemaining()) {
                     writtenBytes += output.write(buffer);
                 }
-                reporter.report(new ProgressEvent("flash", "Writing image to target.", writtenBytes, totalBytes));
+                reporter.report(new ProgressEvent("flash", Messages.get("core.flash.writing"), writtenBytes, totalBytes));
             }
             output.force(true);
         }
@@ -184,7 +185,7 @@ public final class LocalFlashService implements FlashService {
                 }
 
                 verifiedBytes += expectedRead;
-                reporter.report(new ProgressEvent("verify", "Verifying written image.", verifiedBytes, totalBytes));
+                reporter.report(new ProgressEvent("verify", Messages.get("core.flash.verifying"), verifiedBytes, totalBytes));
             }
             return true;
         }

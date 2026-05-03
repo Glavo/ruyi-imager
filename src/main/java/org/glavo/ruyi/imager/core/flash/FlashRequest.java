@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.flash;
 
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,7 +26,7 @@ public record FlashRequest(
     /// Validates the selected image source.
     public FlashRequest {
         if ((image == null) == (localImage == null)) {
-            throw new IllegalArgumentException("Exactly one image source is required.");
+            throw new IllegalArgumentException(Messages.get("core.flash.exactlyOneSource"));
         }
     }
 }

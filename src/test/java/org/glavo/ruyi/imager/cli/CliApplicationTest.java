@@ -15,6 +15,7 @@ import org.glavo.ruyi.imager.core.flash.LocalFlashService;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,31 @@ public final class CliApplicationTest {
         JsonNode root = MAPPER.readTree(result.stdout());
         assertEquals("error", root.path("type").asText());
         assertEquals("Refusing to write without --yes.", root.path("message").asText());
+    }
+
+    /// Verifies that CLI JSON error messages use the configured Simplified Chinese locale.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or JSON cannot be parsed.
+    @Test
+    public void flashErrorUsesConfiguredChineseLocale(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Files.write(image, new byte[]{1, 2, 3, 4});
+
+        CliResult result = runCliWithLocale(
+                "zh-CN",
+                services(temporaryDirectory, new ThrowingBlockDeviceService()),
+                "flash",
+                "--local-image",
+                image.toString(),
+                "--device",
+                "test-device",
+                "--json");
+
+        assertNotEquals(0, result.exitCode());
+        JsonNode root = MAPPER.readTree(result.stdout());
+        assertEquals("error", root.path("type").asText());
+        assertEquals(messageForLocale("zh-CN", "cli.error.refusingWithoutYes"), root.path("message").asText());
     }
 
     /// Flashes a local image into a simulated target through the public CLI.
@@ -168,6 +194,36 @@ public final class CliApplicationTest {
     /// @param args command arguments.
     /// @return captured result.
     private static CliResult runCli(AppServices services, String @Unmodifiable ... args) {
+        return runCliWithLocale("en", services, args);
+    }
+
+    /// Runs the CLI with a configured locale and captures standard streams.
+    ///
+    /// @param locale locale tag.
+    /// @param services app services.
+    /// @param args command arguments.
+    /// @return captured result.
+    private static CliResult runCliWithLocale(String locale, AppServices services, String @Unmodifiable ... args) {
+        boolean hadOriginalLocale = System.getProperties().containsKey(Messages.LOCALE_PROPERTY);
+        String originalLocale = System.getProperty(Messages.LOCALE_PROPERTY, "");
+        System.setProperty(Messages.LOCALE_PROPERTY, locale);
+        try {
+            return runCliWithCurrentLocale(services, args);
+        } finally {
+            if (hadOriginalLocale) {
+                System.setProperty(Messages.LOCALE_PROPERTY, originalLocale);
+            } else {
+                System.clearProperty(Messages.LOCALE_PROPERTY);
+            }
+        }
+    }
+
+    /// Runs the CLI using the current locale configuration and captures standard streams.
+    ///
+    /// @param services app services.
+    /// @param args command arguments.
+    /// @return captured result.
+    private static CliResult runCliWithCurrentLocale(AppServices services, String @Unmodifiable ... args) {
         PrintStream originalOut = System.out;
         PrintStream originalErr = System.err;
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
@@ -186,6 +242,26 @@ public final class CliApplicationTest {
         } finally {
             System.setOut(originalOut);
             System.setErr(originalErr);
+        }
+    }
+
+    /// Reads one message with a temporary locale override.
+    ///
+    /// @param locale locale tag.
+    /// @param key message key.
+    /// @return localized message.
+    private static String messageForLocale(String locale, String key) {
+        boolean hadOriginalLocale = System.getProperties().containsKey(Messages.LOCALE_PROPERTY);
+        String originalLocale = System.getProperty(Messages.LOCALE_PROPERTY, "");
+        System.setProperty(Messages.LOCALE_PROPERTY, locale);
+        try {
+            return Messages.get(key);
+        } finally {
+            if (hadOriginalLocale) {
+                System.setProperty(Messages.LOCALE_PROPERTY, originalLocale);
+            } else {
+                System.clearProperty(Messages.LOCALE_PROPERTY);
+            }
         }
     }
 

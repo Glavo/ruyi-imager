@@ -12,6 +12,7 @@ import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.flash.FlashRequest;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -37,7 +38,6 @@ import java.util.concurrent.Callable;
 /// Picocli command tree for scriptable Ruyi Imager operations.
 @Command(
         name = "ruyi-imager",
-        mixinStandardHelpOptions = true,
         description = "Flash Ruyi images from a CLI or GUI.")
 @NotNullByDefault
 public final class CliApplication implements Runnable {
@@ -47,6 +47,22 @@ public final class CliApplication implements Runnable {
     /// Picocli command specification injected at runtime.
     @Spec
     private @Nullable CommandSpec spec;
+
+    /// Whether usage help should be displayed.
+    @Option(
+            names = {"-h", "--help"},
+            usageHelp = true,
+            description = "Show this help message and exit.",
+            descriptionKey = "cli.option.help")
+    private boolean usageHelp;
+
+    /// Whether version help should be displayed.
+    @Option(
+            names = {"-V", "--version"},
+            versionHelp = true,
+            description = "Print version information and exit.",
+            descriptionKey = "cli.option.version")
+    private boolean versionHelp;
 
     /// Creates the command root.
     ///
@@ -67,6 +83,7 @@ public final class CliApplication implements Runnable {
         commandLine.addSubcommand("image", imageCommand(services));
         commandLine.addSubcommand("device", deviceCommand(services));
         commandLine.addSubcommand("flash", new FlashCommand(services));
+        localizeCommands(commandLine);
         return commandLine.execute(args);
     }
 
@@ -155,9 +172,48 @@ public final class CliApplication implements Runnable {
             output.put("message", message);
             JsonOutput.print(output);
         } else {
-            System.err.println("Error: " + message);
+            System.err.println(Messages.get("cli.error.prefix", message));
         }
         return CommandLine.ExitCode.SOFTWARE;
+    }
+
+    /// Returns a localized fallback for an exception without a message.
+    ///
+    /// @param exception failure exception.
+    /// @return failure message.
+    private static String exceptionMessage(Exception exception) {
+        @Nullable String message = exception.getMessage();
+        return message == null ? Messages.get("cli.error.unknownFailure") : message;
+    }
+
+    /// Localizes command descriptions after the command model is assembled.
+    ///
+    /// @param commandLine root command line.
+    private static void localizeCommands(CommandLine commandLine) {
+        commandLine.setResourceBundle(Messages.bundle());
+        commandLine.setAdjustLineBreaksForWideCJKCharacters(true);
+        setDescription(commandLine, "cli.root.description");
+        CommandLine repo = commandLine.getSubcommands().get("repo");
+        setDescription(repo, "cli.repo.description");
+        setDescription(repo.getSubcommands().get("update"), "cli.repo.update.description");
+        CommandLine image = commandLine.getSubcommands().get("image");
+        setDescription(image, "cli.image.description");
+        setDescription(image.getSubcommands().get("list"), "cli.image.list.description");
+        setDescription(image.getSubcommands().get("download"), "cli.image.download.description");
+        CommandLine device = commandLine.getSubcommands().get("device");
+        setDescription(device, "cli.device.description");
+        setDescription(device.getSubcommands().get("list"), "cli.device.list.description");
+        setDescription(commandLine.getSubcommands().get("flash"), "cli.flash.description");
+    }
+
+    /// Sets one command description from the active message bundle.
+    ///
+    /// @param commandLine command line to update.
+    /// @param key message key.
+    private static void setDescription(CommandLine commandLine, String key) {
+        commandLine.setResourceBundle(Messages.bundle());
+        commandLine.setAdjustLineBreaksForWideCJKCharacters(true);
+        commandLine.getCommandSpec().usageMessage().description(Messages.get(key));
     }
 
     /// Prints an operation result in the selected output mode.
@@ -203,7 +259,10 @@ public final class CliApplication implements Runnable {
         private final AppServices services;
 
         /// Whether command output should be JSON.
-        @Option(names = "--json", description = "Emit newline-delimited JSON events.")
+        @Option(
+                names = "--json",
+                description = "Emit newline-delimited JSON events.",
+                descriptionKey = "cli.option.json.events")
         private boolean json;
 
         /// Creates the repository update command.
@@ -222,7 +281,7 @@ public final class CliApplication implements Runnable {
                 OperationResult result = services.repository().update(progressReporter(json));
                 return finish(result, json);
             } catch (IOException | RuntimeException e) {
-                return fail(e.getMessage(), json);
+                return fail(exceptionMessage(e), json);
             }
         }
     }
@@ -250,7 +309,10 @@ public final class CliApplication implements Runnable {
         private final AppServices services;
 
         /// Whether command output should be JSON.
-        @Option(names = "--json", description = "Emit a JSON object.")
+        @Option(
+                names = "--json",
+                description = "Emit a JSON object.",
+                descriptionKey = "cli.option.json.object")
         private boolean json;
 
         /// Creates the image list command.
@@ -276,7 +338,7 @@ public final class CliApplication implements Runnable {
                 }
 
                 if (catalog.images().isEmpty()) {
-                    System.out.println("No images are available in the local metadata cache.");
+                    System.out.println(Messages.get("cli.image.none"));
                     return CommandLine.ExitCode.OK;
                 }
 
@@ -285,7 +347,7 @@ public final class CliApplication implements Runnable {
                 }
                 return CommandLine.ExitCode.OK;
             } catch (IOException | RuntimeException e) {
-                return fail(e.getMessage(), json);
+                return fail(exceptionMessage(e), json);
             }
         }
     }
@@ -298,11 +360,18 @@ public final class CliApplication implements Runnable {
         private final AppServices services;
 
         /// Whether command output should be JSON.
-        @Option(names = "--json", description = "Emit newline-delimited JSON events.")
+        @Option(
+                names = "--json",
+                description = "Emit newline-delimited JSON events.",
+                descriptionKey = "cli.option.json.events")
         private boolean json;
 
         /// Image atom to download.
-        @Parameters(index = "0", paramLabel = "ATOM", description = "Image atom name.")
+        @Parameters(
+                index = "0",
+                paramLabel = "ATOM",
+                description = "Image atom name.",
+                descriptionKey = "cli.parameter.atom")
         private @Nullable String atom;
 
         /// Creates the image download command.
@@ -319,13 +388,13 @@ public final class CliApplication implements Runnable {
         public Integer call() {
             String requestedAtom = atom;
             if (requestedAtom == null) {
-                return fail("Missing image atom.", json);
+                return fail(Messages.get("cli.error.missingImageAtom"), json);
             }
 
             try {
                 ImageEntry image = services.images().findImage(requestedAtom);
                 if (image == null) {
-                    return fail("Unknown image atom: " + requestedAtom, json);
+                    return fail(Messages.get("cli.error.unknownImageAtom", requestedAtom), json);
                 }
 
                 Path imagePath = services.images().downloadImage(image, progressReporter(json));
@@ -340,7 +409,7 @@ public final class CliApplication implements Runnable {
                 }
                 return CommandLine.ExitCode.OK;
             } catch (IOException | RuntimeException e) {
-                return fail(e.getMessage(), json);
+                return fail(exceptionMessage(e), json);
             }
         }
     }
@@ -368,7 +437,10 @@ public final class CliApplication implements Runnable {
         private final AppServices services;
 
         /// Whether command output should be JSON.
-        @Option(names = "--json", description = "Emit a JSON object.")
+        @Option(
+                names = "--json",
+                description = "Emit a JSON object.",
+                descriptionKey = "cli.option.json.object")
         private boolean json;
 
         /// Creates the device list command.
@@ -391,7 +463,7 @@ public final class CliApplication implements Runnable {
                     output.put("devices", deviceOutput(devices));
                     JsonOutput.print(output);
                 } else if (devices.isEmpty()) {
-                    System.out.println("No target devices were detected.");
+                    System.out.println(Messages.get("cli.device.none"));
                 } else {
                     for (BlockDevice device : devices) {
                         System.out.printf("%s\t%s\t%s%n", device.id(), device.displayName(), devicePathText(device));
@@ -399,7 +471,7 @@ public final class CliApplication implements Runnable {
                 }
                 return CommandLine.ExitCode.OK;
             } catch (IOException | RuntimeException e) {
-                return fail(e.getMessage(), json);
+                return fail(exceptionMessage(e), json);
             }
         }
     }
@@ -448,27 +520,49 @@ public final class CliApplication implements Runnable {
         private final AppServices services;
 
         /// Image atom selected from Ruyi metadata.
-        @Option(names = "--atom", paramLabel = "ATOM", description = "Image atom name.")
+        @Option(
+                names = "--atom",
+                paramLabel = "ATOM",
+                description = "Image atom name.",
+                descriptionKey = "cli.option.atom")
         private @Nullable String atom;
 
         /// Local image path to flash.
-        @Option(names = "--local-image", paramLabel = "PATH", description = "Local image path.")
+        @Option(
+                names = "--local-image",
+                paramLabel = "PATH",
+                description = "Local image path.",
+                descriptionKey = "cli.option.localImage")
         private @Nullable Path localImage;
 
         /// Target block device identifier.
-        @Option(names = "--device", required = true, paramLabel = "ID", description = "Target device id.")
+        @Option(
+                names = "--device",
+                required = true,
+                paramLabel = "ID",
+                description = "Target device id.",
+                descriptionKey = "cli.option.device")
         private @Nullable String deviceId;
 
         /// Whether the destructive operation was explicitly confirmed.
-        @Option(names = "--yes", description = "Confirm destructive writing.")
+        @Option(
+                names = "--yes",
+                description = "Confirm destructive writing.",
+                descriptionKey = "cli.option.yes")
         private boolean yes;
 
         /// Whether write verification should be skipped.
-        @Option(names = "--skip-verify", description = "Skip post-write verification.")
+        @Option(
+                names = "--skip-verify",
+                description = "Skip post-write verification.",
+                descriptionKey = "cli.option.skipVerify")
         private boolean skipVerify;
 
         /// Whether command output should be JSON.
-        @Option(names = "--json", description = "Emit newline-delimited JSON events.")
+        @Option(
+                names = "--json",
+                description = "Emit newline-delimited JSON events.",
+                descriptionKey = "cli.option.json.events")
         private boolean json;
 
         /// Creates the flash command.
@@ -484,24 +578,24 @@ public final class CliApplication implements Runnable {
         @Override
         public Integer call() {
             if (!yes) {
-                return fail("Refusing to write without --yes.", json);
+                return fail(Messages.get("cli.error.refusingWithoutYes"), json);
             }
 
             boolean hasAtom = atom != null;
             boolean hasLocalImage = localImage != null;
             if (hasAtom == hasLocalImage) {
-                return fail("Specify exactly one of --atom or --local-image.", json);
+                return fail(Messages.get("cli.error.chooseOneImageSource"), json);
             }
 
             String requestedDeviceId = deviceId;
             if (requestedDeviceId == null) {
-                return fail("Missing target device id.", json);
+                return fail(Messages.get("cli.error.missingTargetDevice"), json);
             }
 
             try {
                 BlockDevice target = services.devices().findDevice(requestedDeviceId);
                 if (target == null) {
-                    return fail("Unknown target device: " + requestedDeviceId, json);
+                    return fail(Messages.get("cli.error.unknownTargetDevice", requestedDeviceId), json);
                 }
 
                 ImageEntry image = null;
@@ -509,10 +603,10 @@ public final class CliApplication implements Runnable {
                 if (atom != null) {
                     image = services.images().findImage(atom);
                     if (image == null) {
-                        return fail("Unknown image atom: " + atom, json);
+                        return fail(Messages.get("cli.error.unknownImageAtom", atom), json);
                     }
                 } else if (requestedLocalImage != null && !Files.isRegularFile(requestedLocalImage)) {
-                    return fail("Local image does not exist: " + requestedLocalImage, json);
+                    return fail(Messages.get("cli.error.localImageMissing", requestedLocalImage), json);
                 }
 
                 OperationResult result = services.flash().flash(
@@ -520,7 +614,7 @@ public final class CliApplication implements Runnable {
                         progressReporter(json));
                 return finish(result, json);
             } catch (IOException | RuntimeException e) {
-                return fail(e.getMessage(), json);
+                return fail(exceptionMessage(e), json);
             }
         }
     }

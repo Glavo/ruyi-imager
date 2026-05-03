@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.image;
 
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -55,24 +56,24 @@ public final class RuyiImageMaterializer {
             ProgressReporter reporter) throws IOException {
         Files.createDirectories(artifactDirectory);
         if (downloadedDistfiles.size() != image.distfiles().size()) {
-            throw new IOException("Downloaded distfile count does not match image metadata.");
+            throw new IOException(Messages.get("core.materialize.countMismatch"));
         }
 
         for (int i = 0; i < image.distfiles().size(); i++) {
             RuyiDistfile distfile = image.distfiles().get(i);
             Path source = downloadedDistfiles.get(i);
-            reporter.report(ProgressEvent.indeterminate("materialize", "Materializing " + distfile.name() + "."));
+            reporter.report(ProgressEvent.indeterminate("materialize", Messages.get("core.materialize.materializing", distfile.name())));
             materializeDistfile(distfile, source, artifactDirectory);
         }
 
         List<Path> partitions = resolvePartitionPaths(image.partitionMap(), artifactDirectory);
         if (partitions.isEmpty()) {
-            throw new IOException("Image has no partition map: " + image.atom());
+            throw new IOException(Messages.get("core.materialize.noPartitionMap", image.atom()));
         }
 
         for (Path partition : partitions) {
             if (!Files.isRegularFile(partition)) {
-                throw new IOException("Image partition artifact is missing: " + partition);
+                throw new IOException(Messages.get("core.materialize.partitionMissing", partition));
             }
         }
 
@@ -116,7 +117,7 @@ public final class RuyiImageMaterializer {
             return;
         }
         if (UNSUPPORTED_METHODS.contains(method)) {
-            throw new IOException("Unsupported Ruyi unpack method: " + method + " for " + distfile.name());
+            throw new IOException(Messages.get("core.materialize.unsupportedMethod", method, distfile.name()));
         }
 
         copyRaw(source, artifactDirectory.resolve(distfile.name()));
@@ -246,7 +247,7 @@ public final class RuyiImageMaterializer {
                 break;
             }
             if (headerBytes != header.length) {
-                throw new IOException("Truncated tar header.");
+                throw new IOException(Messages.get("core.materialize.truncatedTarHeader"));
             }
             if (isZeroBlock(header)) {
                 break;
@@ -308,7 +309,7 @@ public final class RuyiImageMaterializer {
             return;
         }
 
-        throw new IOException("Unsupported Ruyi unpack method: tar.auto for " + distfile.name());
+        throw new IOException(Messages.get("core.materialize.unsupportedMethod", "tar.auto", distfile.name()));
     }
 
     /// Resolves an archive target safely under the artifact directory.
@@ -321,7 +322,7 @@ public final class RuyiImageMaterializer {
     private static Path resolveArchiveTarget(Path normalizedRoot, String entryName, String archiveKind) throws IOException {
         Path target = normalizedRoot.resolve(entryName).normalize();
         if (!target.startsWith(normalizedRoot)) {
-            throw new IOException(archiveKind + " entry escapes artifact directory: " + entryName);
+            throw new IOException(Messages.get("core.materialize.archiveEscape", archiveKind, entryName));
         }
         return target;
     }
@@ -421,11 +422,11 @@ public final class RuyiImageMaterializer {
     /// @throws IOException when the entry is too large or truncated.
     private static String readTarString(InputStream input, long size) throws IOException {
         if (size > Integer.MAX_VALUE) {
-            throw new IOException("Tar string entry is too large.");
+            throw new IOException(Messages.get("core.materialize.tarStringTooLarge"));
         }
         byte[] bytes = input.readNBytes(Math.toIntExact(size));
         if (bytes.length != size) {
-            throw new IOException("Truncated tar string entry.");
+            throw new IOException(Messages.get("core.materialize.truncatedTarString"));
         }
 
         int length = bytes.length;
@@ -447,7 +448,7 @@ public final class RuyiImageMaterializer {
         while (remaining > 0L) {
             int read = input.read(buffer, 0, Math.toIntExact(Math.min(buffer.length, remaining)));
             if (read < 0) {
-                throw new IOException("Truncated tar entry.");
+                throw new IOException(Messages.get("core.materialize.truncatedTarEntry"));
             }
             output.write(buffer, 0, read);
             remaining -= read;
@@ -480,7 +481,7 @@ public final class RuyiImageMaterializer {
         for (String relativePath : partitionMap.values()) {
             Path path = normalizedRoot.resolve(relativePath).normalize();
             if (!path.startsWith(normalizedRoot)) {
-                throw new IOException("Partition path escapes artifact directory: " + relativePath);
+                throw new IOException(Messages.get("core.materialize.partitionEscape", relativePath));
             }
             result.add(path);
         }

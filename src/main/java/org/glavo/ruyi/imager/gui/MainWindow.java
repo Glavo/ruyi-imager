@@ -29,6 +29,7 @@ import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.flash.FlashRequest;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -56,46 +57,46 @@ public final class MainWindow {
     private WizardState state = new WizardState(null, null, null, null, null);
 
     /// Status text shown in the top bar.
-    private final Label statusLabel = new Label("Ready");
+    private final Label statusLabel = new Label(Messages.get("gui.status.ready"));
 
     /// Progress bar shown for background work.
     private final ProgressBar progressBar = new ProgressBar(0);
 
     /// Manufacturer selection summary.
-    private final Label manufacturerValue = new Label("No manufacturer selected");
+    private final Label manufacturerValue = new Label(Messages.get("gui.value.manufacturer.none"));
 
     /// Board selection summary.
-    private final Label boardValue = new Label("No board selected");
+    private final Label boardValue = new Label(Messages.get("gui.value.board.none"));
 
     /// Operating system selection summary.
-    private final Label osValue = new Label("No operating system selected");
+    private final Label osValue = new Label(Messages.get("gui.value.os.none"));
 
     /// Local image selection summary.
-    private final Label localImageValue = new Label("No local image selected");
+    private final Label localImageValue = new Label(Messages.get("gui.value.local.none"));
 
     /// Storage selection summary.
-    private final Label storageValue = new Label("No storage device selected");
+    private final Label storageValue = new Label(Messages.get("gui.value.storage.none"));
 
     /// Manufacturer selection button.
-    private final Button manufacturerButton = new Button("Choose Manufacturer");
+    private final Button manufacturerButton = new Button(Messages.get("gui.button.chooseManufacturer"));
 
     /// Board selection button.
-    private final Button boardButton = new Button("Choose Board");
+    private final Button boardButton = new Button(Messages.get("gui.button.chooseBoard"));
 
     /// Operating system selection button.
-    private final Button osButton = new Button("Choose OS");
+    private final Button osButton = new Button(Messages.get("gui.button.chooseOs"));
 
     /// Local image selection button.
-    private final Button localImageButton = new Button("Use Local Image");
+    private final Button localImageButton = new Button(Messages.get("gui.button.useLocalImage"));
 
     /// Storage selection button.
-    private final Button storageButton = new Button("Choose Storage");
+    private final Button storageButton = new Button(Messages.get("gui.button.chooseStorage"));
 
     /// Repository metadata update button.
-    private final Button repoUpdateButton = new Button("Update Metadata");
+    private final Button repoUpdateButton = new Button(Messages.get("gui.button.updateMetadata"));
 
     /// Flash action button.
-    private final Button flashButton = new Button("Flash");
+    private final Button flashButton = new Button(Messages.get("gui.button.flash"));
 
     /// Whether a background operation is active.
     private boolean busy;
@@ -132,10 +133,10 @@ public final class MainWindow {
     ///
     /// @return header node.
     private VBox createHeader() {
-        Label title = new Label("Ruyi Imager");
+        Label title = new Label(Messages.get("app.title"));
         title.getStyleClass().add("app-title");
 
-        Label subtitle = new Label("Select a catalog image or local image, then choose a storage device.");
+        Label subtitle = new Label(Messages.get("gui.header.subtitle"));
         subtitle.getStyleClass().add("app-subtitle");
 
         repoUpdateButton.setOnAction(_ -> updateRepository());
@@ -177,25 +178,25 @@ public final class MainWindow {
         HBox writeActions = new HBox(flashButton);
         writeActions.getStyleClass().add("write-actions");
 
-        Label catalogTitle = new Label("Catalog Image");
+        Label catalogTitle = new Label(Messages.get("gui.choice.catalog"));
         catalogTitle.getStyleClass().add("choice-title");
 
         VBox catalogFlow = new VBox(12,
                 catalogTitle,
-                createStep("1", "Manufacturer", manufacturerValue, manufacturerButton),
-                createStep("2", "Board", boardValue, boardButton),
-                createStep("3", "Operating System", osValue, osButton));
+                createStep("1", Messages.get("gui.step.manufacturer"), manufacturerValue, manufacturerButton),
+                createStep("2", Messages.get("gui.step.board"), boardValue, boardButton),
+                createStep("3", Messages.get("gui.step.os"), osValue, osButton));
         catalogFlow.getStyleClass().add("catalog-choice");
         HBox.setHgrow(catalogFlow, Priority.ALWAYS);
 
-        Label localTitle = new Label("Local Image");
+        Label localTitle = new Label(Messages.get("gui.choice.local"));
         localTitle.getStyleClass().add("choice-title");
 
         VBox localFlow = new VBox(12, localTitle, createLocalImageOption());
         localFlow.getStyleClass().add("local-choice");
         HBox.setHgrow(localFlow, Priority.ALWAYS);
 
-        Label separator = new Label("OR");
+        Label separator = new Label(Messages.get("gui.choice.or"));
         separator.getStyleClass().add("choice-separator");
 
         HBox sourceChoices = new HBox(16, catalogFlow, separator, localFlow);
@@ -204,7 +205,7 @@ public final class MainWindow {
 
         VBox workflow = new VBox(14,
                 sourceChoices,
-                createStep("4", "Storage Device", storageValue, storageButton),
+                createStep("4", Messages.get("gui.step.storage"), storageValue, storageButton),
                 writeActions);
         workflow.getStyleClass().add("workflow");
         return workflow;
@@ -214,7 +215,7 @@ public final class MainWindow {
     ///
     /// @return custom image option node.
     private HBox createLocalImageOption() {
-        Label description = new Label("Use a custom image file instead of selecting one from the catalog.");
+        Label description = new Label(Messages.get("gui.local.description"));
         description.getStyleClass().add("option-value");
         description.setWrapText(true);
 
@@ -266,7 +267,7 @@ public final class MainWindow {
             /// @return update result.
             @Override
             protected OperationResult call() throws Exception {
-                updateMessage("Updating metadata.");
+                updateMessage(Messages.get("gui.progress.updatingMetadata"));
                 return services.repository().update(event -> {
                     updateMessage(event.message());
                     @Nullable Long currentBytes = event.currentBytes();
@@ -278,13 +279,13 @@ public final class MainWindow {
             }
         };
 
-        startBackgroundTask(task, "Metadata Update Failed", result -> {
+        startBackgroundTask(task, Messages.get("gui.dialog.metadataUpdateFailed"), result -> {
             if (result.success()) {
                 state = new WizardState(null, null, null, null, state.target());
                 refreshState();
-                showInfo("Metadata Updated", result.message());
+                showInfo(Messages.get("gui.dialog.metadataUpdated"), result.message());
             } else {
-                showError("Metadata Update Failed", result.message());
+                showError(Messages.get("gui.dialog.metadataUpdateFailed"), result.message());
             }
         });
     }
@@ -293,7 +294,7 @@ public final class MainWindow {
     ///
     /// @return footer node.
     private VBox createFooter() {
-        Label safety = new Label("System, mounted, and read-only targets will be rejected by the platform backend.");
+        Label safety = new Label(Messages.get("gui.footer.safety"));
         safety.getStyleClass().add("footer-text");
         VBox footer = new VBox(new Separator(), safety);
         footer.getStyleClass().add("app-footer");
@@ -308,12 +309,12 @@ public final class MainWindow {
             /// @return image catalog.
             @Override
             protected ImageCatalog call() throws Exception {
-                updateMessage("Loading image catalog.");
+                updateMessage(Messages.get("gui.progress.loadingCatalog"));
                 return services.images().listImages();
             }
         };
 
-        startBackgroundTask(task, "Image Error", this::showManufacturerDialog);
+        startBackgroundTask(task, Messages.get("gui.dialog.imageError"), this::showManufacturerDialog);
     }
 
     /// Shows the manufacturer selection dialog.
@@ -322,7 +323,7 @@ public final class MainWindow {
     private void showManufacturerDialog(ImageCatalog catalog) {
         @Unmodifiable List<ManufacturerOption> manufacturers = manufacturerOptions(catalog.images());
         if (manufacturers.isEmpty()) {
-            showInfo("No Manufacturers", "No manufacturers are available in the local metadata cache.");
+            showInfo(Messages.get("gui.dialog.noManufacturers"), Messages.get("gui.dialog.noManufacturers.message"));
             return;
         }
 
@@ -337,14 +338,14 @@ public final class MainWindow {
             protected void updateItem(@Nullable ManufacturerOption item, boolean empty) {
                 super.updateItem(item, empty);
                 setText(empty || item == null ? null
-                        : item.name() + " - " + item.boardCount() + " boards, " + item.imageCount() + " images");
+                        : Messages.get("gui.list.manufacturer", item.name(), item.boardCount(), item.imageCount()));
             }
         });
         selectCurrentManufacturer(listView, state.manufacturerName());
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle("Choose Manufacturer");
-        dialog.setHeaderText("Select a manufacturer");
+        dialog.setTitle(Messages.get("gui.dialog.chooseManufacturer"));
+        dialog.setHeaderText(Messages.get("gui.dialog.chooseManufacturer.header"));
         dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
         if (dialog.getResult() == ButtonType.OK) {
@@ -359,7 +360,7 @@ public final class MainWindow {
     /// Opens the board selection dialog.
     private void chooseBoard() {
         if (state.manufacturerName() == null) {
-            showInfo("Incomplete Selection", "Select a manufacturer first.");
+            showInfo(Messages.get("gui.dialog.incompleteSelection"), Messages.get("gui.dialog.selectManufacturerFirst"));
             return;
         }
 
@@ -369,12 +370,12 @@ public final class MainWindow {
             /// @return image catalog.
             @Override
             protected ImageCatalog call() throws Exception {
-                updateMessage("Loading image catalog.");
+                updateMessage(Messages.get("gui.progress.loadingCatalog"));
                 return services.images().listImages();
             }
         };
 
-        startBackgroundTask(task, "Image Error", this::showBoardDialog);
+        startBackgroundTask(task, Messages.get("gui.dialog.imageError"), this::showBoardDialog);
     }
 
     /// Shows the board selection dialog.
@@ -383,7 +384,9 @@ public final class MainWindow {
     private void showBoardDialog(ImageCatalog catalog) {
         @Unmodifiable List<BoardOption> boards = boardOptions(catalog.images(), state.manufacturerName());
         if (boards.isEmpty()) {
-            showInfo("No Boards", "No boards are available for " + state.manufacturerName() + ".");
+            showInfo(
+                    Messages.get("gui.dialog.noBoards"),
+                    Messages.get("gui.dialog.noBoards.message", state.manufacturerName()));
             return;
         }
 
@@ -397,14 +400,14 @@ public final class MainWindow {
             @Override
             protected void updateItem(@Nullable BoardOption item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.name() + " - " + item.imageCount() + " images");
+                setText(empty || item == null ? null : Messages.get("gui.list.board", item.name(), item.imageCount()));
             }
         });
         selectCurrentBoard(listView, state.boardName());
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle("Choose Board");
-        dialog.setHeaderText("Select a board from " + state.manufacturerName());
+        dialog.setTitle(Messages.get("gui.dialog.chooseBoard"));
+        dialog.setHeaderText(Messages.get("gui.dialog.chooseBoard.header", state.manufacturerName()));
         dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
         if (dialog.getResult() == ButtonType.OK) {
@@ -419,7 +422,9 @@ public final class MainWindow {
     /// Opens the operating system selection dialog.
     private void chooseOperatingSystem() {
         if (state.manufacturerName() == null || state.boardName() == null) {
-            showInfo("Incomplete Selection", "Select a manufacturer and board first.");
+            showInfo(
+                    Messages.get("gui.dialog.incompleteSelection"),
+                    Messages.get("gui.dialog.selectManufacturerAndBoardFirst"));
             return;
         }
 
@@ -429,12 +434,12 @@ public final class MainWindow {
             /// @return image catalog.
             @Override
             protected ImageCatalog call() throws Exception {
-                updateMessage("Loading image catalog.");
+                updateMessage(Messages.get("gui.progress.loadingCatalog"));
                 return services.images().listImages();
             }
         };
 
-        startBackgroundTask(task, "Image Error", this::showOperatingSystemDialog);
+        startBackgroundTask(task, Messages.get("gui.dialog.imageError"), this::showOperatingSystemDialog);
     }
 
     /// Shows the operating system selection dialog.
@@ -443,7 +448,7 @@ public final class MainWindow {
     private void showOperatingSystemDialog(ImageCatalog catalog) {
         @Unmodifiable List<ImageEntry> images = filteredImages(catalog.images(), state.manufacturerName(), state.boardName());
         if (images.isEmpty()) {
-            showInfo("No Operating Systems", imageEmptyMessage());
+            showInfo(Messages.get("gui.dialog.noOperatingSystems"), imageEmptyMessage());
             return;
         }
 
@@ -463,8 +468,8 @@ public final class MainWindow {
         selectCurrentImage(listView, state.image());
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle("Choose Operating System");
-        dialog.setHeaderText("Select an operating system for " + state.boardName());
+        dialog.setTitle(Messages.get("gui.dialog.chooseOperatingSystem"));
+        dialog.setHeaderText(Messages.get("gui.dialog.chooseOperatingSystem.header", state.boardName()));
         dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
         if (dialog.getResult() == ButtonType.OK) {
@@ -479,10 +484,10 @@ public final class MainWindow {
     /// Opens a local image file selection dialog.
     private void chooseLocalImage() {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Choose Local Image");
+        chooser.setTitle(Messages.get("gui.dialog.chooseLocalImage"));
         chooser.getExtensionFilters().setAll(
-                new FileChooser.ExtensionFilter("Image files", "*.img", "*.raw", "*.bin", "*.iso"),
-                new FileChooser.ExtensionFilter("All files", "*.*"));
+                new FileChooser.ExtensionFilter(Messages.get("gui.fileChooser.imageFiles"), "*.img", "*.raw", "*.bin", "*.iso"),
+                new FileChooser.ExtensionFilter(Messages.get("gui.fileChooser.allFiles"), "*.*"));
 
         @Nullable Path currentLocalImage = state.localImage();
         if (currentLocalImage != null) {
@@ -510,12 +515,12 @@ public final class MainWindow {
             /// @return target devices.
             @Override
             protected List<BlockDevice> call() throws Exception {
-                updateMessage("Detecting target devices.");
+                updateMessage(Messages.get("gui.progress.detectingDevices"));
                 return services.devices().listDevices();
             }
         };
 
-        startBackgroundTask(task, "Device Error", this::showStorageDialog);
+        startBackgroundTask(task, Messages.get("gui.dialog.deviceError"), this::showStorageDialog);
     }
 
     /// Shows the storage selection dialog.
@@ -523,7 +528,7 @@ public final class MainWindow {
     /// @param devices target devices.
     private void showStorageDialog(List<BlockDevice> devices) {
         if (devices.isEmpty()) {
-            showInfo("No Storage Devices", "No storage devices were detected.");
+            showInfo(Messages.get("gui.dialog.noStorageDevices"), Messages.get("gui.dialog.noStorageDevices.message"));
             return;
         }
 
@@ -543,8 +548,8 @@ public final class MainWindow {
         selectCurrentTarget(listView, state.target());
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle("Choose Storage Device");
-        dialog.setHeaderText("Select a storage device");
+        dialog.setTitle(Messages.get("gui.dialog.chooseStorageDevice"));
+        dialog.setHeaderText(Messages.get("gui.dialog.chooseStorageDevice.header"));
         dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
         if (dialog.getResult() == ButtonType.OK) {
@@ -564,7 +569,7 @@ public final class MainWindow {
     /// Starts flashing after final confirmation.
     private void flash() {
         if (!hasImageSource() || state.target() == null) {
-            showInfo("Incomplete Selection", "Select an operating system or local image, then select a storage device.");
+            showInfo(Messages.get("gui.dialog.incompleteSelection"), Messages.get("gui.dialog.flashIncomplete"));
             return;
         }
 
@@ -576,13 +581,14 @@ public final class MainWindow {
         }
 
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Confirm Flash");
-        confirm.setHeaderText("Write image to target device?");
-        confirm.setContentText("Manufacturer: " + manufacturerLabel()
-                + "\nBoard: " + boardLabel()
-                + "\nImage source: " + imageSourceLabel()
-                + "\nStorage: " + targetLabel(selectedTarget)
-                + "\nThis will overwrite the selected storage device.");
+        confirm.setTitle(Messages.get("gui.dialog.confirmFlash"));
+        confirm.setHeaderText(Messages.get("gui.dialog.confirmFlash.header"));
+        confirm.setContentText(Messages.get(
+                "gui.dialog.confirmFlash.content",
+                manufacturerLabel(),
+                boardLabel(),
+                imageSourceLabel(),
+                targetLabel(selectedTarget)));
         confirm.showAndWait();
         if (confirm.getResult() != ButtonType.OK) {
             return;
@@ -607,11 +613,11 @@ public final class MainWindow {
             }
         };
 
-        startBackgroundTask(task, "Flash Failed", result -> {
+        startBackgroundTask(task, Messages.get("gui.dialog.flashFailed"), result -> {
             if (result.success()) {
-                showInfo("Complete", result.message());
+                showInfo(Messages.get("gui.dialog.complete"), result.message());
             } else {
-                showError("Flash Failed", result.message());
+                showError(Messages.get("gui.dialog.flashFailed"), result.message());
             }
         });
     }
@@ -635,7 +641,7 @@ public final class MainWindow {
             if (result != null) {
                 onSuccess.accept(result);
             } else {
-                showError(failureTitle, "Operation completed without a result.");
+                showError(failureTitle, Messages.get("gui.dialog.emptyResult"));
             }
         });
         task.setOnFailed(_ -> {
@@ -653,7 +659,7 @@ public final class MainWindow {
     private void finishBackgroundTask() {
         statusLabel.textProperty().unbind();
         progressBar.progressProperty().unbind();
-        statusLabel.setText("Ready");
+        statusLabel.setText(Messages.get("gui.status.ready"));
         progressBar.setProgress(0);
         progressBar.setVisible(false);
         busy = false;
@@ -667,7 +673,7 @@ public final class MainWindow {
         osValue.setText(osLabel());
         localImageValue.setText(localImageLabel());
         BlockDevice target = state.target();
-        storageValue.setText(target == null ? "No storage device selected" : targetLabel(target));
+        storageValue.setText(target == null ? Messages.get("gui.value.storage.none") : targetLabel(target));
         repoUpdateButton.setDisable(busy);
         manufacturerButton.setDisable(busy);
         boardButton.setDisable(busy || state.localImage() != null);
@@ -689,9 +695,9 @@ public final class MainWindow {
     /// @return manufacturer step label.
     private String manufacturerLabel() {
         if (state.localImage() != null) {
-            return "Skipped for local image";
+            return Messages.get("gui.value.skippedLocal");
         }
-        return state.manufacturerName() == null ? "No manufacturer selected" : state.manufacturerName();
+        return state.manufacturerName() == null ? Messages.get("gui.value.manufacturer.none") : state.manufacturerName();
     }
 
     /// Formats the board step label.
@@ -699,9 +705,9 @@ public final class MainWindow {
     /// @return board step label.
     private String boardLabel() {
         if (state.localImage() != null) {
-            return "Skipped for local image";
+            return Messages.get("gui.value.skippedLocal");
         }
-        return state.boardName() == null ? "No board selected" : state.boardName();
+        return state.boardName() == null ? Messages.get("gui.value.board.none") : state.boardName();
     }
 
     /// Formats the operating system catalog step label.
@@ -709,11 +715,11 @@ public final class MainWindow {
     /// @return operating system step label.
     private String osLabel() {
         if (state.localImage() != null) {
-            return "Skipped for local image";
+            return Messages.get("gui.value.skippedLocal");
         }
 
         @Nullable ImageEntry image = state.image();
-        return image == null ? "No operating system selected" : imageLabel(image);
+        return image == null ? Messages.get("gui.value.os.none") : imageLabel(image);
     }
 
     /// Formats the selected local image option.
@@ -722,11 +728,11 @@ public final class MainWindow {
     private String localImageLabel() {
         @Nullable Path localImage = state.localImage();
         if (localImage == null) {
-            return "No local image selected";
+            return Messages.get("gui.value.local.none");
         }
 
         @Nullable Path fileName = localImage.getFileName();
-        return "Selected: " + (fileName == null ? localImage : fileName);
+        return Messages.get("gui.value.local.selected", fileName == null ? localImage : fileName);
     }
 
     /// Formats the selected image source.
@@ -741,10 +747,10 @@ public final class MainWindow {
         @Nullable Path localImage = state.localImage();
         if (localImage != null) {
             @Nullable Path fileName = localImage.getFileName();
-            return "Local image - " + (fileName == null ? localImage : fileName);
+            return Messages.get("gui.value.local.source", fileName == null ? localImage : fileName);
         }
 
-        return "No operating system selected";
+        return Messages.get("gui.value.os.none");
     }
 
     /// Builds manufacturer choices from image metadata.
@@ -942,26 +948,26 @@ public final class MainWindow {
     private static String targetSafetyLabel(BlockDevice target) {
         ArrayList<String> flags = new ArrayList<>(3);
         if (target.system()) {
-            flags.add("system");
+            flags.add(Messages.get("gui.target.system"));
         }
         if (target.mounted()) {
-            flags.add("mounted");
+            flags.add(Messages.get("gui.target.mounted"));
         }
         if (target.readOnly()) {
-            flags.add("read-only");
+            flags.add(Messages.get("gui.target.readOnly"));
         }
         if (flags.isEmpty()) {
             return "";
         }
 
-        StringBuilder builder = new StringBuilder("blocked: ");
+        StringBuilder builder = new StringBuilder();
         for (int i = 0; i < flags.size(); i++) {
             if (i > 0) {
                 builder.append(", ");
             }
             builder.append(flags.get(i));
         }
-        return builder.toString();
+        return Messages.get("gui.target.blocked", builder);
     }
 
     /// Creates the image-empty message for the current state.
@@ -970,9 +976,9 @@ public final class MainWindow {
     private String imageEmptyMessage() {
         @Nullable String boardName = state.boardName();
         if (boardName == null) {
-            return "No operating systems are available in the local metadata cache.";
+            return Messages.get("gui.image.empty");
         }
-        return "No operating systems are available for " + boardName + ".";
+        return Messages.get("gui.image.emptyForBoard", boardName);
     }
 
     /// Shows an informational dialog.
@@ -988,7 +994,7 @@ public final class MainWindow {
     /// @param title dialog title.
     /// @param message dialog message.
     private void showError(String title, @Nullable String message) {
-        showAlert(Alert.AlertType.ERROR, title, message == null ? "Unknown failure." : message);
+        showAlert(Alert.AlertType.ERROR, title, message == null ? Messages.get("gui.dialog.unknownFailure") : message);
     }
 
     /// Shows an alert on the JavaFX application thread.

@@ -8,6 +8,7 @@ import javafx.scene.Scene;
 import javafx.stage.Stage;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.gui.MainWindow;
+import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,7 +43,7 @@ public final class RuyiImager extends Application {
             scene.getStylesheets().add(stylesheet.toExternalForm());
         }
 
-        primaryStage.setTitle("Ruyi Imager");
+        primaryStage.setTitle(Messages.get("app.title"));
         primaryStage.setMinWidth(840);
         primaryStage.setMinHeight(560);
         primaryStage.setScene(scene);
