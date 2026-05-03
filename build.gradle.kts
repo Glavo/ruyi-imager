@@ -1,5 +1,7 @@
+import java.time.Duration
+
 plugins {
-    id("java-library")
+    application
 }
 
 group = "org.glavo"
@@ -10,12 +12,17 @@ repositories {
 }
 
 dependencies {
-    compileOnlyApi("org.jetbrains:annotations:26.1.0")
+    compileOnly("org.jetbrains:annotations:26.1.0")
+
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.21.2")
+    implementation("info.picocli:picocli:4.7.7")
+    implementation("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
+    implementation("org.tomlj:tomlj:1.1.1")
 
     val osName = System.getProperty("os.name").lowercase()
     val osArch = System.getProperty("os.arch").lowercase()
 
-    val javafxVersion = "21.0.10"
+    val javafxVersion = "25.0.2"
     val javafxOS = when {
         osName.contains("win") -> "win"
         osName.contains("mac") -> "mac"
@@ -32,22 +39,31 @@ dependencies {
         if (javafxOS != null && javafxArch != null) {
             val notation = "org.openjfx:javafx-$module:$javafxVersion:${javafxOS}${javafxArch}"
 
-            compileOnly(notation)
-            testCompileOnly(notation)
-            testRuntimeOnly(notation)
+            implementation(notation)
         }
     }
 
     javafx("base")
     javafx("controls")
     javafx("graphics")
-    javafx("swing") // For Benchmark
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+application {
+    mainClass = "org.glavo.ruyi.imager.Main"
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+}
+
 tasks.test {
     useJUnitPlatform()
+    timeout.set(Duration.ofMinutes(10))
 }

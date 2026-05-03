@@ -1,0 +1,67 @@
+.app-root {
+    -fx-background-color: #f4f6f8;
+    -fx-font-family: "Segoe UI", "Inter", "Arial", sans-serif;
+}
+
+.app-header {
+    -fx-background-color: #17202a;
+    -fx-padding: 28 32 22 32;
+}
+
+.app-title {
+    -fx-font-size: 30px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #ffffff;
+}
+
+.app-subtitle {
+    -fx-font-size: 14px;
+    -fx-text-fill: #cbd5df;
+}
+
+.workflow {
+    -fx-padding: 30 32 30 32;
+}
+
+.step-row {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #d8dee6;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 18 20;
+}
+
+.step-badge {
+    -fx-min-width: 34px;
+    -fx-min-height: 34px;
+    -fx-alignment: center;
+    -fx-background-color: #1d6f8f;
+    -fx-background-radius: 17px;
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: 700;
+}
+
+.step-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #17202a;
+}
+
+.step-value {
+    -fx-font-size: 13px;
+    -fx-text-fill: #5a6673;
+}
+
+.step-button {
+    -fx-min-width: 138px;
+    -fx-padding: 9 14;
+}
+
+.app-footer {
+    -fx-padding: 0 32 22 32;
+}
+
+.footer-text {
+    -fx-padding: 14 0 0 0;
+    -fx-text-fill: #5a6673;
+}

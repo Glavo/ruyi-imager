@@ -9,6 +9,15 @@
 - 从 `external/ruyi` 移植 Ruyi repo 元数据、镜像包解析、下载、校验与官方 provision 策略语义；不嵌入 Starlark，不调用外部 `ruyi`。
 - 支持三平台架构；块设备写入走 Java + FFM 平台实现，`fastboot` 等特殊策略作为受控外部工具调用。
 
+### Progress
+
+- 2026-05-03：已将 Gradle 改为 Java 25 `application` 工程，加入 JavaFX `25.0.2`、Picocli、Jackson、Tomlj、JGit 依赖，并配置应用主类 `org.glavo.ruyi.imager.Main`。
+- 2026-05-03：已实现 GUI/CLI 共享入口；无参数或 `gui` 启动 JavaFX，其他参数进入 Picocli CLI。
+- 2026-05-03：已实现 CLI 命令骨架：`repo update`、`image list`、`image download`、`device list`、`flash`，包含 human/JSON 输出路径和 `--yes` 安全门。
+- 2026-05-03：已建立核心服务边界与模型：`AppServices`、`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FlashService` 及对应 record 模型；真实 Ruyi 下载和平台刷写后端仍为安全占位实现。
+- 2026-05-03：已实现程序化 JavaFX 主窗口和 CSS，提供 Board/Image/Target/Write 四步向导骨架；当前镜像目录和设备枚举仍返回空结果。
+- 2026-05-03：已验证 `./gradlew -g .gradle-user-home compileJava`、`./gradlew -g .gradle-user-home run --args='image list --json'` 和 `./gradlew -g .gradle-user-home test`；当前测试任务无测试源。
+
 ### Key Changes
 
 - Gradle 改为应用工程：Java toolchain 25，JavaFX `25.0.2`，`applicationDefaultJvmArgs += "--enable-native-access=ALL-UNNAMED"`；保留 JetBrains annotations 规则。
