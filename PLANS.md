@@ -21,6 +21,8 @@
 - 2026-05-03：已实现本地 Ruyi package catalog 扫描：从 `packages/` 或旧 `manifests/` 中读取 `provisionable` manifest，解析 strategy、partition map、distfiles、checksums、mirror URL，并生成 `ImageEntry`。
 - 2026-05-03：已新增 repo/config 与 image catalog 单元测试；Gradle `test` 的 `java.io.tmpdir` 固定到工作区 `build/tmp/test-tmp`，避免本机沙箱限制系统临时目录。
 - 2026-05-03：已验证 `./gradlew -g .gradle-user-home test`、`./gradlew -g .gradle-user-home run --args='image list --json'` 和 `git diff --check`。
+- 2026-05-03：已实现 Ruyi distfile 下载器：支持 HTTP/HTTPS 下载、临时 `.part` 文件、Range 断点续传、原子落盘、文件大小校验、SHA-256/SHA-512 校验、缓存命中复用和 `restrict = ["fetch"]` 拒绝自动下载。
+- 2026-05-03：`image download <atom>` 已接入真实 distfile 下载；单 distfile 返回文件路径，多 distfile 返回下载目录。已新增下载器单元测试覆盖正常下载和 Range 续传。
 
 ### Key Changes
 

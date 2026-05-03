@@ -39,13 +39,29 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// Repository store used to locate Ruyi metadata.
     private final RuyiRepositoryStore repositoryStore;
 
+    /// Downloader used for Ruyi distfiles.
+    private final RuyiDistfileDownloader downloader;
+
     /// Creates the catalog service.
     ///
     /// @param directories application directories.
     /// @param repositoryStore repository store.
     public RuyiImageCatalogService(AppDirectories directories, RuyiRepositoryStore repositoryStore) {
+        this(directories, repositoryStore, new RuyiDistfileDownloader());
+    }
+
+    /// Creates the catalog service.
+    ///
+    /// @param directories application directories.
+    /// @param repositoryStore repository store.
+    /// @param downloader distfile downloader.
+    public RuyiImageCatalogService(
+            AppDirectories directories,
+            RuyiRepositoryStore repositoryStore,
+            RuyiDistfileDownloader downloader) {
         this.directories = directories;
         this.repositoryStore = repositoryStore;
+        this.downloader = downloader;
     }
 
     /// Lists images from the local metadata cache.
@@ -84,10 +100,25 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// @throws IOException when the download directory cannot be prepared.
     @Override
     public Path downloadImage(ImageEntry image, ProgressReporter reporter) throws IOException {
-        Path downloadDirectory = directories.cacheDirectory().resolve("downloads");
+        if (image.distfiles().isEmpty()) {
+            throw new IOException("Image has no distfiles: " + image.atom());
+        }
+
+        Path downloadDirectory = directories.cacheDirectory()
+                .resolve("downloads")
+                .resolve(image.repoId())
+                .resolve(image.category())
+                .resolve(image.name())
+                .resolve(image.version());
         Files.createDirectories(downloadDirectory);
-        reporter.report(ProgressEvent.indeterminate("download", "Ruyi image download backend is not implemented yet."));
-        throw new UnsupportedOperationException("Ruyi image download backend is not implemented yet.");
+
+        Path result = downloadDirectory;
+        for (RuyiDistfile distfile : image.distfiles()) {
+            result = downloader.download(distfile, downloadDirectory, reporter);
+        }
+
+        reporter.report(ProgressEvent.indeterminate("download", "Downloaded " + image.atom() + "."));
+        return image.distfiles().size() == 1 ? result : downloadDirectory;
     }
 
     /// Reads all provisionable image manifests from one repository.
