@@ -25,6 +25,8 @@
 - 2026-05-03：`image download <atom>` 已接入真实 distfile 下载；单 distfile 返回文件路径，多 distfile 返回下载目录。已新增下载器单元测试覆盖正常下载和 Range 续传。
 - 2026-05-03：已实现 Ruyi image atom 解析与版本选择：支持精确 `category/name(version)`、`name`、`category/name`、`name:` 前缀、`slug:` 前缀，以及逗号分隔 SemVer 比较表达式；默认选择最新非 prerelease 版本。
 - 2026-05-03：`ImageEntry` 已补充 manifest slug；已新增 atom/版本选择测试，覆盖最新稳定版本、精确版本、范围表达式、短 name 和 slug 查询。
+- 2026-05-03：已实现下载后 image artifact 物化：`downloadImage` 现在下载 distfile 后写入 `cache/artifacts/<repo>/<category>/<name>/<version>/`，并校验 `provisionable.partition_map` 指向的文件存在；单分区返回具体 artifact 路径，多分区返回 artifact 目录。
+- 2026-05-03：已实现 raw 复制、bare gzip 解压和 zip 安全解包；`tar*`、`xz`、`zst`、`bz2`、`lz4`、`deb` 暂时显式报 unsupported。已新增物化测试覆盖 raw、gzip、zip 和 unsupported archive。
 
 ### Key Changes
 

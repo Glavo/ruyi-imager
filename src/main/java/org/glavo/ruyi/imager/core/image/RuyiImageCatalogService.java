@@ -42,6 +42,9 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// Downloader used for Ruyi distfiles.
     private final RuyiDistfileDownloader downloader;
 
+    /// Materializer used to prepare flashable artifacts.
+    private final RuyiImageMaterializer materializer;
+
     /// Creates the catalog service.
     ///
     /// @param directories application directories.
@@ -59,9 +62,24 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             AppDirectories directories,
             RuyiRepositoryStore repositoryStore,
             RuyiDistfileDownloader downloader) {
+        this(directories, repositoryStore, downloader, new RuyiImageMaterializer());
+    }
+
+    /// Creates the catalog service.
+    ///
+    /// @param directories application directories.
+    /// @param repositoryStore repository store.
+    /// @param downloader distfile downloader.
+    /// @param materializer image materializer.
+    public RuyiImageCatalogService(
+            AppDirectories directories,
+            RuyiRepositoryStore repositoryStore,
+            RuyiDistfileDownloader downloader,
+            RuyiImageMaterializer materializer) {
         this.directories = directories;
         this.repositoryStore = repositoryStore;
         this.downloader = downloader;
+        this.materializer = materializer;
     }
 
     /// Lists images from the local metadata cache.
@@ -112,13 +130,20 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 .resolve(image.version());
         Files.createDirectories(downloadDirectory);
 
-        Path result = downloadDirectory;
+        ArrayList<Path> downloadedDistfiles = new ArrayList<>();
         for (RuyiDistfile distfile : image.distfiles()) {
-            result = downloader.download(distfile, downloadDirectory, reporter);
+            downloadedDistfiles.add(downloader.download(distfile, downloadDirectory, reporter));
         }
 
+        Path artifactDirectory = directories.cacheDirectory()
+                .resolve("artifacts")
+                .resolve(image.repoId())
+                .resolve(image.category())
+                .resolve(image.name())
+                .resolve(image.version());
+        Path result = materializer.materialize(image, List.copyOf(downloadedDistfiles), artifactDirectory, reporter);
         reporter.report(ProgressEvent.indeterminate("download", "Downloaded " + image.atom() + "."));
-        return image.distfiles().size() == 1 ? result : downloadDirectory;
+        return result;
     }
 
     /// Reads all provisionable image manifests from one repository.
