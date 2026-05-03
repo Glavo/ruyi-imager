@@ -32,6 +32,8 @@
 - 2026-05-03：已实现 Windows 只读块设备枚举后端：默认服务图按平台选择 Windows CIM 枚举或占位服务，`device list` 可输出真实 `\\.\PHYSICALDRIVE*` 目标、容量、型号、bus type、removable/system/read-only 状态；已新增 PowerShell JSON 解析测试。
 - 2026-05-03：已修正 CLI JSON 路径输出：`image download --json` 与 `device list --json` 使用明确字符串路径，避免 Jackson 将 `Path` 序列化为 `file:` URI。
 - 2026-05-03：块设备模型已新增 `mounted` 安全标志；Windows 枚举会根据磁盘关联的 logical disk 判断挂载状态，CLI JSON 输出该字段，`LocalFlashService` 默认拒绝写入已挂载目标并新增对应测试。
+- 2026-05-03：已新增 CLI 集成测试：覆盖 `device list --json` 的稳定字段、`flash --local-image` 的 `--yes` 安全门，以及通过 CLI 将本地镜像写入模拟目标文件。
+- 2026-05-03：已修正 CLI NDJSON writer：不再让 Jackson 直接写入并关闭 `System.out`，确保长任务 progress 后还能输出最终 complete/error 事件。
 
 ### Key Changes
 

@@ -540,8 +540,7 @@ public final class CliApplication implements Runnable {
         /// @param value value to write.
         private static void print(Object value) {
             try {
-                MAPPER.writeValue(System.out, value);
-                System.out.println();
+                System.out.println(MAPPER.writeValueAsString(value));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
