@@ -6,6 +6,9 @@ package org.glavo.ruyi.imager;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
+import io.github.palexdev.materialfx.theming.JavaFXThemes;
+import io.github.palexdev.materialfx.theming.MaterialFXStylesheets;
+import io.github.palexdev.materialfx.theming.UserAgentBuilder;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.gui.MainWindow;
 import org.glavo.ruyi.imager.i18n.Messages;
@@ -31,6 +34,8 @@ public final class RuyiImager extends Application {
     /// @param primaryStage primary application stage.
     @Override
     public void start(Stage primaryStage) {
+        installMaterialTheme();
+
         AppServices currentServices = services;
         if (currentServices == null) {
             currentServices = AppServices.createDefault();
@@ -48,5 +53,16 @@ public final class RuyiImager extends Application {
         primaryStage.setMinHeight(560);
         primaryStage.setScene(scene);
         primaryStage.show();
+    }
+
+    /// Installs the MaterialFX theme before the scene graph is rendered.
+    private static void installMaterialTheme() {
+        UserAgentBuilder.builder()
+                .themes(JavaFXThemes.MODENA)
+                .themes(MaterialFXStylesheets.forAssemble(true))
+                .setDeploy(true)
+                .setResolveAssets(true)
+                .build()
+                .setGlobal();
     }
 }

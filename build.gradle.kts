@@ -17,6 +17,7 @@ dependencies {
 
     implementation("com.fasterxml.jackson.core:jackson-databind:2.21.2")
     implementation("info.picocli:picocli:4.7.7")
+    implementation("io.github.palexdev:materialfx:21.18.0-alpha")
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
     implementation("org.tomlj:tomlj:1.1.1")
 

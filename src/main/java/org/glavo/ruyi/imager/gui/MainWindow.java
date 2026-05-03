@@ -12,17 +12,21 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
-import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.Separator;
-import javafx.stage.FileChooser;
-import javafx.stage.Window;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
+import javafx.stage.Window;
+import io.github.palexdev.materialfx.controls.MFXButton;
+import io.github.palexdev.materialfx.controls.MFXProgressBar;
+import io.github.palexdev.materialfx.controls.MFXScrollPane;
+import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListCell;
+import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListView;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
@@ -60,7 +64,7 @@ public final class MainWindow {
     private final Label statusLabel = new Label();
 
     /// Progress bar shown for background work.
-    private final ProgressBar progressBar = new ProgressBar(0);
+    private final MFXProgressBar progressBar = new MFXProgressBar(0);
 
     /// Manufacturer selection summary.
     private final Label manufacturerValue = new Label();
@@ -131,9 +135,20 @@ public final class MainWindow {
         BorderPane pane = new BorderPane();
         pane.getStyleClass().add("app-root");
         pane.setTop(createHeader());
-        pane.setCenter(createWorkflow());
+        pane.setCenter(createWorkflowScrollPane());
         pane.setBottom(createFooter());
         return pane;
+    }
+
+    /// Creates the scrollable workflow surface.
+    ///
+    /// @return workflow scroll pane.
+    private MFXScrollPane createWorkflowScrollPane() {
+        MFXScrollPane scrollPane = new MFXScrollPane(createWorkflow());
+        scrollPane.setFitToWidth(true);
+        scrollPane.setFitToHeight(true);
+        scrollPane.getStyleClass().add("workflow-scroll-pane");
+        return scrollPane;
     }
 
     /// Creates the window header.
@@ -280,10 +295,23 @@ public final class MainWindow {
     ///
     /// @param key message key.
     /// @return localized button.
-    private static Button localizedButton(String key) {
-        Button button = new Button();
+    private static MFXButton localizedButton(String key) {
+        MFXButton button = new MFXButton();
+        button.setButtonType(io.github.palexdev.materialfx.enums.ButtonType.RAISED);
         button.textProperty().bind(Messages.binding(key));
         return button;
+    }
+
+    /// Creates a MaterialFX-styled selection list.
+    ///
+    /// @param <T> item type.
+    /// @return selection list view.
+    private static <T> MFXLegacyListView<T> selectionListView() {
+        MFXLegacyListView<T> listView = new MFXLegacyListView<>();
+        listView.getStyleClass().add("selection-list-view");
+        listView.setPrefSize(640, 360);
+        listView.setMaxHeight(420);
+        return listView;
     }
 
     /// Starts repository metadata update.
@@ -354,9 +382,9 @@ public final class MainWindow {
             return;
         }
 
-        ListView<ManufacturerOption> listView = new ListView<>();
+        ListView<ManufacturerOption> listView = selectionListView();
         listView.getItems().setAll(manufacturers);
-        listView.setCellFactory(_ -> new ListCell<>() {
+        listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one manufacturer list cell.
             ///
             /// @param item manufacturer option.
@@ -417,9 +445,9 @@ public final class MainWindow {
             return;
         }
 
-        ListView<BoardOption> listView = new ListView<>();
+        ListView<BoardOption> listView = selectionListView();
         listView.getItems().setAll(boards);
-        listView.setCellFactory(_ -> new ListCell<>() {
+        listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one board list cell.
             ///
             /// @param item board option.
@@ -479,9 +507,9 @@ public final class MainWindow {
             return;
         }
 
-        ListView<ImageEntry> listView = new ListView<>();
+        ListView<ImageEntry> listView = selectionListView();
         listView.getItems().setAll(images);
-        listView.setCellFactory(_ -> new ListCell<>() {
+        listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one image list cell.
             ///
             /// @param item image item.
@@ -559,9 +587,9 @@ public final class MainWindow {
             return;
         }
 
-        ListView<BlockDevice> listView = new ListView<>();
+        ListView<BlockDevice> listView = selectionListView();
         listView.getItems().setAll(devices);
-        listView.setCellFactory(_ -> new ListCell<>() {
+        listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one target list cell.
             ///
             /// @param item target device.

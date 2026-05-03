@@ -1,26 +1,36 @@
 .app-root {
-    -fx-background-color: #f4f6f8;
+    -fx-background-color: #f6f8fb;
     -fx-font-family: "Segoe UI", "Inter", "Arial", sans-serif;
 }
 
 .app-header {
-    -fx-background-color: #17202a;
-    -fx-padding: 28 32 22 32;
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent transparent #dfe6ee transparent;
+    -fx-padding: 26 32 20 32;
 }
 
 .app-title {
     -fx-font-size: 30px;
     -fx-font-weight: 700;
-    -fx-text-fill: #ffffff;
+    -fx-text-fill: #18212b;
 }
 
 .app-subtitle {
     -fx-font-size: 14px;
-    -fx-text-fill: #cbd5df;
+    -fx-text-fill: #657282;
 }
 
 .workflow {
     -fx-padding: 30 32 30 32;
+}
+
+.workflow-scroll-pane {
+    -fx-background-color: transparent;
+    -fx-background: transparent;
+}
+
+.workflow-scroll-pane > .viewport {
+    -fx-background-color: transparent;
 }
 
 .source-choices {
@@ -38,7 +48,7 @@
 .choice-title {
     -fx-font-size: 15px;
     -fx-font-weight: 700;
-    -fx-text-fill: #17202a;
+    -fx-text-fill: #18212b;
 }
 
 .choice-separator {
@@ -50,10 +60,11 @@
 
 .independent-option-row {
     -fx-background-color: #ffffff;
-    -fx-border-color: #c7d4df;
+    -fx-border-color: #bed7de;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
     -fx-padding: 16 20;
+    -fx-effect: dropshadow(gaussian, rgba(34, 49, 63, 0.08), 18, 0.16, 0, 4);
 }
 
 .option-value {
@@ -63,17 +74,18 @@
 
 .step-row {
     -fx-background-color: #ffffff;
-    -fx-border-color: #d8dee6;
+    -fx-border-color: #dce6ef;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
     -fx-padding: 18 20;
+    -fx-effect: dropshadow(gaussian, rgba(34, 49, 63, 0.08), 18, 0.16, 0, 4);
 }
 
 .step-badge {
     -fx-min-width: 34px;
     -fx-min-height: 34px;
     -fx-alignment: center;
-    -fx-background-color: #1d6f8f;
+    -fx-background-color: #157a8c;
     -fx-background-radius: 17px;
     -fx-text-fill: #ffffff;
     -fx-font-weight: 700;
@@ -82,7 +94,7 @@
 .step-title {
     -fx-font-size: 16px;
     -fx-font-weight: 700;
-    -fx-text-fill: #17202a;
+    -fx-text-fill: #18212b;
 }
 
 .step-value {
@@ -93,6 +105,12 @@
 .step-button {
     -fx-min-width: 138px;
     -fx-padding: 9 14;
+    -fx-background-color: #eef7f9;
+    -fx-text-fill: #126879;
+    -fx-font-weight: 700;
+    -fx-background-radius: 8;
+    -fx-border-color: #bddde4;
+    -fx-border-radius: 8;
 }
 
 .step-actions {
@@ -107,15 +125,32 @@
 .primary-action-button {
     -fx-min-width: 150px;
     -fx-padding: 10 18;
+    -fx-background-color: #d33f49;
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: 700;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
 }
 
 .secondary-action-button {
     -fx-min-width: 150px;
     -fx-padding: 9 14;
+    -fx-background-color: #ffffff;
+    -fx-text-fill: #126879;
+    -fx-font-weight: 700;
+    -fx-background-radius: 8;
+    -fx-border-color: #bddde4;
+    -fx-border-radius: 8;
 }
 
 .header-button {
     -fx-padding: 8 12;
+    -fx-background-color: #f2f5f8;
+    -fx-text-fill: #394756;
+    -fx-font-weight: 700;
+    -fx-background-radius: 8;
+    -fx-border-color: #d6e0ea;
+    -fx-border-radius: 8;
 }
 
 .app-footer {
@@ -125,4 +160,22 @@
 .footer-text {
     -fx-padding: 14 0 0 0;
     -fx-text-fill: #5a6673;
+}
+
+.selection-list-view {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 8;
+    -fx-border-color: #dce6ef;
+    -fx-border-radius: 8;
+    -fx-padding: 4;
+}
+
+.selection-list-view .list-cell {
+    -fx-background-radius: 6;
+    -fx-padding: 10 12;
+}
+
+.selection-list-view .list-cell:selected {
+    -fx-background-color: #e3f3f6;
+    -fx-text-fill: #126879;
 }
