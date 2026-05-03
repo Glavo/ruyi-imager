@@ -419,6 +419,7 @@ public final class CliApplication implements Runnable {
             map.put("sizeBytes", device.sizeBytes());
             map.put("removable", device.removable());
             map.put("system", device.system());
+            map.put("mounted", device.mounted());
             map.put("readOnly", device.readOnly());
             map.put("model", device.model());
             map.put("busType", device.busType());

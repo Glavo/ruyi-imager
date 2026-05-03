@@ -79,6 +79,9 @@ public final class LocalFlashService implements FlashService {
         if (target.system()) {
             return "Refusing to write to a system disk.";
         }
+        if (target.mounted()) {
+            return "Refusing to write to a mounted device.";
+        }
         if (target.readOnly()) {
             return "Refusing to write to a read-only device.";
         }

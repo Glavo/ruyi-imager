@@ -68,6 +68,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
                 $busType = [string]$disk.InterfaceType
                 $mediaType = [string]$disk.MediaType
                 $removable = ($busType -ieq 'USB') -or ($mediaType -match 'Removable')
+                $mounted = $letters.Count -gt 0
                 $system = $false
                 foreach ($letter in $letters) {
                     if ($systemDrive -and ($letter -ieq $systemDrive)) {
@@ -84,6 +85,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
                     sizeBytes = [string]$disk.Size
                     removable = [bool]$removable
                     system = [bool]$system
+                    mounted = [bool]$mounted
                     readOnly = [bool]$readOnly
                 }
             }
@@ -182,6 +184,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         @Nullable String busType = nullableTextValue(node, "busType");
         boolean removable = booleanValue(node, "removable", false);
         boolean system = booleanValue(node, "system", false);
+        boolean mounted = booleanValue(node, "mounted", false);
         boolean readOnly = booleanValue(node, "readOnly", false);
 
         return new BlockDevice(
@@ -191,6 +194,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
                 sizeBytes,
                 removable,
                 system,
+                mounted,
                 readOnly,
                 model,
                 busType);

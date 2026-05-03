@@ -33,6 +33,7 @@ public final class WindowsBlockDeviceServiceTest {
                     "sizeBytes": "512110190592",
                     "removable": false,
                     "system": true,
+                    "mounted": true,
                     "readOnly": false
                   },
                   {
@@ -44,6 +45,7 @@ public final class WindowsBlockDeviceServiceTest {
                     "sizeBytes": "31914983424",
                     "removable": true,
                     "system": false,
+                    "mounted": false,
                     "readOnly": false
                   }
                 ]
@@ -58,6 +60,7 @@ public final class WindowsBlockDeviceServiceTest {
         assertTrue(systemDisk.path().toString().startsWith("\\\\.\\PHYSICALDRIVE0"));
         assertEquals(512110190592L, systemDisk.sizeBytes());
         assertTrue(systemDisk.system());
+        assertTrue(systemDisk.mounted());
         assertFalse(systemDisk.removable());
         assertEquals("Internal NVMe", systemDisk.model());
         assertEquals("NVMe", systemDisk.busType());
@@ -67,6 +70,7 @@ public final class WindowsBlockDeviceServiceTest {
         assertTrue(removableDisk.path().toString().startsWith("\\\\.\\PHYSICALDRIVE2"));
         assertTrue(removableDisk.removable());
         assertFalse(removableDisk.system());
+        assertFalse(removableDisk.mounted());
         assertTrue(removableDisk.displayName().contains("USB Reader"));
         assertTrue(removableDisk.displayName().contains("USB"));
     }
@@ -82,6 +86,7 @@ public final class WindowsBlockDeviceServiceTest {
                   "sizeBytes": 0,
                   "removable": false,
                   "system": false,
+                  "mounted": false,
                   "readOnly": true
                 }
                 """;
@@ -93,6 +98,7 @@ public final class WindowsBlockDeviceServiceTest {
         assertEquals("windows-disk-3", device.id());
         assertTrue(device.path().toString().startsWith("\\\\.\\PHYSICALDRIVE3"));
         assertEquals("Disk 3", device.displayName());
+        assertFalse(device.mounted());
         assertTrue(device.readOnly());
         assertNull(device.model());
         assertNull(device.busType());

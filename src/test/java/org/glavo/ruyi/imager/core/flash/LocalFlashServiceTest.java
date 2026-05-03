@@ -109,6 +109,24 @@ public final class LocalFlashServiceTest {
         assertFalse(result.success());
     }
 
+    /// Refuses to write to a target with mounted volumes.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesMountedTarget(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1});
+        Files.write(target, new byte[8]);
+
+        OperationResult result = new LocalFlashService(new EmptyImageCatalogService()).flash(
+                new FlashRequest(null, image, target(target, 8, false, true, false), false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+    }
+
     /// Refuses an image that is larger than the target.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -147,7 +165,24 @@ public final class LocalFlashServiceTest {
     /// @param readOnly whether target is read-only.
     /// @return target device.
     private static BlockDevice target(Path path, long sizeBytes, boolean system, boolean readOnly) {
-        return new BlockDevice("test", "Test Target", path, sizeBytes, true, system, readOnly, "Test", "file");
+        return target(path, sizeBytes, system, false, readOnly);
+    }
+
+    /// Creates a test target device.
+    ///
+    /// @param path target path.
+    /// @param sizeBytes target size.
+    /// @param system whether target is a system disk.
+    /// @param mounted whether target has mounted volumes.
+    /// @param readOnly whether target is read-only.
+    /// @return target device.
+    private static BlockDevice target(
+            Path path,
+            long sizeBytes,
+            boolean system,
+            boolean mounted,
+            boolean readOnly) {
+        return new BlockDevice("test", "Test Target", path, sizeBytes, true, system, mounted, readOnly, "Test", "file");
     }
 
     /// Creates a test image entry.

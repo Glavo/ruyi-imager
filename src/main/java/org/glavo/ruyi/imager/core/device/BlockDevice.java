@@ -16,6 +16,7 @@ import java.nio.file.Path;
 /// @param sizeBytes total device size in bytes.
 /// @param removable whether the device appears removable.
 /// @param system whether the device appears to be a system disk.
+/// @param mounted whether the device appears to have mounted volumes.
 /// @param readOnly whether the device is read-only.
 /// @param model hardware model when available.
 /// @param busType bus type when available.
@@ -27,6 +28,7 @@ public record BlockDevice(
         long sizeBytes,
         boolean removable,
         boolean system,
+        boolean mounted,
         boolean readOnly,
         @Nullable String model,
         @Nullable String busType) {
