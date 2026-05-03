@@ -32,7 +32,7 @@
 - CLI JSON/NDJSON 输出已修正为稳定字符串路径和完整 progress/final event 输出。
 - JavaFX GUI 已实现程序化主窗口和 CSS；目录镜像选择流程已改为类似 Armbian Imager 的 Manufacturer -> Board -> Operating System -> Storage Device 四步级联，并显示 storage 安全阻断状态。
 - GUI 已支持后台触发 repo metadata update；本地镜像选择已从目录四步流程中拆出，与 Manufacturer -> Board -> Operating System 目录选择并列显示为二选一入口，并在本地镜像模式下跳过目录选择步骤。
-- i18n 基础设施已接入 `ResourceBundle`，当前提供英文和简体中文资源；GUI 文本、CLI 运行时错误、CLI root help、核心下载/仓库/刷写进度与结果消息已走同一套消息资源，可通过系统 locale 或 `ruyi.imager.locale` 覆盖。
+- i18n 基础设施已接入 `ResourceBundle`，当前提供英文和简体中文资源；GUI 文本、CLI 运行时错误、CLI root help、核心下载/仓库/刷写进度与结果消息已走同一套消息资源，可通过系统 locale 或 `ruyi.imager.locale` 覆盖。`Messages` 已暴露 locale property 和 `StringBinding` helper，GUI 固定文本可随 locale 切换更新。
 
 ### Remaining Work
 

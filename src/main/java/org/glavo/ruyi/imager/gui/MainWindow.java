@@ -57,46 +57,46 @@ public final class MainWindow {
     private WizardState state = new WizardState(null, null, null, null, null);
 
     /// Status text shown in the top bar.
-    private final Label statusLabel = new Label(Messages.get("gui.status.ready"));
+    private final Label statusLabel = new Label();
 
     /// Progress bar shown for background work.
     private final ProgressBar progressBar = new ProgressBar(0);
 
     /// Manufacturer selection summary.
-    private final Label manufacturerValue = new Label(Messages.get("gui.value.manufacturer.none"));
+    private final Label manufacturerValue = new Label();
 
     /// Board selection summary.
-    private final Label boardValue = new Label(Messages.get("gui.value.board.none"));
+    private final Label boardValue = new Label();
 
     /// Operating system selection summary.
-    private final Label osValue = new Label(Messages.get("gui.value.os.none"));
+    private final Label osValue = new Label();
 
     /// Local image selection summary.
-    private final Label localImageValue = new Label(Messages.get("gui.value.local.none"));
+    private final Label localImageValue = new Label();
 
     /// Storage selection summary.
-    private final Label storageValue = new Label(Messages.get("gui.value.storage.none"));
+    private final Label storageValue = new Label();
 
     /// Manufacturer selection button.
-    private final Button manufacturerButton = new Button(Messages.get("gui.button.chooseManufacturer"));
+    private final Button manufacturerButton = localizedButton("gui.button.chooseManufacturer");
 
     /// Board selection button.
-    private final Button boardButton = new Button(Messages.get("gui.button.chooseBoard"));
+    private final Button boardButton = localizedButton("gui.button.chooseBoard");
 
     /// Operating system selection button.
-    private final Button osButton = new Button(Messages.get("gui.button.chooseOs"));
+    private final Button osButton = localizedButton("gui.button.chooseOs");
 
     /// Local image selection button.
-    private final Button localImageButton = new Button(Messages.get("gui.button.useLocalImage"));
+    private final Button localImageButton = localizedButton("gui.button.useLocalImage");
 
     /// Storage selection button.
-    private final Button storageButton = new Button(Messages.get("gui.button.chooseStorage"));
+    private final Button storageButton = localizedButton("gui.button.chooseStorage");
 
     /// Repository metadata update button.
-    private final Button repoUpdateButton = new Button(Messages.get("gui.button.updateMetadata"));
+    private final Button repoUpdateButton = localizedButton("gui.button.updateMetadata");
 
     /// Flash action button.
-    private final Button flashButton = new Button(Messages.get("gui.button.flash"));
+    private final Button flashButton = localizedButton("gui.button.flash");
 
     /// Whether a background operation is active.
     private boolean busy;
@@ -107,6 +107,13 @@ public final class MainWindow {
     public MainWindow(AppServices services) {
         this.services = services;
         this.root = createRoot();
+        Messages.localeProperty().addListener((_, _, _) -> {
+            if (!busy && !statusLabel.textProperty().isBound()) {
+                statusLabel.setText(Messages.get("gui.status.ready"));
+            }
+            refreshState();
+        });
+        statusLabel.setText(Messages.get("gui.status.ready"));
         refreshState();
     }
 
@@ -133,10 +140,10 @@ public final class MainWindow {
     ///
     /// @return header node.
     private VBox createHeader() {
-        Label title = new Label(Messages.get("app.title"));
+        Label title = localizedLabel("app.title");
         title.getStyleClass().add("app-title");
 
-        Label subtitle = new Label(Messages.get("gui.header.subtitle"));
+        Label subtitle = localizedLabel("gui.header.subtitle");
         subtitle.getStyleClass().add("app-subtitle");
 
         repoUpdateButton.setOnAction(_ -> updateRepository());
@@ -178,25 +185,25 @@ public final class MainWindow {
         HBox writeActions = new HBox(flashButton);
         writeActions.getStyleClass().add("write-actions");
 
-        Label catalogTitle = new Label(Messages.get("gui.choice.catalog"));
+        Label catalogTitle = localizedLabel("gui.choice.catalog");
         catalogTitle.getStyleClass().add("choice-title");
 
         VBox catalogFlow = new VBox(12,
                 catalogTitle,
-                createStep("1", Messages.get("gui.step.manufacturer"), manufacturerValue, manufacturerButton),
-                createStep("2", Messages.get("gui.step.board"), boardValue, boardButton),
-                createStep("3", Messages.get("gui.step.os"), osValue, osButton));
+                createStep("1", "gui.step.manufacturer", manufacturerValue, manufacturerButton),
+                createStep("2", "gui.step.board", boardValue, boardButton),
+                createStep("3", "gui.step.os", osValue, osButton));
         catalogFlow.getStyleClass().add("catalog-choice");
         HBox.setHgrow(catalogFlow, Priority.ALWAYS);
 
-        Label localTitle = new Label(Messages.get("gui.choice.local"));
+        Label localTitle = localizedLabel("gui.choice.local");
         localTitle.getStyleClass().add("choice-title");
 
         VBox localFlow = new VBox(12, localTitle, createLocalImageOption());
         localFlow.getStyleClass().add("local-choice");
         HBox.setHgrow(localFlow, Priority.ALWAYS);
 
-        Label separator = new Label(Messages.get("gui.choice.or"));
+        Label separator = localizedLabel("gui.choice.or");
         separator.getStyleClass().add("choice-separator");
 
         HBox sourceChoices = new HBox(16, catalogFlow, separator, localFlow);
@@ -205,7 +212,7 @@ public final class MainWindow {
 
         VBox workflow = new VBox(14,
                 sourceChoices,
-                createStep("4", Messages.get("gui.step.storage"), storageValue, storageButton),
+                createStep("4", "gui.step.storage", storageValue, storageButton),
                 writeActions);
         workflow.getStyleClass().add("workflow");
         return workflow;
@@ -215,7 +222,7 @@ public final class MainWindow {
     ///
     /// @return custom image option node.
     private HBox createLocalImageOption() {
-        Label description = new Label(Messages.get("gui.local.description"));
+        Label description = localizedLabel("gui.local.description");
         description.getStyleClass().add("option-value");
         description.setWrapText(true);
 
@@ -235,15 +242,15 @@ public final class MainWindow {
     /// Creates one workflow row.
     ///
     /// @param number step number.
-    /// @param title step title.
+    /// @param titleKey step title key.
     /// @param value current step value.
     /// @param action action button.
     /// @return workflow row.
-    private HBox createStep(String number, String title, Label value, Node action) {
+    private HBox createStep(String number, String titleKey, Label value, Node action) {
         Label badge = new Label(number);
         badge.getStyleClass().add("step-badge");
 
-        Label titleLabel = new Label(title);
+        Label titleLabel = localizedLabel(titleKey);
         titleLabel.getStyleClass().add("step-title");
 
         value.getStyleClass().add("step-value");
@@ -257,6 +264,26 @@ public final class MainWindow {
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("step-row");
         return row;
+    }
+
+    /// Creates a label bound to a localized message.
+    ///
+    /// @param key message key.
+    /// @return localized label.
+    private static Label localizedLabel(String key) {
+        Label label = new Label();
+        label.textProperty().bind(Messages.binding(key));
+        return label;
+    }
+
+    /// Creates a button bound to a localized message.
+    ///
+    /// @param key message key.
+    /// @return localized button.
+    private static Button localizedButton(String key) {
+        Button button = new Button();
+        button.textProperty().bind(Messages.binding(key));
+        return button;
     }
 
     /// Starts repository metadata update.
@@ -294,7 +321,7 @@ public final class MainWindow {
     ///
     /// @return footer node.
     private VBox createFooter() {
-        Label safety = new Label(Messages.get("gui.footer.safety"));
+        Label safety = localizedLabel("gui.footer.safety");
         safety.getStyleClass().add("footer-text");
         VBox footer = new VBox(new Separator(), safety);
         footer.getStyleClass().add("app-footer");

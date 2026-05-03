@@ -43,7 +43,7 @@ public final class RuyiImager extends Application {
             scene.getStylesheets().add(stylesheet.toExternalForm());
         }
 
-        primaryStage.setTitle(Messages.get("app.title"));
+        primaryStage.titleProperty().bind(Messages.binding("app.title"));
         primaryStage.setMinWidth(840);
         primaryStage.setMinHeight(560);
         primaryStage.setScene(scene);

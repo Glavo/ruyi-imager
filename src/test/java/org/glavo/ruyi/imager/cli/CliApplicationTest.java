@@ -29,6 +29,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -204,17 +205,12 @@ public final class CliApplicationTest {
     /// @param args command arguments.
     /// @return captured result.
     private static CliResult runCliWithLocale(String locale, AppServices services, String @Unmodifiable ... args) {
-        boolean hadOriginalLocale = System.getProperties().containsKey(Messages.LOCALE_PROPERTY);
-        String originalLocale = System.getProperty(Messages.LOCALE_PROPERTY, "");
-        System.setProperty(Messages.LOCALE_PROPERTY, locale);
+        Locale originalLocale = Messages.locale();
+        Messages.setLocale(locale);
         try {
             return runCliWithCurrentLocale(services, args);
         } finally {
-            if (hadOriginalLocale) {
-                System.setProperty(Messages.LOCALE_PROPERTY, originalLocale);
-            } else {
-                System.clearProperty(Messages.LOCALE_PROPERTY);
-            }
+            Messages.setLocale(originalLocale);
         }
     }
 
@@ -251,17 +247,12 @@ public final class CliApplicationTest {
     /// @param key message key.
     /// @return localized message.
     private static String messageForLocale(String locale, String key) {
-        boolean hadOriginalLocale = System.getProperties().containsKey(Messages.LOCALE_PROPERTY);
-        String originalLocale = System.getProperty(Messages.LOCALE_PROPERTY, "");
-        System.setProperty(Messages.LOCALE_PROPERTY, locale);
+        Locale originalLocale = Messages.locale();
+        Messages.setLocale(locale);
         try {
             return Messages.get(key);
         } finally {
-            if (hadOriginalLocale) {
-                System.setProperty(Messages.LOCALE_PROPERTY, originalLocale);
-            } else {
-                System.clearProperty(Messages.LOCALE_PROPERTY);
-            }
+            Messages.setLocale(originalLocale);
         }
     }
 
