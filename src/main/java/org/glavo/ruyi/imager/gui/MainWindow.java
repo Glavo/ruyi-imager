@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.gui;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -15,9 +16,12 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.Separator;
+import javafx.stage.FileChooser;
+import javafx.stage.Window;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
@@ -29,6 +33,9 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -46,7 +53,7 @@ public final class MainWindow {
     private final BorderPane root;
 
     /// Current user selections.
-    private WizardState state = new WizardState(null, null, null);
+    private WizardState state = new WizardState(null, null, null, null);
 
     /// Status text shown in the top bar.
     private final Label statusLabel = new Label("Ready");
@@ -69,8 +76,14 @@ public final class MainWindow {
     /// Image selection button.
     private final Button imageButton = new Button("Choose Image");
 
+    /// Local image selection button.
+    private final Button localImageButton = new Button("Choose Local Image");
+
     /// Target selection button.
     private final Button targetButton = new Button("Choose Target");
+
+    /// Repository metadata update button.
+    private final Button repoUpdateButton = new Button("Update Metadata");
 
     /// Flash action button.
     private final Button flashButton = new Button("Flash");
@@ -116,7 +129,13 @@ public final class MainWindow {
         Label subtitle = new Label("Select a board image, choose a target device, then flash safely.");
         subtitle.getStyleClass().add("app-subtitle");
 
-        HBox status = new HBox(12, statusLabel, progressBar);
+        repoUpdateButton.setOnAction(_ -> updateRepository());
+        repoUpdateButton.getStyleClass().add("header-button");
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox status = new HBox(12, statusLabel, progressBar, spacer, repoUpdateButton);
         status.setAlignment(Pos.CENTER_LEFT);
         progressBar.setPrefWidth(180);
         progressBar.setVisible(false);
@@ -134,13 +153,21 @@ public final class MainWindow {
 
         imageButton.setOnAction(_ -> chooseImage());
 
+        localImageButton.setOnAction(_ -> chooseLocalImage());
+
         targetButton.setOnAction(_ -> chooseTarget());
 
         flashButton.setOnAction(_ -> flash());
 
+        imageButton.getStyleClass().add("step-button");
+        localImageButton.getStyleClass().add("step-button");
+
+        HBox imageActions = new HBox(8, imageButton, localImageButton);
+        imageActions.getStyleClass().add("step-actions");
+
         VBox workflow = new VBox(14,
                 createStep("1", "Board", boardValue, boardButton),
-                createStep("2", "Image", imageValue, imageButton),
+                createStep("2", "Image", imageValue, imageActions),
                 createStep("3", "Target", targetValue, targetButton),
                 createStep("4", "Write", new Label("Review selections before writing"), flashButton));
         workflow.getStyleClass().add("workflow");
@@ -154,7 +181,7 @@ public final class MainWindow {
     /// @param value current step value.
     /// @param action action button.
     /// @return workflow row.
-    private HBox createStep(String number, String title, Label value, Button action) {
+    private HBox createStep(String number, String title, Label value, Node action) {
         Label badge = new Label(number);
         badge.getStyleClass().add("step-badge");
 
@@ -165,11 +192,42 @@ public final class MainWindow {
         VBox text = new VBox(4, titleLabel, value);
         HBox.setHgrow(text, Priority.ALWAYS);
 
-        action.getStyleClass().add("step-button");
+        if (action instanceof Button button) {
+            button.getStyleClass().add("step-button");
+        }
         HBox row = new HBox(16, badge, text, action);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("step-row");
         return row;
+    }
+
+    /// Starts repository metadata update.
+    private void updateRepository() {
+        Task<OperationResult> task = new Task<>() {
+            /// Updates local repository metadata outside the JavaFX application thread.
+            ///
+            /// @return update result.
+            @Override
+            protected OperationResult call() throws Exception {
+                updateMessage("Updating metadata.");
+                return services.repository().update(event -> {
+                    updateMessage(event.message());
+                    @Nullable Long currentBytes = event.currentBytes();
+                    @Nullable Long totalBytes = event.totalBytes();
+                    if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
+                        updateProgress(currentBytes, totalBytes);
+                    }
+                });
+            }
+        };
+
+        startBackgroundTask(task, "Metadata Update Failed", result -> {
+            if (result.success()) {
+                showInfo("Metadata Updated", result.message());
+            } else {
+                showError("Metadata Update Failed", result.message());
+            }
+        });
     }
 
     /// Creates the footer node.
@@ -236,7 +294,7 @@ public final class MainWindow {
                 if (currentImage != null && !currentImage.board().equals(selected.name())) {
                     currentImage = null;
                 }
-                state = new WizardState(selected.name(), currentImage, state.target());
+                state = new WizardState(selected.name(), currentImage, null, state.target());
                 refreshState();
             }
         }
@@ -291,10 +349,36 @@ public final class MainWindow {
         if (dialog.getResult() == ButtonType.OK) {
             ImageEntry selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
-                state = new WizardState(selected.board(), selected, state.target());
+                state = new WizardState(selected.board(), selected, null, state.target());
                 refreshState();
             }
         }
+    }
+
+    /// Opens a local image file selection dialog.
+    private void chooseLocalImage() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Choose Local Image");
+        chooser.getExtensionFilters().setAll(
+                new FileChooser.ExtensionFilter("Image files", "*.img", "*.raw", "*.bin", "*.iso"),
+                new FileChooser.ExtensionFilter("All files", "*.*"));
+
+        @Nullable Path currentLocalImage = state.localImage();
+        if (currentLocalImage != null) {
+            @Nullable Path parent = currentLocalImage.getParent();
+            if (parent != null && Files.isDirectory(parent)) {
+                chooser.setInitialDirectory(parent.toFile());
+            }
+        }
+
+        @Nullable Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        @Nullable File selected = chooser.showOpenDialog(owner);
+        if (selected == null) {
+            return;
+        }
+
+        state = new WizardState(null, null, selected.toPath(), state.target());
+        refreshState();
     }
 
     /// Opens the target selection dialog.
@@ -345,7 +429,7 @@ public final class MainWindow {
         if (dialog.getResult() == ButtonType.OK) {
             BlockDevice selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
-                state = new WizardState(state.boardName(), state.image(), selected);
+                state = new WizardState(state.boardName(), state.image(), state.localImage(), selected);
                 refreshState();
             }
         }
@@ -353,21 +437,22 @@ public final class MainWindow {
 
     /// Starts flashing after final confirmation.
     private void flash() {
-        if (state.image() == null || state.target() == null) {
+        if (!hasImageSource() || state.target() == null) {
             showInfo("Incomplete Selection", "Select an image and a target device first.");
             return;
         }
 
-        ImageEntry selectedImage = state.image();
+        @Nullable ImageEntry selectedImage = state.image();
+        @Nullable Path selectedLocalImage = state.localImage();
         BlockDevice selectedTarget = state.target();
-        if (selectedImage == null || selectedTarget == null) {
+        if ((selectedImage == null) == (selectedLocalImage == null) || selectedTarget == null) {
             return;
         }
 
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle("Confirm Flash");
         confirm.setHeaderText("Write image to target device?");
-        confirm.setContentText("Image: " + selectedImage.displayName()
+        confirm.setContentText("Image: " + imageSourceLabel()
                 + "\nTarget: " + targetLabel(selectedTarget)
                 + "\nThis will overwrite the selected target device.");
         confirm.showAndWait();
@@ -382,8 +467,15 @@ public final class MainWindow {
             @Override
             protected OperationResult call() throws Exception {
                 return services.flash().flash(
-                        new FlashRequest(selectedImage, null, selectedTarget, true),
-                        event -> updateMessage(event.message()));
+                        new FlashRequest(selectedImage, selectedLocalImage, selectedTarget, true),
+                        event -> {
+                            updateMessage(event.message());
+                            @Nullable Long currentBytes = event.currentBytes();
+                            @Nullable Long totalBytes = event.totalBytes();
+                            if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
+                                updateProgress(currentBytes, totalBytes);
+                            }
+                        });
             }
         };
 
@@ -406,6 +498,7 @@ public final class MainWindow {
         refreshState();
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
         progressBar.setVisible(true);
+        progressBar.progressProperty().bind(task.progressProperty());
         statusLabel.textProperty().bind(task.messageProperty());
 
         task.setOnSucceeded(_ -> {
@@ -431,7 +524,9 @@ public final class MainWindow {
     /// Clears background task UI bindings.
     private void finishBackgroundTask() {
         statusLabel.textProperty().unbind();
+        progressBar.progressProperty().unbind();
         statusLabel.setText("Ready");
+        progressBar.setProgress(0);
         progressBar.setVisible(false);
         busy = false;
         refreshState();
@@ -439,14 +534,51 @@ public final class MainWindow {
 
     /// Refreshes labels and enabled states from the current selections.
     private void refreshState() {
-        boardValue.setText(state.boardName() == null ? "No board selected" : state.boardName());
-        imageValue.setText(state.image() == null ? "No image selected" : imageLabel(state.image()));
+        boardValue.setText(boardLabel());
+        imageValue.setText(hasImageSource() ? imageSourceLabel() : "No image selected");
         BlockDevice target = state.target();
         targetValue.setText(target == null ? "No target selected" : targetLabel(target));
+        repoUpdateButton.setDisable(busy);
         boardButton.setDisable(busy);
         imageButton.setDisable(busy);
+        localImageButton.setDisable(busy);
         targetButton.setDisable(busy);
-        flashButton.setDisable(busy || state.image() == null || state.target() == null);
+        flashButton.setDisable(busy || !hasImageSource() || state.target() == null);
+    }
+
+    /// Returns whether exactly one image source is selected.
+    ///
+    /// @return whether an image source is selected.
+    private boolean hasImageSource() {
+        return (state.image() == null) != (state.localImage() == null);
+    }
+
+    /// Formats the board step label.
+    ///
+    /// @return board step label.
+    private String boardLabel() {
+        if (state.localImage() != null) {
+            return "Local image source";
+        }
+        return state.boardName() == null ? "No board selected" : state.boardName();
+    }
+
+    /// Formats the selected image source.
+    ///
+    /// @return source label.
+    private String imageSourceLabel() {
+        @Nullable ImageEntry image = state.image();
+        if (image != null) {
+            return imageLabel(image);
+        }
+
+        @Nullable Path localImage = state.localImage();
+        if (localImage != null) {
+            @Nullable Path fileName = localImage.getFileName();
+            return "Local image - " + (fileName == null ? localImage : fileName);
+        }
+
+        return "No image selected";
     }
 
     /// Builds board choices from image metadata.
@@ -664,6 +796,7 @@ public final class MainWindow {
     private record WizardState(
             @Nullable String boardName,
             @Nullable ImageEntry image,
+            @Nullable Path localImage,
             @Nullable BlockDevice target) {
     }
 

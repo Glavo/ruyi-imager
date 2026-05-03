@@ -57,6 +57,14 @@
     -fx-padding: 9 14;
 }
 
+.step-actions {
+    -fx-alignment: center-right;
+}
+
+.header-button {
+    -fx-padding: 8 12;
+}
+
 .app-footer {
     -fx-padding: 0 32 22 32;
 }

@@ -25,11 +25,12 @@
 - Image catalog 已支持扫描 `packages/` 或旧 `manifests/`，解析 `provisionable` manifest、strategy、partition map、distfiles、checksums、mirror URL、slug，并生成 `ImageEntry`。
 - Image selection 已支持 atom/版本解析：精确 `category/name(version)`、短名、`category/name`、`name:`、`slug:` 和 SemVer 范围；默认选择最新非 prerelease。
 - Distfile 下载器已支持 HTTP/HTTPS、`.part` 临时文件、Range 续传、原子落盘、大小校验、SHA-256/SHA-512 校验、缓存复用，以及 `restrict = ["fetch"]` 拒绝自动下载。
-- Artifact 物化已支持 raw copy、bare gzip 解压、zip 安全解包；`tar*`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。
+- Artifact 物化已支持 raw copy、bare gzip 解压、zip 安全解包、tar 解包、tar.gz 解包，以及 zip/tar 的 `stripComponents`；`tar.xz`、`tar.zst`、`tar.bz2`、`tar.lz4`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。
 - 本地 `dd-v1` 刷写核心已接入默认服务图，支持本地镜像和 Ruyi 镜像物化路径写入 `BlockDevice.path()`，包含系统盘、已挂载、只读、容量、自写入安全检查、flush 和写后 verify。
 - Windows 只读块设备枚举已接入，输出 `\\.\PHYSICALDRIVE*`、容量、型号、bus type、removable/system/mounted/read-only。非 Windows 平台目前仍使用占位枚举服务。
 - CLI JSON/NDJSON 输出已修正为稳定字符串路径和完整 progress/final event 输出。
 - JavaFX GUI 已实现程序化主窗口和 CSS；Board/Image/Target/Write 四步向导已接入 image catalog、按 board 过滤 image、后台加载 catalog/device 列表，并显示 target 安全阻断状态。
+- GUI 已支持后台触发 repo metadata update，并支持选择本地镜像文件作为刷写 source。
 
 ### Remaining Work
 
@@ -42,10 +43,10 @@
   - 实现 `fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 的受控外部工具执行、设备检测和日志输出。
   - 增加取消、失败清理和更细粒度进度统计。
 - 镜像物化：
-  - 增加 tar/tar.gz/tar.xz 等 Ruyi 常见 archive 支持。
+  - 增加 tar.xz、tar.zst、tar.bz2 等 Ruyi 常见压缩 tar archive 支持。
   - 明确 unsupported archive 的用户提示和 fallback 路径。
 - GUI：
-  - 增加 repo update 入口和 image cache 状态提示。
+  - 增加 image cache 状态提示。
   - 增加列表搜索、策略支持状态标记、target 风险视觉状态、final confirmation 的更完整摘要。
   - 为 fastboot 和多目标 strategy 增加专门流程。
 - 测试：
