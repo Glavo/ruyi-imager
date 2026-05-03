@@ -23,6 +23,25 @@
     -fx-padding: 30 32 30 32;
 }
 
+.independent-option-row {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #c7d4df;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 16 20;
+}
+
+.option-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #17202a;
+}
+
+.option-value {
+    -fx-font-size: 13px;
+    -fx-text-fill: #5a6673;
+}
+
 .step-row {
     -fx-background-color: #ffffff;
     -fx-border-color: #d8dee6;
@@ -69,6 +88,11 @@
 .primary-action-button {
     -fx-min-width: 150px;
     -fx-padding: 10 18;
+}
+
+.secondary-action-button {
+    -fx-min-width: 150px;
+    -fx-padding: 9 14;
 }
 
 .header-button {

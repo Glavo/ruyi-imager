@@ -70,6 +70,9 @@ public final class MainWindow {
     /// Operating system selection summary.
     private final Label osValue = new Label("No operating system selected");
 
+    /// Local image selection summary.
+    private final Label localImageValue = new Label("No local image selected");
+
     /// Storage selection summary.
     private final Label storageValue = new Label("No storage device selected");
 
@@ -83,7 +86,7 @@ public final class MainWindow {
     private final Button osButton = new Button("Choose OS");
 
     /// Local image selection button.
-    private final Button localImageButton = new Button("Choose Local Image");
+    private final Button localImageButton = new Button("Use Local Image");
 
     /// Storage selection button.
     private final Button storageButton = new Button("Choose Storage");
@@ -132,7 +135,7 @@ public final class MainWindow {
         Label title = new Label("Ruyi Imager");
         title.getStyleClass().add("app-title");
 
-        Label subtitle = new Label("Select a manufacturer, board, operating system, and storage device.");
+        Label subtitle = new Label("Select a catalog image by manufacturer, board, operating system, and storage device.");
         subtitle.getStyleClass().add("app-subtitle");
 
         repoUpdateButton.setOnAction(_ -> updateRepository());
@@ -168,23 +171,48 @@ public final class MainWindow {
         flashButton.setOnAction(_ -> flash());
 
         osButton.getStyleClass().add("step-button");
-        localImageButton.getStyleClass().add("step-button");
+        localImageButton.getStyleClass().add("secondary-action-button");
         flashButton.getStyleClass().add("primary-action-button");
 
-        HBox osActions = new HBox(8, osButton, localImageButton);
-        osActions.getStyleClass().add("step-actions");
-
+        VBox customImageOption = createCustomImageOption();
         HBox writeActions = new HBox(flashButton);
         writeActions.getStyleClass().add("write-actions");
 
-        VBox workflow = new VBox(14,
+        VBox catalogFlow = new VBox(14,
                 createStep("1", "Manufacturer", manufacturerValue, manufacturerButton),
                 createStep("2", "Board", boardValue, boardButton),
-                createStep("3", "Operating System", osValue, osActions),
-                createStep("4", "Storage Device", storageValue, storageButton),
+                createStep("3", "Operating System", osValue, osButton),
+                createStep("4", "Storage Device", storageValue, storageButton));
+        catalogFlow.getStyleClass().add("catalog-flow");
+
+        VBox workflow = new VBox(14,
+                customImageOption,
+                catalogFlow,
                 writeActions);
         workflow.getStyleClass().add("workflow");
         return workflow;
+    }
+
+    /// Creates the independent local-image option outside the catalog selection flow.
+    ///
+    /// @return custom image option node.
+    private VBox createCustomImageOption() {
+        Label title = new Label("Local Image");
+        title.getStyleClass().add("option-title");
+
+        Label description = new Label("Use a custom image file instead of selecting one from the catalog.");
+        description.getStyleClass().add("option-value");
+
+        localImageValue.getStyleClass().add("option-value");
+
+        VBox text = new VBox(4, title, description, localImageValue);
+        HBox.setHgrow(text, Priority.ALWAYS);
+
+        HBox row = new HBox(16, text, localImageButton);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("independent-option-row");
+
+        return new VBox(row);
     }
 
     /// Creates one workflow row.
@@ -434,11 +462,6 @@ public final class MainWindow {
 
     /// Opens a local image file selection dialog.
     private void chooseLocalImage() {
-        if (state.manufacturerName() == null || state.boardName() == null) {
-            showInfo("Incomplete Selection", "Select a manufacturer and board first.");
-            return;
-        }
-
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Choose Local Image");
         chooser.getExtensionFilters().setAll(
@@ -459,7 +482,7 @@ public final class MainWindow {
             return;
         }
 
-        state = new WizardState(state.manufacturerName(), state.boardName(), null, selected.toPath(), state.target());
+        state = new WizardState(null, null, null, selected.toPath(), state.target());
         refreshState();
     }
 
@@ -525,7 +548,7 @@ public final class MainWindow {
     /// Starts flashing after final confirmation.
     private void flash() {
         if (!hasImageSource() || state.target() == null) {
-            showInfo("Incomplete Selection", "Select an operating system and a storage device first.");
+            showInfo("Incomplete Selection", "Select an operating system or local image, then select a storage device.");
             return;
         }
 
@@ -541,7 +564,7 @@ public final class MainWindow {
         confirm.setHeaderText("Write image to target device?");
         confirm.setContentText("Manufacturer: " + manufacturerLabel()
                 + "\nBoard: " + boardLabel()
-                + "\nOperating system: " + osSourceLabel()
+                + "\nImage source: " + imageSourceLabel()
                 + "\nStorage: " + targetLabel(selectedTarget)
                 + "\nThis will overwrite the selected storage device.");
         confirm.showAndWait();
@@ -625,13 +648,14 @@ public final class MainWindow {
     private void refreshState() {
         manufacturerValue.setText(manufacturerLabel());
         boardValue.setText(boardLabel());
-        osValue.setText(hasImageSource() ? osSourceLabel() : "No operating system selected");
+        osValue.setText(osLabel());
+        localImageValue.setText(localImageLabel());
         BlockDevice target = state.target();
         storageValue.setText(target == null ? "No storage device selected" : targetLabel(target));
         repoUpdateButton.setDisable(busy);
         manufacturerButton.setDisable(busy);
-        boardButton.setDisable(busy);
-        osButton.setDisable(busy);
+        boardButton.setDisable(busy || state.localImage() != null);
+        osButton.setDisable(busy || state.localImage() != null);
         localImageButton.setDisable(busy);
         storageButton.setDisable(busy);
         flashButton.setDisable(busy || !hasImageSource() || state.target() == null);
@@ -648,6 +672,9 @@ public final class MainWindow {
     ///
     /// @return manufacturer step label.
     private String manufacturerLabel() {
+        if (state.localImage() != null) {
+            return "Skipped for local image";
+        }
         return state.manufacturerName() == null ? "No manufacturer selected" : state.manufacturerName();
     }
 
@@ -655,13 +682,41 @@ public final class MainWindow {
     ///
     /// @return board step label.
     private String boardLabel() {
+        if (state.localImage() != null) {
+            return "Skipped for local image";
+        }
         return state.boardName() == null ? "No board selected" : state.boardName();
     }
 
-    /// Formats the selected operating system source.
+    /// Formats the operating system catalog step label.
+    ///
+    /// @return operating system step label.
+    private String osLabel() {
+        if (state.localImage() != null) {
+            return "Skipped for local image";
+        }
+
+        @Nullable ImageEntry image = state.image();
+        return image == null ? "No operating system selected" : imageLabel(image);
+    }
+
+    /// Formats the selected local image option.
+    ///
+    /// @return local image option label.
+    private String localImageLabel() {
+        @Nullable Path localImage = state.localImage();
+        if (localImage == null) {
+            return "No local image selected";
+        }
+
+        @Nullable Path fileName = localImage.getFileName();
+        return "Selected: " + (fileName == null ? localImage : fileName);
+    }
+
+    /// Formats the selected image source.
     ///
     /// @return source label.
-    private String osSourceLabel() {
+    private String imageSourceLabel() {
         @Nullable ImageEntry image = state.image();
         if (image != null) {
             return imageLabel(image);
