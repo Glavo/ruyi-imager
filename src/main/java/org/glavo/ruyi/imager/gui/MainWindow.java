@@ -189,7 +189,14 @@ public final class MainWindow {
 
     /// Opens the image selection dialog.
     private void chooseImage() {
-        ImageCatalog catalog = services.images().listImages();
+        ImageCatalog catalog;
+        try {
+            catalog = services.images().listImages();
+        } catch (IOException e) {
+            showError("Image Error", e.getMessage());
+            return;
+        }
+
         List<ImageEntry> images = catalog.images();
         if (images.isEmpty()) {
             showInfo("No Images", "No images are available in the local metadata cache.");

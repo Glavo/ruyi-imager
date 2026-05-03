@@ -11,6 +11,7 @@ import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.RuyiImageCatalogService;
 import org.glavo.ruyi.imager.core.repo.RepositoryService;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryService;
+import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.jetbrains.annotations.NotNullByDefault;
 
 /// Shared service graph used by the CLI and JavaFX front end.
@@ -32,8 +33,9 @@ public record AppServices(
     /// @return default services.
     public static AppServices createDefault() {
         AppDirectories directories = AppDirectories.defaults();
-        RepositoryService repository = new RuyiRepositoryService(directories);
-        ImageCatalogService images = new RuyiImageCatalogService(directories);
+        RuyiRepositoryStore repositoryStore = new RuyiRepositoryStore(directories);
+        RepositoryService repository = new RuyiRepositoryService(repositoryStore);
+        ImageCatalogService images = new RuyiImageCatalogService(directories, repositoryStore);
         BlockDeviceService devices = new StubBlockDeviceService();
         FlashService flash = new StubFlashService();
         return new AppServices(directories, repository, images, devices, flash);

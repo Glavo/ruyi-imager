@@ -3,38 +3,32 @@
 
 package org.glavo.ruyi.imager.core.repo;
 
-import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.OperationResult;
-import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 
 import java.io.IOException;
-import java.nio.file.Files;
 
 /// Repository service for Ruyi metadata.
 @NotNullByDefault
 public final class RuyiRepositoryService implements RepositoryService {
-    /// Application directories used to store metadata.
-    private final AppDirectories directories;
+    /// Repository store used to synchronize metadata.
+    private final RuyiRepositoryStore store;
 
     /// Creates the repository service.
     ///
-    /// @param directories application directories.
-    public RuyiRepositoryService(AppDirectories directories) {
-        this.directories = directories;
+    /// @param store repository store.
+    public RuyiRepositoryService(RuyiRepositoryStore store) {
+        this.store = store;
     }
 
-    /// Prepares local metadata directories.
+    /// Updates local metadata repositories.
     ///
     /// @param reporter progress reporter.
     /// @return operation result.
-    /// @throws IOException when directories cannot be created.
+    /// @throws IOException when repository metadata cannot be updated.
     @Override
     public OperationResult update(ProgressReporter reporter) throws IOException {
-        reporter.report(ProgressEvent.indeterminate("repo", "Preparing local Ruyi metadata directories."));
-        Files.createDirectories(directories.configDirectory());
-        Files.createDirectories(directories.cacheDirectory().resolve("repos"));
-        return OperationResult.success("Local Ruyi metadata directories are ready.");
+        return store.update(reporter);
     }
 }

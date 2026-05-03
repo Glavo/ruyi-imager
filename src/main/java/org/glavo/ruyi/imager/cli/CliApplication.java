@@ -263,24 +263,28 @@ public final class CliApplication implements Runnable {
         /// @return process exit code.
         @Override
         public Integer call() {
-            ImageCatalog catalog = services.images().listImages();
-            if (json) {
-                Map<String, Object> output = new LinkedHashMap<>();
-                output.put("type", "image-list");
-                output.put("images", catalog.images());
-                JsonOutput.print(output);
-                return CommandLine.ExitCode.OK;
-            }
+            try {
+                ImageCatalog catalog = services.images().listImages();
+                if (json) {
+                    Map<String, Object> output = new LinkedHashMap<>();
+                    output.put("type", "image-list");
+                    output.put("images", catalog.images());
+                    JsonOutput.print(output);
+                    return CommandLine.ExitCode.OK;
+                }
 
-            if (catalog.images().isEmpty()) {
-                System.out.println("No images are available in the local metadata cache.");
-                return CommandLine.ExitCode.OK;
-            }
+                if (catalog.images().isEmpty()) {
+                    System.out.println("No images are available in the local metadata cache.");
+                    return CommandLine.ExitCode.OK;
+                }
 
-            for (ImageEntry image : catalog.images()) {
-                System.out.printf("%s\t%s\t%s%n", image.atom(), image.displayName(), image.strategy());
+                for (ImageEntry image : catalog.images()) {
+                    System.out.printf("%s\t%s\t%s%n", image.atom(), image.displayName(), image.strategy());
+                }
+                return CommandLine.ExitCode.OK;
+            } catch (IOException | RuntimeException e) {
+                return fail(e.getMessage(), json);
             }
-            return CommandLine.ExitCode.OK;
         }
     }
 
@@ -316,12 +320,12 @@ public final class CliApplication implements Runnable {
                 return fail("Missing image atom.", json);
             }
 
-            ImageEntry image = services.images().findImage(requestedAtom);
-            if (image == null) {
-                return fail("Unknown image atom: " + requestedAtom, json);
-            }
-
             try {
+                ImageEntry image = services.images().findImage(requestedAtom);
+                if (image == null) {
+                    return fail("Unknown image atom: " + requestedAtom, json);
+                }
+
                 Path imagePath = services.images().downloadImage(image, progressReporter(json));
                 if (json) {
                     Map<String, Object> output = new LinkedHashMap<>();

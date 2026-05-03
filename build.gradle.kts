@@ -13,6 +13,7 @@ repositories {
 
 dependencies {
     compileOnly("org.jetbrains:annotations:26.1.0")
+    testCompileOnly("org.jetbrains:annotations:26.1.0")
 
     implementation("com.fasterxml.jackson.core:jackson-databind:2.21.2")
     implementation("info.picocli:picocli:4.7.7")
@@ -66,4 +67,9 @@ application {
 tasks.test {
     useJUnitPlatform()
     timeout.set(Duration.ofMinutes(10))
+    val testTmpDir = layout.buildDirectory.dir("tmp/test-tmp")
+    systemProperty("java.io.tmpdir", testTmpDir.get().asFile.absolutePath)
+    doFirst {
+        testTmpDir.get().asFile.mkdirs()
+    }
 }

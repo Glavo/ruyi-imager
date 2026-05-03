@@ -5,30 +5,42 @@ package org.glavo.ruyi.imager.core.image;
 
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
-import java.net.URI;
+import java.util.List;
+import java.util.Map;
 
 /// Image entry derived from Ruyi package metadata.
 ///
-/// @param atom Ruyi atom name.
+/// @param repoId source repository id.
+/// @param category Ruyi package category.
+/// @param name Ruyi package name.
+/// @param version Ruyi package version.
+/// @param atom exact Ruyi atom name.
 /// @param displayName human-readable image name.
 /// @param board target board name.
 /// @param variant board or image variant name.
-/// @param sourceUri source URI for the image artifact.
 /// @param strategy Ruyi provisioning strategy name.
-/// @param sizeBytes expected artifact size when known.
-/// @param checksum expected checksum when known.
+/// @param partitionMap image partition map.
+/// @param distfiles distfiles required by the image.
 /// @param support strategy support state.
 @NotNullByDefault
 public record ImageEntry(
+        String repoId,
+        String category,
+        String name,
+        String version,
         String atom,
         String displayName,
         String board,
         String variant,
-        URI sourceUri,
         String strategy,
-        @Nullable Long sizeBytes,
-        @Nullable String checksum,
+        @Unmodifiable Map<String, String> partitionMap,
+        @Unmodifiable List<RuyiDistfile> distfiles,
         StrategySupport support) {
+    /// Copies collections into immutable instances.
+    public ImageEntry {
+        partitionMap = Map.copyOf(partitionMap);
+        distfiles = List.copyOf(distfiles);
+    }
 }

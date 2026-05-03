@@ -17,6 +17,10 @@
 - 2026-05-03：已建立核心服务边界与模型：`AppServices`、`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FlashService` 及对应 record 模型；真实 Ruyi 下载和平台刷写后端仍为安全占位实现。
 - 2026-05-03：已实现程序化 JavaFX 主窗口和 CSS，提供 Board/Image/Target/Write 四步向导骨架；当前镜像目录和设备枚举仍返回空结果。
 - 2026-05-03：已验证 `./gradlew -g .gradle-user-home compileJava`、`./gradlew -g .gradle-user-home run --args='image list --json'` 和 `./gradlew -g .gradle-user-home test`；当前测试任务无测试源。
+- 2026-05-03：已实现 Ruyi repo 配置读取与同步骨架：支持默认 `ruyisdk` repo、用户 `[repo]` 覆盖、`[[repos]]` overlay、本地 repo、JGit clone/pull、repo `config.toml` 镜像源解析。
+- 2026-05-03：已实现本地 Ruyi package catalog 扫描：从 `packages/` 或旧 `manifests/` 中读取 `provisionable` manifest，解析 strategy、partition map、distfiles、checksums、mirror URL，并生成 `ImageEntry`。
+- 2026-05-03：已新增 repo/config 与 image catalog 单元测试；Gradle `test` 的 `java.io.tmpdir` 固定到工作区 `build/tmp/test-tmp`，避免本机沙箱限制系统临时目录。
+- 2026-05-03：已验证 `./gradlew -g .gradle-user-home test`、`./gradlew -g .gradle-user-home run --args='image list --json'` 和 `git diff --check`。
 
 ### Key Changes
 

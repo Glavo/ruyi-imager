@@ -16,13 +16,15 @@ public interface ImageCatalogService {
     /// Lists images from the local metadata cache.
     ///
     /// @return image catalog snapshot.
-    ImageCatalog listImages();
+    /// @throws IOException when local metadata cannot be read.
+    ImageCatalog listImages() throws IOException;
 
     /// Finds one image by atom name.
     ///
     /// @param atom image atom name.
     /// @return matching image, or null when not found.
-    default @Nullable ImageEntry findImage(String atom) {
+    /// @throws IOException when local metadata cannot be read.
+    default @Nullable ImageEntry findImage(String atom) throws IOException {
         for (ImageEntry image : listImages().images()) {
             if (image.atom().equals(atom)) {
                 return image;
