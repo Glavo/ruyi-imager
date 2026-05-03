@@ -27,6 +27,8 @@
 - 2026-05-03：`ImageEntry` 已补充 manifest slug；已新增 atom/版本选择测试，覆盖最新稳定版本、精确版本、范围表达式、短 name 和 slug 查询。
 - 2026-05-03：已实现下载后 image artifact 物化：`downloadImage` 现在下载 distfile 后写入 `cache/artifacts/<repo>/<category>/<name>/<version>/`，并校验 `provisionable.partition_map` 指向的文件存在；单分区返回具体 artifact 路径，多分区返回 artifact 目录。
 - 2026-05-03：已实现 raw 复制、bare gzip 解压和 zip 安全解包；`tar*`、`xz`、`zst`、`bz2`、`lz4`、`deb` 暂时显式报 unsupported。已新增物化测试覆盖 raw、gzip、zip 和 unsupported archive。
+- 2026-05-03：已实现平台无关的 `dd-v1` 本地刷写核心：支持本地镜像和 Ruyi 镜像物化路径写入 `BlockDevice.path()`，执行系统盘/只读/容量/自写入安全检查、flush 和按镜像长度进行写后 verify。
+- 2026-05-03：默认服务图已接入 `LocalFlashService`；真实设备枚举仍为占位服务，因此默认 CLI 还不会枚举实际磁盘。已新增临时文件模拟块设备测试，覆盖本地镜像、Ruyi `dd-v1` 镜像、安全拒绝和容量不足路径。
 
 ### Key Changes
 
