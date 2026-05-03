@@ -51,6 +51,7 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals("revyos-meles", image.slug());
         assertEquals("board-image/revyos-milkv-meles(1.2.3)", image.atom());
         assertEquals("RevyOS image for Milk-V Meles", image.displayName());
+        assertEquals("Ruyi", image.manufacturer());
         assertEquals("milkv-meles", image.board());
         assertEquals("generic", image.variant());
         assertEquals("dd-v1", image.strategy());

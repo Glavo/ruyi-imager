@@ -198,6 +198,7 @@ public final class LocalFlashServiceTest {
                 null,
                 "board-image/test-board(1.0.0)",
                 "Test image",
+                "Test Manufacturer",
                 "test-board",
                 "generic",
                 strategy,

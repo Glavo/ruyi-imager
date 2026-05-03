@@ -23,13 +23,14 @@
 - Core service 边界已建立：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FlashService`，由 `AppServices` 组装供 CLI/GUI 共用。
 - Ruyi repo/store 已支持默认 `ruyisdk`、用户 `[repo]` 覆盖、`[[repos]]` overlay、本地 repo、JGit clone/pull，以及 repo `config.toml` mirror/dist 解析。
 - Image catalog 已支持扫描 `packages/` 或旧 `manifests/`，解析 `provisionable` manifest、strategy、partition map、distfiles、checksums、mirror URL、slug，并生成 `ImageEntry`。
+- Image catalog 已从 Ruyi `metadata.vendor.name` 读取 manufacturer，用于 GUI 的制造商分组。
 - Image selection 已支持 atom/版本解析：精确 `category/name(version)`、短名、`category/name`、`name:`、`slug:` 和 SemVer 范围；默认选择最新非 prerelease。
 - Distfile 下载器已支持 HTTP/HTTPS、`.part` 临时文件、Range 续传、原子落盘、大小校验、SHA-256/SHA-512 校验、缓存复用，以及 `restrict = ["fetch"]` 拒绝自动下载。
 - Artifact 物化已支持 raw copy、bare gzip 解压、zip 安全解包、tar 解包、tar.gz 解包，以及 zip/tar 的 `stripComponents`；`tar.xz`、`tar.zst`、`tar.bz2`、`tar.lz4`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。
 - 本地 `dd-v1` 刷写核心已接入默认服务图，支持本地镜像和 Ruyi 镜像物化路径写入 `BlockDevice.path()`，包含系统盘、已挂载、只读、容量、自写入安全检查、flush 和写后 verify。
 - Windows 只读块设备枚举已接入，输出 `\\.\PHYSICALDRIVE*`、容量、型号、bus type、removable/system/mounted/read-only。非 Windows 平台目前仍使用占位枚举服务。
 - CLI JSON/NDJSON 输出已修正为稳定字符串路径和完整 progress/final event 输出。
-- JavaFX GUI 已实现程序化主窗口和 CSS；Board/Image/Target/Write 四步向导已接入 image catalog、按 board 过滤 image、后台加载 catalog/device 列表，并显示 target 安全阻断状态。
+- JavaFX GUI 已实现程序化主窗口和 CSS；选择流程已改为类似 Armbian Imager 的 Manufacturer -> Board -> Operating System -> Storage Device 四步级联，并显示 storage 安全阻断状态。
 - GUI 已支持后台触发 repo metadata update，并支持选择本地镜像文件作为刷写 source。
 
 ### Remaining Work

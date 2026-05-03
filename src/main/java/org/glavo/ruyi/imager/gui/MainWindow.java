@@ -53,7 +53,7 @@ public final class MainWindow {
     private final BorderPane root;
 
     /// Current user selections.
-    private WizardState state = new WizardState(null, null, null, null);
+    private WizardState state = new WizardState(null, null, null, null, null);
 
     /// Status text shown in the top bar.
     private final Label statusLabel = new Label("Ready");
@@ -61,26 +61,32 @@ public final class MainWindow {
     /// Progress bar shown for background work.
     private final ProgressBar progressBar = new ProgressBar(0);
 
+    /// Manufacturer selection summary.
+    private final Label manufacturerValue = new Label("No manufacturer selected");
+
     /// Board selection summary.
     private final Label boardValue = new Label("No board selected");
 
-    /// Image selection summary.
-    private final Label imageValue = new Label("No image selected");
+    /// Operating system selection summary.
+    private final Label osValue = new Label("No operating system selected");
 
-    /// Target selection summary.
-    private final Label targetValue = new Label("No target selected");
+    /// Storage selection summary.
+    private final Label storageValue = new Label("No storage device selected");
+
+    /// Manufacturer selection button.
+    private final Button manufacturerButton = new Button("Choose Manufacturer");
 
     /// Board selection button.
     private final Button boardButton = new Button("Choose Board");
 
-    /// Image selection button.
-    private final Button imageButton = new Button("Choose Image");
+    /// Operating system selection button.
+    private final Button osButton = new Button("Choose OS");
 
     /// Local image selection button.
     private final Button localImageButton = new Button("Choose Local Image");
 
-    /// Target selection button.
-    private final Button targetButton = new Button("Choose Target");
+    /// Storage selection button.
+    private final Button storageButton = new Button("Choose Storage");
 
     /// Repository metadata update button.
     private final Button repoUpdateButton = new Button("Update Metadata");
@@ -126,7 +132,7 @@ public final class MainWindow {
         Label title = new Label("Ruyi Imager");
         title.getStyleClass().add("app-title");
 
-        Label subtitle = new Label("Select a board image, choose a target device, then flash safely.");
+        Label subtitle = new Label("Select a manufacturer, board, operating system, and storage device.");
         subtitle.getStyleClass().add("app-subtitle");
 
         repoUpdateButton.setOnAction(_ -> updateRepository());
@@ -149,27 +155,34 @@ public final class MainWindow {
     ///
     /// @return workflow node.
     private VBox createWorkflow() {
+        manufacturerButton.setOnAction(_ -> chooseManufacturer());
+
         boardButton.setOnAction(_ -> chooseBoard());
 
-        imageButton.setOnAction(_ -> chooseImage());
+        osButton.setOnAction(_ -> chooseOperatingSystem());
 
         localImageButton.setOnAction(_ -> chooseLocalImage());
 
-        targetButton.setOnAction(_ -> chooseTarget());
+        storageButton.setOnAction(_ -> chooseStorage());
 
         flashButton.setOnAction(_ -> flash());
 
-        imageButton.getStyleClass().add("step-button");
+        osButton.getStyleClass().add("step-button");
         localImageButton.getStyleClass().add("step-button");
+        flashButton.getStyleClass().add("primary-action-button");
 
-        HBox imageActions = new HBox(8, imageButton, localImageButton);
-        imageActions.getStyleClass().add("step-actions");
+        HBox osActions = new HBox(8, osButton, localImageButton);
+        osActions.getStyleClass().add("step-actions");
+
+        HBox writeActions = new HBox(flashButton);
+        writeActions.getStyleClass().add("write-actions");
 
         VBox workflow = new VBox(14,
-                createStep("1", "Board", boardValue, boardButton),
-                createStep("2", "Image", imageValue, imageActions),
-                createStep("3", "Target", targetValue, targetButton),
-                createStep("4", "Write", new Label("Review selections before writing"), flashButton));
+                createStep("1", "Manufacturer", manufacturerValue, manufacturerButton),
+                createStep("2", "Board", boardValue, boardButton),
+                createStep("3", "Operating System", osValue, osActions),
+                createStep("4", "Storage Device", storageValue, storageButton),
+                writeActions);
         workflow.getStyleClass().add("workflow");
         return workflow;
     }
@@ -223,6 +236,8 @@ public final class MainWindow {
 
         startBackgroundTask(task, "Metadata Update Failed", result -> {
             if (result.success()) {
+                state = new WizardState(null, null, null, null, state.target());
+                refreshState();
                 showInfo("Metadata Updated", result.message());
             } else {
                 showError("Metadata Update Failed", result.message());
@@ -241,8 +256,69 @@ public final class MainWindow {
         return footer;
     }
 
+    /// Opens the manufacturer selection dialog.
+    private void chooseManufacturer() {
+        Task<ImageCatalog> task = new Task<>() {
+            /// Loads the image catalog outside the JavaFX application thread.
+            ///
+            /// @return image catalog.
+            @Override
+            protected ImageCatalog call() throws Exception {
+                updateMessage("Loading image catalog.");
+                return services.images().listImages();
+            }
+        };
+
+        startBackgroundTask(task, "Image Error", this::showManufacturerDialog);
+    }
+
+    /// Shows the manufacturer selection dialog.
+    ///
+    /// @param catalog image catalog.
+    private void showManufacturerDialog(ImageCatalog catalog) {
+        @Unmodifiable List<ManufacturerOption> manufacturers = manufacturerOptions(catalog.images());
+        if (manufacturers.isEmpty()) {
+            showInfo("No Manufacturers", "No manufacturers are available in the local metadata cache.");
+            return;
+        }
+
+        ListView<ManufacturerOption> listView = new ListView<>();
+        listView.getItems().setAll(manufacturers);
+        listView.setCellFactory(_ -> new ListCell<>() {
+            /// Updates one manufacturer list cell.
+            ///
+            /// @param item manufacturer option.
+            /// @param empty whether the cell is empty.
+            @Override
+            protected void updateItem(@Nullable ManufacturerOption item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null
+                        : item.name() + " - " + item.boardCount() + " boards, " + item.imageCount() + " images");
+            }
+        });
+        selectCurrentManufacturer(listView, state.manufacturerName());
+
+        Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
+        dialog.setTitle("Choose Manufacturer");
+        dialog.setHeaderText("Select a manufacturer");
+        dialog.getDialogPane().setContent(listView);
+        dialog.showAndWait();
+        if (dialog.getResult() == ButtonType.OK) {
+            ManufacturerOption selected = listView.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                state = new WizardState(selected.name(), null, null, null, state.target());
+                refreshState();
+            }
+        }
+    }
+
     /// Opens the board selection dialog.
     private void chooseBoard() {
+        if (state.manufacturerName() == null) {
+            showInfo("Incomplete Selection", "Select a manufacturer first.");
+            return;
+        }
+
         Task<ImageCatalog> task = new Task<>() {
             /// Loads the image catalog outside the JavaFX application thread.
             ///
@@ -261,9 +337,9 @@ public final class MainWindow {
     ///
     /// @param catalog image catalog.
     private void showBoardDialog(ImageCatalog catalog) {
-        @Unmodifiable List<BoardOption> boards = boardOptions(catalog.images());
+        @Unmodifiable List<BoardOption> boards = boardOptions(catalog.images(), state.manufacturerName());
         if (boards.isEmpty()) {
-            showInfo("No Boards", "No boards are available in the local metadata cache.");
+            showInfo("No Boards", "No boards are available for " + state.manufacturerName() + ".");
             return;
         }
 
@@ -284,24 +360,25 @@ public final class MainWindow {
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
         dialog.setTitle("Choose Board");
-        dialog.setHeaderText("Select a target board");
+        dialog.setHeaderText("Select a board from " + state.manufacturerName());
         dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
         if (dialog.getResult() == ButtonType.OK) {
             BoardOption selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
-                @Nullable ImageEntry currentImage = state.image();
-                if (currentImage != null && !currentImage.board().equals(selected.name())) {
-                    currentImage = null;
-                }
-                state = new WizardState(selected.name(), currentImage, null, state.target());
+                state = new WizardState(state.manufacturerName(), selected.name(), null, null, state.target());
                 refreshState();
             }
         }
     }
 
-    /// Opens the image selection dialog.
-    private void chooseImage() {
+    /// Opens the operating system selection dialog.
+    private void chooseOperatingSystem() {
+        if (state.manufacturerName() == null || state.boardName() == null) {
+            showInfo("Incomplete Selection", "Select a manufacturer and board first.");
+            return;
+        }
+
         Task<ImageCatalog> task = new Task<>() {
             /// Loads the image catalog outside the JavaFX application thread.
             ///
@@ -313,16 +390,16 @@ public final class MainWindow {
             }
         };
 
-        startBackgroundTask(task, "Image Error", this::showImageDialog);
+        startBackgroundTask(task, "Image Error", this::showOperatingSystemDialog);
     }
 
-    /// Shows the image selection dialog.
+    /// Shows the operating system selection dialog.
     ///
     /// @param catalog image catalog.
-    private void showImageDialog(ImageCatalog catalog) {
-        @Unmodifiable List<ImageEntry> images = filteredImages(catalog.images(), state.boardName());
+    private void showOperatingSystemDialog(ImageCatalog catalog) {
+        @Unmodifiable List<ImageEntry> images = filteredImages(catalog.images(), state.manufacturerName(), state.boardName());
         if (images.isEmpty()) {
-            showInfo("No Images", imageEmptyMessage());
+            showInfo("No Operating Systems", imageEmptyMessage());
             return;
         }
 
@@ -342,14 +419,14 @@ public final class MainWindow {
         selectCurrentImage(listView, state.image());
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle("Choose Image");
-        dialog.setHeaderText(state.boardName() == null ? "Select an image" : "Select an image for " + state.boardName());
+        dialog.setTitle("Choose Operating System");
+        dialog.setHeaderText("Select an operating system for " + state.boardName());
         dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
         if (dialog.getResult() == ButtonType.OK) {
             ImageEntry selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
-                state = new WizardState(selected.board(), selected, null, state.target());
+                state = new WizardState(selected.manufacturer(), selected.board(), selected, null, state.target());
                 refreshState();
             }
         }
@@ -357,6 +434,11 @@ public final class MainWindow {
 
     /// Opens a local image file selection dialog.
     private void chooseLocalImage() {
+        if (state.manufacturerName() == null || state.boardName() == null) {
+            showInfo("Incomplete Selection", "Select a manufacturer and board first.");
+            return;
+        }
+
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Choose Local Image");
         chooser.getExtensionFilters().setAll(
@@ -377,12 +459,12 @@ public final class MainWindow {
             return;
         }
 
-        state = new WizardState(null, null, selected.toPath(), state.target());
+        state = new WizardState(state.manufacturerName(), state.boardName(), null, selected.toPath(), state.target());
         refreshState();
     }
 
-    /// Opens the target selection dialog.
-    private void chooseTarget() {
+    /// Opens the storage selection dialog.
+    private void chooseStorage() {
         Task<List<BlockDevice>> task = new Task<>() {
             /// Loads target devices outside the JavaFX application thread.
             ///
@@ -394,15 +476,15 @@ public final class MainWindow {
             }
         };
 
-        startBackgroundTask(task, "Device Error", this::showTargetDialog);
+        startBackgroundTask(task, "Device Error", this::showStorageDialog);
     }
 
-    /// Shows the target selection dialog.
+    /// Shows the storage selection dialog.
     ///
     /// @param devices target devices.
-    private void showTargetDialog(List<BlockDevice> devices) {
+    private void showStorageDialog(List<BlockDevice> devices) {
         if (devices.isEmpty()) {
-            showInfo("No Targets", "No target devices were detected.");
+            showInfo("No Storage Devices", "No storage devices were detected.");
             return;
         }
 
@@ -422,14 +504,19 @@ public final class MainWindow {
         selectCurrentTarget(listView, state.target());
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle("Choose Target");
-        dialog.setHeaderText("Select a target device");
+        dialog.setTitle("Choose Storage Device");
+        dialog.setHeaderText("Select a storage device");
         dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
         if (dialog.getResult() == ButtonType.OK) {
             BlockDevice selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
-                state = new WizardState(state.boardName(), state.image(), state.localImage(), selected);
+                state = new WizardState(
+                        state.manufacturerName(),
+                        state.boardName(),
+                        state.image(),
+                        state.localImage(),
+                        selected);
                 refreshState();
             }
         }
@@ -438,7 +525,7 @@ public final class MainWindow {
     /// Starts flashing after final confirmation.
     private void flash() {
         if (!hasImageSource() || state.target() == null) {
-            showInfo("Incomplete Selection", "Select an image and a target device first.");
+            showInfo("Incomplete Selection", "Select an operating system and a storage device first.");
             return;
         }
 
@@ -452,9 +539,11 @@ public final class MainWindow {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle("Confirm Flash");
         confirm.setHeaderText("Write image to target device?");
-        confirm.setContentText("Image: " + imageSourceLabel()
-                + "\nTarget: " + targetLabel(selectedTarget)
-                + "\nThis will overwrite the selected target device.");
+        confirm.setContentText("Manufacturer: " + manufacturerLabel()
+                + "\nBoard: " + boardLabel()
+                + "\nOperating system: " + osSourceLabel()
+                + "\nStorage: " + targetLabel(selectedTarget)
+                + "\nThis will overwrite the selected storage device.");
         confirm.showAndWait();
         if (confirm.getResult() != ButtonType.OK) {
             return;
@@ -534,15 +623,17 @@ public final class MainWindow {
 
     /// Refreshes labels and enabled states from the current selections.
     private void refreshState() {
+        manufacturerValue.setText(manufacturerLabel());
         boardValue.setText(boardLabel());
-        imageValue.setText(hasImageSource() ? imageSourceLabel() : "No image selected");
+        osValue.setText(hasImageSource() ? osSourceLabel() : "No operating system selected");
         BlockDevice target = state.target();
-        targetValue.setText(target == null ? "No target selected" : targetLabel(target));
+        storageValue.setText(target == null ? "No storage device selected" : targetLabel(target));
         repoUpdateButton.setDisable(busy);
+        manufacturerButton.setDisable(busy);
         boardButton.setDisable(busy);
-        imageButton.setDisable(busy);
+        osButton.setDisable(busy);
         localImageButton.setDisable(busy);
-        targetButton.setDisable(busy);
+        storageButton.setDisable(busy);
         flashButton.setDisable(busy || !hasImageSource() || state.target() == null);
     }
 
@@ -553,20 +644,24 @@ public final class MainWindow {
         return (state.image() == null) != (state.localImage() == null);
     }
 
+    /// Formats the manufacturer step label.
+    ///
+    /// @return manufacturer step label.
+    private String manufacturerLabel() {
+        return state.manufacturerName() == null ? "No manufacturer selected" : state.manufacturerName();
+    }
+
     /// Formats the board step label.
     ///
     /// @return board step label.
     private String boardLabel() {
-        if (state.localImage() != null) {
-            return "Local image source";
-        }
         return state.boardName() == null ? "No board selected" : state.boardName();
     }
 
-    /// Formats the selected image source.
+    /// Formats the selected operating system source.
     ///
     /// @return source label.
-    private String imageSourceLabel() {
+    private String osSourceLabel() {
         @Nullable ImageEntry image = state.image();
         if (image != null) {
             return imageLabel(image);
@@ -578,17 +673,50 @@ public final class MainWindow {
             return "Local image - " + (fileName == null ? localImage : fileName);
         }
 
-        return "No image selected";
+        return "No operating system selected";
+    }
+
+    /// Builds manufacturer choices from image metadata.
+    ///
+    /// @param images available images.
+    /// @return manufacturer options sorted by manufacturer name.
+    private static @Unmodifiable List<ManufacturerOption> manufacturerOptions(List<ImageEntry> images) {
+        Map<String, Integer> imageCounts = new LinkedHashMap<>();
+        Map<String, List<String>> boardNames = new LinkedHashMap<>();
+        for (ImageEntry image : images) {
+            String manufacturer = image.manufacturer();
+            imageCounts.merge(manufacturer, 1, Integer::sum);
+            List<String> boards = boardNames.computeIfAbsent(manufacturer, _ -> new ArrayList<>());
+            if (!boards.contains(image.board())) {
+                boards.add(image.board());
+            }
+        }
+
+        ArrayList<ManufacturerOption> manufacturers = new ArrayList<>(imageCounts.size());
+        for (Map.Entry<String, Integer> entry : imageCounts.entrySet()) {
+            List<String> boards = boardNames.get(entry.getKey());
+            manufacturers.add(new ManufacturerOption(
+                    entry.getKey(),
+                    boards == null ? 0 : boards.size(),
+                    entry.getValue()));
+        }
+        manufacturers.sort(Comparator.comparing(ManufacturerOption::name));
+        return List.copyOf(manufacturers);
     }
 
     /// Builds board choices from image metadata.
     ///
     /// @param images available images.
+    /// @param manufacturerName selected manufacturer name.
     /// @return board options sorted by board name.
-    private static @Unmodifiable List<BoardOption> boardOptions(List<ImageEntry> images) {
+    private static @Unmodifiable List<BoardOption> boardOptions(
+            List<ImageEntry> images,
+            @Nullable String manufacturerName) {
         Map<String, Integer> counts = new LinkedHashMap<>();
         for (ImageEntry image : images) {
-            counts.merge(image.board(), 1, Integer::sum);
+            if (manufacturerName == null || image.manufacturer().equals(manufacturerName)) {
+                counts.merge(image.board(), 1, Integer::sum);
+            }
         }
 
         ArrayList<BoardOption> boards = new ArrayList<>(counts.size());
@@ -602,20 +730,46 @@ public final class MainWindow {
     /// Filters images by the selected board.
     ///
     /// @param images available images.
+    /// @param manufacturerName selected manufacturer name.
     /// @param boardName selected board name.
     /// @return matching image list.
-    private static @Unmodifiable List<ImageEntry> filteredImages(List<ImageEntry> images, @Nullable String boardName) {
-        if (boardName == null) {
+    private static @Unmodifiable List<ImageEntry> filteredImages(
+            List<ImageEntry> images,
+            @Nullable String manufacturerName,
+            @Nullable String boardName) {
+        if (manufacturerName == null && boardName == null) {
             return List.copyOf(images);
         }
 
         ArrayList<ImageEntry> filtered = new ArrayList<>();
         for (ImageEntry image : images) {
-            if (image.board().equals(boardName)) {
+            if ((manufacturerName == null || image.manufacturer().equals(manufacturerName))
+                    && (boardName == null || image.board().equals(boardName))) {
                 filtered.add(image);
             }
         }
         return List.copyOf(filtered);
+    }
+
+    /// Selects the current manufacturer when the dialog opens.
+    ///
+    /// @param listView manufacturer list view.
+    /// @param manufacturerName selected manufacturer name.
+    private static void selectCurrentManufacturer(
+            ListView<ManufacturerOption> listView,
+            @Nullable String manufacturerName) {
+        if (manufacturerName == null) {
+            listView.getSelectionModel().selectFirst();
+            return;
+        }
+
+        for (int i = 0; i < listView.getItems().size(); i++) {
+            if (listView.getItems().get(i).name().equals(manufacturerName)) {
+                listView.getSelectionModel().select(i);
+                return;
+            }
+        }
+        listView.getSelectionModel().selectFirst();
     }
 
     /// Selects the current board when the dialog opens.
@@ -745,9 +899,9 @@ public final class MainWindow {
     private String imageEmptyMessage() {
         @Nullable String boardName = state.boardName();
         if (boardName == null) {
-            return "No images are available in the local metadata cache.";
+            return "No operating systems are available in the local metadata cache.";
         }
-        return "No images are available for " + boardName + ".";
+        return "No operating systems are available for " + boardName + ".";
     }
 
     /// Shows an informational dialog.
@@ -789,15 +943,27 @@ public final class MainWindow {
 
     /// Holds the current guided workflow selections.
     ///
+    /// @param manufacturerName selected manufacturer name.
     /// @param boardName selected board name.
-    /// @param image selected image.
-    /// @param target selected target device.
+    /// @param image selected operating system image.
+    /// @param localImage selected local image file.
+    /// @param target selected storage device.
     @NotNullByDefault
     private record WizardState(
+            @Nullable String manufacturerName,
             @Nullable String boardName,
             @Nullable ImageEntry image,
             @Nullable Path localImage,
             @Nullable BlockDevice target) {
+    }
+
+    /// Manufacturer option derived from image metadata.
+    ///
+    /// @param name manufacturer name.
+    /// @param boardCount number of boards available for the manufacturer.
+    /// @param imageCount number of images available for the manufacturer.
+    @NotNullByDefault
+    private record ManufacturerOption(String name, int boardCount, int imageCount) {
     }
 
     /// Board option derived from image metadata.

@@ -262,6 +262,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         @Unmodifiable List<RuyiDistfile> distfiles = readDistfiles(metadata, manifest);
         @Nullable String slug = readSlug(manifest);
         String displayName = readDisplayName(manifest, category, name, version);
+        String manufacturer = readManufacturer(manifest, metadata.id());
         String atom = category + "/" + name + "(" + version + ")";
         return new ImageEntry(
                 metadata.id(),
@@ -271,6 +272,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 slug,
                 atom,
                 displayName,
+                manufacturer,
                 deriveBoardName(category, name),
                 deriveVariantName(name),
                 strategy,
@@ -411,6 +413,34 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         }
 
         return category + "/" + name + " " + version;
+    }
+
+    /// Reads the manufacturer name from manifest metadata.
+    ///
+    /// @param manifest package manifest.
+    /// @param fallback fallback manufacturer name.
+    /// @return manufacturer name.
+    private static String readManufacturer(TomlTable manifest, String fallback) {
+        @Nullable TomlTable metadata = manifest.getTable("metadata");
+        if (metadata != null) {
+            @Nullable TomlTable vendor = metadata.getTable("vendor");
+            if (vendor != null) {
+                @Nullable String name = vendor.getString("name");
+                if (name != null && !name.isBlank()) {
+                    return name;
+                }
+            }
+        }
+
+        @Nullable TomlTable vendor = manifest.getTable("vendor");
+        if (vendor != null) {
+            @Nullable String name = vendor.getString("name");
+            if (name != null && !name.isBlank()) {
+                return name;
+            }
+        }
+
+        return fallback;
     }
 
     /// Reads a deprecated package slug from manifest metadata.

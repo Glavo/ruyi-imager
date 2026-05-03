@@ -20,6 +20,7 @@ import java.util.Map;
 /// @param slug deprecated Ruyi package slug when present.
 /// @param atom exact Ruyi atom name.
 /// @param displayName human-readable image name.
+/// @param manufacturer device or image manufacturer name.
 /// @param board target board name.
 /// @param variant board or image variant name.
 /// @param strategy Ruyi provisioning strategy name.
@@ -35,6 +36,7 @@ public record ImageEntry(
         @Nullable String slug,
         String atom,
         String displayName,
+        String manufacturer,
         String board,
         String variant,
         String strategy,
