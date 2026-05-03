@@ -23,18 +23,37 @@
     -fx-padding: 30 32 30 32;
 }
 
+.source-choices {
+    -fx-alignment: top-center;
+}
+
+.catalog-choice {
+    -fx-pref-width: 620px;
+}
+
+.local-choice {
+    -fx-pref-width: 340px;
+}
+
+.choice-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #17202a;
+}
+
+.choice-separator {
+    -fx-padding: 70 0 0 0;
+    -fx-font-size: 12px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #7b8793;
+}
+
 .independent-option-row {
     -fx-background-color: #ffffff;
     -fx-border-color: #c7d4df;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
     -fx-padding: 16 20;
-}
-
-.option-title {
-    -fx-font-size: 15px;
-    -fx-font-weight: 700;
-    -fx-text-fill: #17202a;
 }
 
 .option-value {

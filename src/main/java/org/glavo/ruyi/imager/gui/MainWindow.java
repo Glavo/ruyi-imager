@@ -135,7 +135,7 @@ public final class MainWindow {
         Label title = new Label("Ruyi Imager");
         title.getStyleClass().add("app-title");
 
-        Label subtitle = new Label("Select a catalog image by manufacturer, board, operating system, and storage device.");
+        Label subtitle = new Label("Select a catalog image or local image, then choose a storage device.");
         subtitle.getStyleClass().add("app-subtitle");
 
         repoUpdateButton.setOnAction(_ -> updateRepository());
@@ -174,20 +174,37 @@ public final class MainWindow {
         localImageButton.getStyleClass().add("secondary-action-button");
         flashButton.getStyleClass().add("primary-action-button");
 
-        VBox customImageOption = createCustomImageOption();
         HBox writeActions = new HBox(flashButton);
         writeActions.getStyleClass().add("write-actions");
 
-        VBox catalogFlow = new VBox(14,
+        Label catalogTitle = new Label("Catalog Image");
+        catalogTitle.getStyleClass().add("choice-title");
+
+        VBox catalogFlow = new VBox(12,
+                catalogTitle,
                 createStep("1", "Manufacturer", manufacturerValue, manufacturerButton),
                 createStep("2", "Board", boardValue, boardButton),
-                createStep("3", "Operating System", osValue, osButton),
-                createStep("4", "Storage Device", storageValue, storageButton));
-        catalogFlow.getStyleClass().add("catalog-flow");
+                createStep("3", "Operating System", osValue, osButton));
+        catalogFlow.getStyleClass().add("catalog-choice");
+        HBox.setHgrow(catalogFlow, Priority.ALWAYS);
+
+        Label localTitle = new Label("Local Image");
+        localTitle.getStyleClass().add("choice-title");
+
+        VBox localFlow = new VBox(12, localTitle, createLocalImageOption());
+        localFlow.getStyleClass().add("local-choice");
+        HBox.setHgrow(localFlow, Priority.ALWAYS);
+
+        Label separator = new Label("OR");
+        separator.getStyleClass().add("choice-separator");
+
+        HBox sourceChoices = new HBox(16, catalogFlow, separator, localFlow);
+        sourceChoices.setAlignment(Pos.TOP_CENTER);
+        sourceChoices.getStyleClass().add("source-choices");
 
         VBox workflow = new VBox(14,
-                customImageOption,
-                catalogFlow,
+                sourceChoices,
+                createStep("4", "Storage Device", storageValue, storageButton),
                 writeActions);
         workflow.getStyleClass().add("workflow");
         return workflow;
@@ -196,23 +213,22 @@ public final class MainWindow {
     /// Creates the independent local-image option outside the catalog selection flow.
     ///
     /// @return custom image option node.
-    private VBox createCustomImageOption() {
-        Label title = new Label("Local Image");
-        title.getStyleClass().add("option-title");
-
+    private HBox createLocalImageOption() {
         Label description = new Label("Use a custom image file instead of selecting one from the catalog.");
         description.getStyleClass().add("option-value");
+        description.setWrapText(true);
 
         localImageValue.getStyleClass().add("option-value");
+        localImageValue.setWrapText(true);
 
-        VBox text = new VBox(4, title, description, localImageValue);
+        VBox text = new VBox(4, description, localImageValue);
         HBox.setHgrow(text, Priority.ALWAYS);
 
         HBox row = new HBox(16, text, localImageButton);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("independent-option-row");
 
-        return new VBox(row);
+        return row;
     }
 
     /// Creates one workflow row.

@@ -5,7 +5,7 @@
 ### Goal
 
 - 开发一个 Java 25 应用，通过同一套 core service 同时支持 CLI 和 JavaFX 25 GUI 刷写镜像。
-- GUI 采用类似 armbian-imager 的目录选择流程：Manufacturer、Board、Operating System、Storage Device，并将本地镜像作为独立入口。
+- GUI 采用类似 armbian-imager 的目录选择流程：Manufacturer、Board、Operating System、Storage Device，并将本地镜像与前三步目录选择并列为二选一入口。
 - 镜像获取、解析、下载、校验和物化逻辑从 `external/ruyi` 的语义移植，不嵌入 Starlark，不依赖外部 `ruyi` 命令。
 - 默认只执行已知安全策略；未知或第三方 provision strategy 只展示为 unsupported。
 
@@ -31,7 +31,7 @@
 - Windows 只读块设备枚举已接入，输出 `\\.\PHYSICALDRIVE*`、容量、型号、bus type、removable/system/mounted/read-only。非 Windows 平台目前仍使用占位枚举服务。
 - CLI JSON/NDJSON 输出已修正为稳定字符串路径和完整 progress/final event 输出。
 - JavaFX GUI 已实现程序化主窗口和 CSS；目录镜像选择流程已改为类似 Armbian Imager 的 Manufacturer -> Board -> Operating System -> Storage Device 四步级联，并显示 storage 安全阻断状态。
-- GUI 已支持后台触发 repo metadata update；本地镜像选择已从目录四步流程中拆出，作为独立入口显示已选本地文件，并在本地镜像模式下跳过目录选择步骤。
+- GUI 已支持后台触发 repo metadata update；本地镜像选择已从目录四步流程中拆出，与 Manufacturer -> Board -> Operating System 目录选择并列显示为二选一入口，并在本地镜像模式下跳过目录选择步骤。
 
 ### Remaining Work
 
