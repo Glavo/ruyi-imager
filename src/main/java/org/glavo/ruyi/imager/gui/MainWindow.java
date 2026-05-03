@@ -29,12 +29,12 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /// Main JavaFX window for the guided imager workflow.
 @NotNullByDefault
@@ -63,8 +63,20 @@ public final class MainWindow {
     /// Target selection summary.
     private final Label targetValue = new Label("No target selected");
 
+    /// Board selection button.
+    private final Button boardButton = new Button("Choose Board");
+
+    /// Image selection button.
+    private final Button imageButton = new Button("Choose Image");
+
+    /// Target selection button.
+    private final Button targetButton = new Button("Choose Target");
+
     /// Flash action button.
     private final Button flashButton = new Button("Flash");
+
+    /// Whether a background operation is active.
+    private boolean busy;
 
     /// Creates the main window.
     ///
@@ -118,13 +130,10 @@ public final class MainWindow {
     ///
     /// @return workflow node.
     private VBox createWorkflow() {
-        Button boardButton = new Button("Choose Board");
         boardButton.setOnAction(_ -> chooseBoard());
 
-        Button imageButton = new Button("Choose Image");
         imageButton.setOnAction(_ -> chooseImage());
 
-        Button targetButton = new Button("Choose Target");
         targetButton.setOnAction(_ -> chooseTarget());
 
         flashButton.setOnAction(_ -> flash());
@@ -176,14 +185,24 @@ public final class MainWindow {
 
     /// Opens the board selection dialog.
     private void chooseBoard() {
-        ImageCatalog catalog;
-        try {
-            catalog = services.images().listImages();
-        } catch (IOException e) {
-            showError("Image Error", e.getMessage());
-            return;
-        }
+        Task<ImageCatalog> task = new Task<>() {
+            /// Loads the image catalog outside the JavaFX application thread.
+            ///
+            /// @return image catalog.
+            @Override
+            protected ImageCatalog call() throws Exception {
+                updateMessage("Loading image catalog.");
+                return services.images().listImages();
+            }
+        };
 
+        startBackgroundTask(task, "Image Error", this::showBoardDialog);
+    }
+
+    /// Shows the board selection dialog.
+    ///
+    /// @param catalog image catalog.
+    private void showBoardDialog(ImageCatalog catalog) {
         @Unmodifiable List<BoardOption> boards = boardOptions(catalog.images());
         if (boards.isEmpty()) {
             showInfo("No Boards", "No boards are available in the local metadata cache.");
@@ -225,14 +244,24 @@ public final class MainWindow {
 
     /// Opens the image selection dialog.
     private void chooseImage() {
-        ImageCatalog catalog;
-        try {
-            catalog = services.images().listImages();
-        } catch (IOException e) {
-            showError("Image Error", e.getMessage());
-            return;
-        }
+        Task<ImageCatalog> task = new Task<>() {
+            /// Loads the image catalog outside the JavaFX application thread.
+            ///
+            /// @return image catalog.
+            @Override
+            protected ImageCatalog call() throws Exception {
+                updateMessage("Loading image catalog.");
+                return services.images().listImages();
+            }
+        };
 
+        startBackgroundTask(task, "Image Error", this::showImageDialog);
+    }
+
+    /// Shows the image selection dialog.
+    ///
+    /// @param catalog image catalog.
+    private void showImageDialog(ImageCatalog catalog) {
         @Unmodifiable List<ImageEntry> images = filteredImages(catalog.images(), state.boardName());
         if (images.isEmpty()) {
             showInfo("No Images", imageEmptyMessage());
@@ -270,14 +299,24 @@ public final class MainWindow {
 
     /// Opens the target selection dialog.
     private void chooseTarget() {
-        @Unmodifiable List<BlockDevice> devices;
-        try {
-            devices = services.devices().listDevices();
-        } catch (IOException e) {
-            showError("Device Error", e.getMessage());
-            return;
-        }
+        Task<List<BlockDevice>> task = new Task<>() {
+            /// Loads target devices outside the JavaFX application thread.
+            ///
+            /// @return target devices.
+            @Override
+            protected List<BlockDevice> call() throws Exception {
+                updateMessage("Detecting target devices.");
+                return services.devices().listDevices();
+            }
+        };
 
+        startBackgroundTask(task, "Device Error", this::showTargetDialog);
+    }
+
+    /// Shows the target selection dialog.
+    ///
+    /// @param devices target devices.
+    private void showTargetDialog(List<BlockDevice> devices) {
         if (devices.isEmpty()) {
             showInfo("No Targets", "No target devices were detected.");
             return;
@@ -348,31 +387,40 @@ public final class MainWindow {
             }
         };
 
-        startBackgroundTask(task);
-    }
-
-    /// Starts a background task and binds UI state.
-    ///
-    /// @param task task to run.
-    private void startBackgroundTask(Task<OperationResult> task) {
-        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-        progressBar.setVisible(true);
-        flashButton.setDisable(true);
-        statusLabel.textProperty().bind(task.messageProperty());
-
-        task.setOnSucceeded(_ -> {
-            finishBackgroundTask();
-            OperationResult result = task.getValue();
+        startBackgroundTask(task, "Flash Failed", result -> {
             if (result.success()) {
                 showInfo("Complete", result.message());
             } else {
                 showError("Flash Failed", result.message());
             }
         });
+    }
+
+    /// Starts a background task and binds UI state.
+    ///
+    /// @param task task to run.
+    /// @param failureTitle title used when the task fails.
+    /// @param onSuccess action executed on the JavaFX application thread when the task succeeds.
+    private <T> void startBackgroundTask(Task<T> task, String failureTitle, Consumer<T> onSuccess) {
+        busy = true;
+        refreshState();
+        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+        progressBar.setVisible(true);
+        statusLabel.textProperty().bind(task.messageProperty());
+
+        task.setOnSucceeded(_ -> {
+            finishBackgroundTask();
+            @Nullable T result = task.getValue();
+            if (result != null) {
+                onSuccess.accept(result);
+            } else {
+                showError(failureTitle, "Operation completed without a result.");
+            }
+        });
         task.setOnFailed(_ -> {
             finishBackgroundTask();
             Throwable failure = task.getException();
-            showError("Flash Failed", failure == null ? "Unknown failure." : failure.getMessage());
+            showError(failureTitle, failure == null ? "Unknown failure." : failure.getMessage());
         });
 
         Thread thread = new Thread(task, "ruyi-imager-background");
@@ -385,6 +433,7 @@ public final class MainWindow {
         statusLabel.textProperty().unbind();
         statusLabel.setText("Ready");
         progressBar.setVisible(false);
+        busy = false;
         refreshState();
     }
 
@@ -394,7 +443,10 @@ public final class MainWindow {
         imageValue.setText(state.image() == null ? "No image selected" : imageLabel(state.image()));
         BlockDevice target = state.target();
         targetValue.setText(target == null ? "No target selected" : targetLabel(target));
-        flashButton.setDisable(state.image() == null || state.target() == null);
+        boardButton.setDisable(busy);
+        imageButton.setDisable(busy);
+        targetButton.setDisable(busy);
+        flashButton.setDisable(busy || state.image() == null || state.target() == null);
     }
 
     /// Builds board choices from image metadata.
