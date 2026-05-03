@@ -27,6 +27,8 @@ import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -331,7 +333,7 @@ public final class CliApplication implements Runnable {
                     Map<String, Object> output = new LinkedHashMap<>();
                     output.put("type", "complete");
                     output.put("success", true);
-                    output.put("path", imagePath);
+                    output.put("path", imagePath.toString());
                     JsonOutput.print(output);
                 } else {
                     System.out.println(imagePath);
@@ -386,13 +388,13 @@ public final class CliApplication implements Runnable {
                 if (json) {
                     Map<String, Object> output = new LinkedHashMap<>();
                     output.put("type", "device-list");
-                    output.put("devices", devices);
+                    output.put("devices", deviceOutput(devices));
                     JsonOutput.print(output);
                 } else if (devices.isEmpty()) {
                     System.out.println("No target devices were detected.");
                 } else {
                     for (BlockDevice device : devices) {
-                        System.out.printf("%s\t%s\t%s%n", device.id(), device.displayName(), device.path());
+                        System.out.printf("%s\t%s\t%s%n", device.id(), device.displayName(), devicePathText(device));
                     }
                 }
                 return CommandLine.ExitCode.OK;
@@ -400,6 +402,41 @@ public final class CliApplication implements Runnable {
                 return fail(e.getMessage(), json);
             }
         }
+    }
+
+    /// Converts block devices to stable JSON output maps.
+    ///
+    /// @param devices devices to serialize.
+    /// @return immutable JSON-ready device maps.
+    private static @Unmodifiable List<@Unmodifiable Map<String, @Nullable Object>> deviceOutput(
+            List<BlockDevice> devices) {
+        ArrayList<@Unmodifiable Map<String, @Nullable Object>> output = new ArrayList<>(devices.size());
+        for (BlockDevice device : devices) {
+            Map<String, @Nullable Object> map = new LinkedHashMap<>();
+            map.put("id", device.id());
+            map.put("displayName", device.displayName());
+            map.put("path", devicePathText(device));
+            map.put("sizeBytes", device.sizeBytes());
+            map.put("removable", device.removable());
+            map.put("system", device.system());
+            map.put("readOnly", device.readOnly());
+            map.put("model", device.model());
+            map.put("busType", device.busType());
+            output.add(Collections.unmodifiableMap(map));
+        }
+        return List.copyOf(output);
+    }
+
+    /// Converts a device target path to CLI text.
+    ///
+    /// @param device block device.
+    /// @return printable target path.
+    private static String devicePathText(BlockDevice device) {
+        String text = device.path().toString();
+        if (text.startsWith("\\\\.\\PHYSICALDRIVE") && text.endsWith("\\")) {
+            return text.substring(0, text.length() - 1);
+        }
+        return text;
     }
 
     /// Flashes an image to a target device.

@@ -4,7 +4,7 @@
 package org.glavo.ruyi.imager.core;
 
 import org.glavo.ruyi.imager.core.device.BlockDeviceService;
-import org.glavo.ruyi.imager.core.device.StubBlockDeviceService;
+import org.glavo.ruyi.imager.core.device.PlatformBlockDeviceService;
 import org.glavo.ruyi.imager.core.flash.FlashService;
 import org.glavo.ruyi.imager.core.flash.LocalFlashService;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
@@ -36,7 +36,7 @@ public record AppServices(
         RuyiRepositoryStore repositoryStore = new RuyiRepositoryStore(directories);
         RepositoryService repository = new RuyiRepositoryService(repositoryStore);
         ImageCatalogService images = new RuyiImageCatalogService(directories, repositoryStore);
-        BlockDeviceService devices = new StubBlockDeviceService();
+        BlockDeviceService devices = new PlatformBlockDeviceService();
         FlashService flash = new LocalFlashService(images);
         return new AppServices(directories, repository, images, devices, flash);
     }
