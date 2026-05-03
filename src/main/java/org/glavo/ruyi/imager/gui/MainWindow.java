@@ -15,7 +15,6 @@ import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.Separator;
-import javafx.scene.control.TextInputDialog;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -28,9 +27,14 @@ import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /// Main JavaFX window for the guided imager workflow.
 @NotNullByDefault
@@ -163,25 +167,57 @@ public final class MainWindow {
     ///
     /// @return footer node.
     private VBox createFooter() {
-        Label safety = new Label("System disks and read-only targets will be rejected by the platform backend.");
+        Label safety = new Label("System, mounted, and read-only targets will be rejected by the platform backend.");
         safety.getStyleClass().add("footer-text");
         VBox footer = new VBox(new Separator(), safety);
         footer.getStyleClass().add("app-footer");
         return footer;
     }
 
-    /// Opens the board selection placeholder.
+    /// Opens the board selection dialog.
     private void chooseBoard() {
-        TextInputDialog dialog = new TextInputDialog(state.boardName());
+        ImageCatalog catalog;
+        try {
+            catalog = services.images().listImages();
+        } catch (IOException e) {
+            showError("Image Error", e.getMessage());
+            return;
+        }
+
+        @Unmodifiable List<BoardOption> boards = boardOptions(catalog.images());
+        if (boards.isEmpty()) {
+            showInfo("No Boards", "No boards are available in the local metadata cache.");
+            return;
+        }
+
+        ListView<BoardOption> listView = new ListView<>();
+        listView.getItems().setAll(boards);
+        listView.setCellFactory(_ -> new ListCell<>() {
+            /// Updates one board list cell.
+            ///
+            /// @param item board option.
+            /// @param empty whether the cell is empty.
+            @Override
+            protected void updateItem(@Nullable BoardOption item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.name() + " - " + item.imageCount() + " images");
+            }
+        });
+        selectCurrentBoard(listView, state.boardName());
+
+        Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
         dialog.setTitle("Choose Board");
-        dialog.setHeaderText("Enter a board name");
-        dialog.setContentText("Board");
+        dialog.setHeaderText("Select a target board");
+        dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
-        @Nullable String board = dialog.getResult();
-        if (board != null) {
-            String normalized = board.strip();
-            if (!normalized.isEmpty()) {
-                state = new WizardState(normalized, state.image(), state.target());
+        if (dialog.getResult() == ButtonType.OK) {
+            BoardOption selected = listView.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                @Nullable ImageEntry currentImage = state.image();
+                if (currentImage != null && !currentImage.board().equals(selected.name())) {
+                    currentImage = null;
+                }
+                state = new WizardState(selected.name(), currentImage, state.target());
                 refreshState();
             }
         }
@@ -197,9 +233,9 @@ public final class MainWindow {
             return;
         }
 
-        List<ImageEntry> images = catalog.images();
+        @Unmodifiable List<ImageEntry> images = filteredImages(catalog.images(), state.boardName());
         if (images.isEmpty()) {
-            showInfo("No Images", "No images are available in the local metadata cache.");
+            showInfo("No Images", imageEmptyMessage());
             return;
         }
 
@@ -213,19 +249,20 @@ public final class MainWindow {
             @Override
             protected void updateItem(@Nullable ImageEntry item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.displayName() + " - " + item.strategy());
+                setText(empty || item == null ? null : imageLabel(item));
             }
         });
+        selectCurrentImage(listView, state.image());
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
         dialog.setTitle("Choose Image");
-        dialog.setHeaderText("Select an image");
+        dialog.setHeaderText(state.boardName() == null ? "Select an image" : "Select an image for " + state.boardName());
         dialog.getDialogPane().setContent(listView);
         dialog.showAndWait();
         if (dialog.getResult() == ButtonType.OK) {
             ImageEntry selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
-                state = new WizardState(state.boardName(), selected, state.target());
+                state = new WizardState(selected.board(), selected, state.target());
                 refreshState();
             }
         }
@@ -233,7 +270,7 @@ public final class MainWindow {
 
     /// Opens the target selection dialog.
     private void chooseTarget() {
-        List<BlockDevice> devices;
+        @Unmodifiable List<BlockDevice> devices;
         try {
             devices = services.devices().listDevices();
         } catch (IOException e) {
@@ -256,9 +293,10 @@ public final class MainWindow {
             @Override
             protected void updateItem(@Nullable BlockDevice item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.displayName() + " - " + item.path());
+                setText(empty || item == null ? null : targetLabel(item));
             }
         });
+        selectCurrentTarget(listView, state.target());
 
         Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
         dialog.setTitle("Choose Target");
@@ -281,18 +319,20 @@ public final class MainWindow {
             return;
         }
 
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Confirm Flash");
-        confirm.setHeaderText("Write image to target device?");
-        confirm.setContentText("This will overwrite the selected target device.");
-        confirm.showAndWait();
-        if (confirm.getResult() != ButtonType.OK) {
-            return;
-        }
-
         ImageEntry selectedImage = state.image();
         BlockDevice selectedTarget = state.target();
         if (selectedImage == null || selectedTarget == null) {
+            return;
+        }
+
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Confirm Flash");
+        confirm.setHeaderText("Write image to target device?");
+        confirm.setContentText("Image: " + selectedImage.displayName()
+                + "\nTarget: " + targetLabel(selectedTarget)
+                + "\nThis will overwrite the selected target device.");
+        confirm.showAndWait();
+        if (confirm.getResult() != ButtonType.OK) {
             return;
         }
 
@@ -351,10 +391,179 @@ public final class MainWindow {
     /// Refreshes labels and enabled states from the current selections.
     private void refreshState() {
         boardValue.setText(state.boardName() == null ? "No board selected" : state.boardName());
-        imageValue.setText(state.image() == null ? "No image selected" : state.image().displayName());
+        imageValue.setText(state.image() == null ? "No image selected" : imageLabel(state.image()));
         BlockDevice target = state.target();
-        targetValue.setText(target == null ? "No target selected" : target.displayName() + " - " + target.path());
+        targetValue.setText(target == null ? "No target selected" : targetLabel(target));
         flashButton.setDisable(state.image() == null || state.target() == null);
+    }
+
+    /// Builds board choices from image metadata.
+    ///
+    /// @param images available images.
+    /// @return board options sorted by board name.
+    private static @Unmodifiable List<BoardOption> boardOptions(List<ImageEntry> images) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (ImageEntry image : images) {
+            counts.merge(image.board(), 1, Integer::sum);
+        }
+
+        ArrayList<BoardOption> boards = new ArrayList<>(counts.size());
+        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+            boards.add(new BoardOption(entry.getKey(), entry.getValue()));
+        }
+        boards.sort(Comparator.comparing(BoardOption::name));
+        return List.copyOf(boards);
+    }
+
+    /// Filters images by the selected board.
+    ///
+    /// @param images available images.
+    /// @param boardName selected board name.
+    /// @return matching image list.
+    private static @Unmodifiable List<ImageEntry> filteredImages(List<ImageEntry> images, @Nullable String boardName) {
+        if (boardName == null) {
+            return List.copyOf(images);
+        }
+
+        ArrayList<ImageEntry> filtered = new ArrayList<>();
+        for (ImageEntry image : images) {
+            if (image.board().equals(boardName)) {
+                filtered.add(image);
+            }
+        }
+        return List.copyOf(filtered);
+    }
+
+    /// Selects the current board when the dialog opens.
+    ///
+    /// @param listView board list view.
+    /// @param boardName selected board name.
+    private static void selectCurrentBoard(ListView<BoardOption> listView, @Nullable String boardName) {
+        if (boardName == null) {
+            listView.getSelectionModel().selectFirst();
+            return;
+        }
+
+        for (int i = 0; i < listView.getItems().size(); i++) {
+            if (listView.getItems().get(i).name().equals(boardName)) {
+                listView.getSelectionModel().select(i);
+                return;
+            }
+        }
+        listView.getSelectionModel().selectFirst();
+    }
+
+    /// Selects the current image when the dialog opens.
+    ///
+    /// @param listView image list view.
+    /// @param image selected image.
+    private static void selectCurrentImage(ListView<ImageEntry> listView, @Nullable ImageEntry image) {
+        if (image == null) {
+            listView.getSelectionModel().selectFirst();
+            return;
+        }
+
+        for (int i = 0; i < listView.getItems().size(); i++) {
+            if (listView.getItems().get(i).atom().equals(image.atom())) {
+                listView.getSelectionModel().select(i);
+                return;
+            }
+        }
+        listView.getSelectionModel().selectFirst();
+    }
+
+    /// Selects the current target when the dialog opens.
+    ///
+    /// @param listView target list view.
+    /// @param target selected target.
+    private static void selectCurrentTarget(ListView<BlockDevice> listView, @Nullable BlockDevice target) {
+        if (target == null) {
+            listView.getSelectionModel().selectFirst();
+            return;
+        }
+
+        for (int i = 0; i < listView.getItems().size(); i++) {
+            if (listView.getItems().get(i).id().equals(target.id())) {
+                listView.getSelectionModel().select(i);
+                return;
+            }
+        }
+        listView.getSelectionModel().selectFirst();
+    }
+
+    /// Formats an image for list and summary display.
+    ///
+    /// @param image image entry.
+    /// @return display text.
+    private static String imageLabel(ImageEntry image) {
+        return image.displayName()
+                + " - "
+                + image.variant()
+                + " - "
+                + image.strategy()
+                + " - "
+                + image.support();
+    }
+
+    /// Formats a target for list and summary display.
+    ///
+    /// @param target target device.
+    /// @return display text.
+    private static String targetLabel(BlockDevice target) {
+        String safety = targetSafetyLabel(target);
+        return target.displayName() + " - " + targetPathText(target) + (safety.isEmpty() ? "" : " - " + safety);
+    }
+
+    /// Converts a target path to display text.
+    ///
+    /// @param target target device.
+    /// @return printable target path.
+    private static String targetPathText(BlockDevice target) {
+        String text = target.path().toString();
+        if (text.startsWith("\\\\.\\PHYSICALDRIVE") && text.endsWith("\\")) {
+            return text.substring(0, text.length() - 1);
+        }
+        return text;
+    }
+
+    /// Formats target safety flags.
+    ///
+    /// @param target target device.
+    /// @return safety label, or empty string when no warning applies.
+    private static String targetSafetyLabel(BlockDevice target) {
+        ArrayList<String> flags = new ArrayList<>(3);
+        if (target.system()) {
+            flags.add("system");
+        }
+        if (target.mounted()) {
+            flags.add("mounted");
+        }
+        if (target.readOnly()) {
+            flags.add("read-only");
+        }
+        if (flags.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder("blocked: ");
+        for (int i = 0; i < flags.size(); i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            builder.append(flags.get(i));
+        }
+        return builder.toString();
+    }
+
+    /// Creates the image-empty message for the current state.
+    ///
+    /// @return message shown to the user.
+    private String imageEmptyMessage() {
+        @Nullable String boardName = state.boardName();
+        if (boardName == null) {
+            return "No images are available in the local metadata cache.";
+        }
+        return "No images are available for " + boardName + ".";
     }
 
     /// Shows an informational dialog.
@@ -404,5 +613,13 @@ public final class MainWindow {
             @Nullable String boardName,
             @Nullable ImageEntry image,
             @Nullable BlockDevice target) {
+    }
+
+    /// Board option derived from image metadata.
+    ///
+    /// @param name board name.
+    /// @param imageCount number of images available for the board.
+    @NotNullByDefault
+    private record BoardOption(String name, int imageCount) {
     }
 }

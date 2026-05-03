@@ -34,6 +34,8 @@
 - 2026-05-03：块设备模型已新增 `mounted` 安全标志；Windows 枚举会根据磁盘关联的 logical disk 判断挂载状态，CLI JSON 输出该字段，`LocalFlashService` 默认拒绝写入已挂载目标并新增对应测试。
 - 2026-05-03：已新增 CLI 集成测试：覆盖 `device list --json` 的稳定字段、`flash --local-image` 的 `--yes` 安全门，以及通过 CLI 将本地镜像写入模拟目标文件。
 - 2026-05-03：已修正 CLI NDJSON writer：不再让 Jackson 直接写入并关闭 `System.out`，确保长任务 progress 后还能输出最终 complete/error 事件。
+- 2026-05-03：GUI Board 选择已接入 image catalog：从可用镜像派生 board 列表并显示镜像数量；选择 board 后 Image 列表按 board 过滤，选择 image 会同步 board 状态。
+- 2026-05-03：GUI Target 与最终确认文案已显示 system/mounted/read-only 安全阻断状态；底部安全说明同步更新为拒绝系统盘、已挂载目标和只读目标。
 
 ### Key Changes
 
