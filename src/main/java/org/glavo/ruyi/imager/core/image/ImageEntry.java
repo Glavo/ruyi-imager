@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.image;
 
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.List;
@@ -16,6 +17,7 @@ import java.util.Map;
 /// @param category Ruyi package category.
 /// @param name Ruyi package name.
 /// @param version Ruyi package version.
+/// @param slug deprecated Ruyi package slug when present.
 /// @param atom exact Ruyi atom name.
 /// @param displayName human-readable image name.
 /// @param board target board name.
@@ -30,6 +32,7 @@ public record ImageEntry(
         String category,
         String name,
         String version,
+        @Nullable String slug,
         String atom,
         String displayName,
         String board,

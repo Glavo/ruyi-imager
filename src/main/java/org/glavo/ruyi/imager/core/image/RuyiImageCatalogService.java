@@ -235,6 +235,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
 
         @Unmodifiable Map<String, String> partitionMap = readStringMap(partitionMapTable);
         @Unmodifiable List<RuyiDistfile> distfiles = readDistfiles(metadata, manifest);
+        @Nullable String slug = readSlug(manifest);
         String displayName = readDisplayName(manifest, category, name, version);
         String atom = category + "/" + name + "(" + version + ")";
         return new ImageEntry(
@@ -242,6 +243,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 category,
                 name,
                 version,
+                slug,
                 atom,
                 displayName,
                 deriveBoardName(category, name),
@@ -384,6 +386,23 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         }
 
         return category + "/" + name + " " + version;
+    }
+
+    /// Reads a deprecated package slug from manifest metadata.
+    ///
+    /// @param manifest package manifest.
+    /// @return slug, or null when absent.
+    private static @Nullable String readSlug(TomlTable manifest) {
+        @Nullable TomlTable metadata = manifest.getTable("metadata");
+        if (metadata != null) {
+            @Nullable String slug = metadata.getString("slug");
+            if (slug != null && !slug.isBlank()) {
+                return slug;
+            }
+        }
+
+        @Nullable String legacySlug = manifest.getString("slug");
+        return legacySlug == null || legacySlug.isBlank() ? null : legacySlug;
     }
 
     /// Derives a board label from Ruyi image naming conventions.

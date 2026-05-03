@@ -25,12 +25,7 @@ public interface ImageCatalogService {
     /// @return matching image, or null when not found.
     /// @throws IOException when local metadata cannot be read.
     default @Nullable ImageEntry findImage(String atom) throws IOException {
-        for (ImageEntry image : listImages().images()) {
-            if (image.atom().equals(atom)) {
-                return image;
-            }
-        }
-        return null;
+        return RuyiImageSelector.find(listImages(), atom);
     }
 
     /// Downloads an image artifact.

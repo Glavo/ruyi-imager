@@ -23,6 +23,8 @@
 - 2026-05-03：已验证 `./gradlew -g .gradle-user-home test`、`./gradlew -g .gradle-user-home run --args='image list --json'` 和 `git diff --check`。
 - 2026-05-03：已实现 Ruyi distfile 下载器：支持 HTTP/HTTPS 下载、临时 `.part` 文件、Range 断点续传、原子落盘、文件大小校验、SHA-256/SHA-512 校验、缓存命中复用和 `restrict = ["fetch"]` 拒绝自动下载。
 - 2026-05-03：`image download <atom>` 已接入真实 distfile 下载；单 distfile 返回文件路径，多 distfile 返回下载目录。已新增下载器单元测试覆盖正常下载和 Range 续传。
+- 2026-05-03：已实现 Ruyi image atom 解析与版本选择：支持精确 `category/name(version)`、`name`、`category/name`、`name:` 前缀、`slug:` 前缀，以及逗号分隔 SemVer 比较表达式；默认选择最新非 prerelease 版本。
+- 2026-05-03：`ImageEntry` 已补充 manifest slug；已新增 atom/版本选择测试，覆盖最新稳定版本、精确版本、范围表达式、短 name 和 slug 查询。
 
 ### Key Changes
 
