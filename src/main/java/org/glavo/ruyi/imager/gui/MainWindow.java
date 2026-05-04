@@ -4,6 +4,7 @@
 package org.glavo.ruyi.imager.gui;
 
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
 import javafx.concurrent.Task;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -21,7 +22,9 @@ import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Window;
+import javafx.util.StringConverter;
 import io.github.palexdev.materialfx.controls.MFXButton;
+import io.github.palexdev.materialfx.controls.MFXComboBox;
 import io.github.palexdev.materialfx.controls.MFXProgressBar;
 import io.github.palexdev.materialfx.controls.MFXScrollPane;
 import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListCell;
@@ -49,6 +52,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -56,6 +60,11 @@ import java.util.function.Consumer;
 /// Main JavaFX window for the guided imager workflow.
 @NotNullByDefault
 public final class MainWindow {
+    /// Language choices exposed in the GUI.
+    private static final @Unmodifiable List<LanguageOption> LANGUAGE_OPTIONS = List.of(
+            new LanguageOption("gui.language.english", Locale.ENGLISH),
+            new LanguageOption("gui.language.simplifiedChinese", Locale.SIMPLIFIED_CHINESE));
+
     /// Core services shared with the CLI.
     private final AppServices services;
 
@@ -166,6 +175,14 @@ public final class MainWindow {
         Label subtitle = localizedLabel("gui.header.subtitle");
         subtitle.getStyleClass().add("app-subtitle");
 
+        MFXComboBox<LanguageOption> languageSelector = createLanguageSelector();
+
+        Region titleSpacer = new Region();
+        HBox.setHgrow(titleSpacer, Priority.ALWAYS);
+
+        HBox titleRow = new HBox(16, title, titleSpacer, languageSelector);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+
         repoUpdateButton.setOnAction(_ -> updateRepository());
         repoUpdateButton.getStyleClass().add("header-button");
 
@@ -177,9 +194,57 @@ public final class MainWindow {
         progressBar.setPrefWidth(180);
         progressBar.setVisible(false);
 
-        VBox header = new VBox(8, title, subtitle, status);
+        VBox header = new VBox(8, titleRow, subtitle, status);
         header.getStyleClass().add("app-header");
         return header;
+    }
+
+    /// Creates the runtime language selector.
+    ///
+    /// @return language selector.
+    private MFXComboBox<LanguageOption> createLanguageSelector() {
+        MFXComboBox<LanguageOption> selector = new MFXComboBox<>(
+                FXCollections.observableArrayList(LANGUAGE_OPTIONS));
+        selector.setAllowEdit(false);
+        selector.setRowsCount(LANGUAGE_OPTIONS.size());
+        selector.setPrefWidth(190);
+        selector.floatingTextProperty().bind(Messages.binding("gui.language"));
+        selector.setConverter(new StringConverter<>() {
+            /// Converts a language option to localized display text.
+            ///
+            /// @param option language option.
+            /// @return localized display text.
+            @Override
+            public String toString(@Nullable LanguageOption option) {
+                return languageLabel(option);
+            }
+
+            /// Converts localized display text back to a language option.
+            ///
+            /// @param text localized display text.
+            /// @return matching language option, or null when no option matches.
+            @Override
+            public @Nullable LanguageOption fromString(@Nullable String text) {
+                if (text == null) {
+                    return null;
+                }
+                for (LanguageOption option : LANGUAGE_OPTIONS) {
+                    if (languageLabel(option).equals(text)) {
+                        return option;
+                    }
+                }
+                return null;
+            }
+        });
+        selector.getStyleClass().add("language-selector");
+        updateLanguageSelectorValue(selector);
+        selector.valueProperty().addListener((_, _, selected) -> {
+            if (selected != null && !selected.locale().equals(languageOption(Messages.locale()).locale())) {
+                Messages.setLocale(selected.locale());
+            }
+        });
+        Messages.localeProperty().addListener((_, _, _) -> updateLanguageSelectorValue(selector));
+        return selector;
     }
 
     /// Creates the guided workflow controls.
@@ -317,6 +382,36 @@ public final class MainWindow {
         listView.setPrefSize(640, 360);
         listView.setMaxHeight(420);
         return listView;
+    }
+
+    /// Updates the language selector to match the selected locale.
+    ///
+    /// @param selector language selector.
+    private static void updateLanguageSelectorValue(MFXComboBox<LanguageOption> selector) {
+        LanguageOption option = languageOption(Messages.locale());
+        if (!option.equals(selector.getValue())) {
+            selector.selectItem(option);
+        }
+        selector.setText(languageLabel(option));
+    }
+
+    /// Selects the supported language option for one locale.
+    ///
+    /// @param locale selected locale.
+    /// @return matching language option.
+    private static LanguageOption languageOption(Locale locale) {
+        if (Locale.SIMPLIFIED_CHINESE.getLanguage().equals(locale.getLanguage())) {
+            return LANGUAGE_OPTIONS.get(1);
+        }
+        return LANGUAGE_OPTIONS.getFirst();
+    }
+
+    /// Returns the localized display label for one language option.
+    ///
+    /// @param option language option.
+    /// @return localized language label.
+    private static String languageLabel(@Nullable LanguageOption option) {
+        return option == null ? "" : Messages.get(option.labelKey());
     }
 
     /// Starts repository metadata update.
@@ -1213,6 +1308,14 @@ public final class MainWindow {
     private static @Nullable String applicationStylesheet() {
         URL stylesheet = MainWindow.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
         return stylesheet == null ? null : stylesheet.toExternalForm();
+    }
+
+    /// Supported GUI language option.
+    ///
+    /// @param labelKey message key for the language label.
+    /// @param locale locale selected by this option.
+    @NotNullByDefault
+    private record LanguageOption(String labelKey, Locale locale) {
     }
 
     /// Holds the current guided workflow selections.

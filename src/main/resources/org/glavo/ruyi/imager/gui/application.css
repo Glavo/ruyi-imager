@@ -153,6 +153,15 @@
     -fx-border-radius: 8;
 }
 
+.language-selector {
+    -fx-background-color: #ffffff;
+    -fx-text-fill: #394756;
+    -fx-border-color: #d6e0ea;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-min-width: 190px;
+}
+
 .app-footer {
     -fx-padding: 0 32 22 32;
 }
