@@ -94,6 +94,36 @@ public final class RuyiImageCatalogServiceTest {
         assertNull(service.findImage("slug:missing"));
     }
 
+    /// Verifies known but unimplemented provision strategies are exposed as unsupported.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when test fixture files cannot be created or read.
+    @Test
+    public void classifiesFastbootImagesAsUnsupported(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        writeConfig(configDirectory, repoDirectory);
+        writeRepositoryConfig(repoDirectory);
+        writeImageManifest(
+                repoDirectory,
+                "1.2.3",
+                "Fastboot image for Milk-V Meles",
+                "fastboot-meles",
+                "image.raw",
+                "fastboot-v1");
+
+        RuyiImageCatalogService service = new RuyiImageCatalogService(
+                new AppDirectories(configDirectory, cacheDirectory),
+                new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory)));
+
+        ImageEntry image = service.listImages().images().getFirst();
+
+        assertEquals("fastboot-v1", image.strategy());
+        assertEquals(StrategySupport.UNSUPPORTED, image.support());
+    }
+
     /// Writes the application config fixture.
     ///
     /// @param configDirectory config directory.
@@ -145,6 +175,25 @@ public final class RuyiImageCatalogServiceTest {
             String description,
             String slug,
             String distfileName) throws Exception {
+        writeImageManifest(repoDirectory, version, description, slug, distfileName, "dd-v1");
+    }
+
+    /// Writes one image manifest fixture.
+    ///
+    /// @param repoDirectory repository directory.
+    /// @param version package version.
+    /// @param description package description.
+    /// @param slug package slug.
+    /// @param distfileName distfile name.
+    /// @param strategy provision strategy.
+    /// @throws Exception when fixture files cannot be written.
+    private static void writeImageManifest(
+            Path repoDirectory,
+            String version,
+            String description,
+            String slug,
+            String distfileName,
+            String strategy) throws Exception {
         Files.writeString(
                 repoDirectory.resolve("packages").resolve("board-image").resolve("revyos-milkv-meles").resolve(version + ".toml"),
                 """
@@ -167,10 +216,10 @@ public final class RuyiImageCatalogServiceTest {
                         distfiles = ["%s"]
 
                         [provisionable]
-                        strategy = "dd-v1"
+                        strategy = "%s"
 
                         [provisionable.partition_map]
                         disk = "%s"
-                        """.formatted(description, slug, distfileName, distfileName, distfileName));
+                        """.formatted(description, slug, distfileName, distfileName, strategy, distfileName));
     }
 }

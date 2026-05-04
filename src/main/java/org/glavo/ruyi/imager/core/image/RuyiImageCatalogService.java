@@ -496,7 +496,8 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// @return support classification.
     private static StrategySupport classifyStrategy(String strategy) {
         return switch (strategy) {
-            case "dd-v1", "fastboot-v1", "fastboot-v1(lpi4a-uboot)" -> StrategySupport.SUPPORTED;
+            case "dd-v1" -> StrategySupport.SUPPORTED;
+            case "fastboot-v1", "fastboot-v1(lpi4a-uboot)" -> StrategySupport.UNSUPPORTED;
             default -> StrategySupport.UNKNOWN;
         };
     }

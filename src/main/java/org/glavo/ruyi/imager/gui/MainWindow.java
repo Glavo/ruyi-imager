@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.gui;
 
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
+import javafx.collections.transformation.FilteredList;
 import javafx.concurrent.Task;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -15,6 +16,7 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.Separator;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -27,6 +29,7 @@ import io.github.palexdev.materialfx.controls.MFXButton;
 import io.github.palexdev.materialfx.controls.MFXComboBox;
 import io.github.palexdev.materialfx.controls.MFXProgressBar;
 import io.github.palexdev.materialfx.controls.MFXScrollPane;
+import io.github.palexdev.materialfx.controls.MFXTextField;
 import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListCell;
 import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListView;
 import io.github.palexdev.materialfx.dialogs.MFXGenericDialog;
@@ -35,6 +38,7 @@ import io.github.palexdev.materialfx.dialogs.MFXStageDialog;
 import io.github.palexdev.materialfx.dialogs.MFXStageDialogBuilder;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
+import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.flash.FlashRequest;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
@@ -45,6 +49,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,6 +60,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 
 /// Main JavaFX window for the guided imager workflow.
@@ -65,8 +71,14 @@ public final class MainWindow {
             new LanguageOption("gui.language.english", Locale.ENGLISH),
             new LanguageOption("gui.language.simplifiedChinese", Locale.SIMPLIFIED_CHINESE));
 
+    /// Binary size units used by storage device summaries.
+    private static final @Unmodifiable List<String> SIZE_UNITS = List.of("B", "KiB", "MiB", "GiB", "TiB");
+
     /// Core services shared with the CLI.
     private final AppServices services;
+
+    /// GUI preferences store.
+    private final GuiPreferences preferences;
 
     /// Root node for the window.
     private final BorderPane root;
@@ -124,6 +136,8 @@ public final class MainWindow {
     /// @param services shared application services.
     public MainWindow(AppServices services) {
         this.services = services;
+        this.preferences = new GuiPreferences(services.directories());
+        loadPreferredLocale();
         this.root = createRoot();
         Messages.localeProperty().addListener((_, _, _) -> {
             if (!busy && !statusLabel.textProperty().isBound()) {
@@ -241,6 +255,7 @@ public final class MainWindow {
         selector.valueProperty().addListener((_, _, selected) -> {
             if (selected != null && !selected.locale().equals(languageOption(Messages.locale()).locale())) {
                 Messages.setLocale(selected.locale());
+                savePreferredLocale(selected.locale());
             }
         });
         Messages.localeProperty().addListener((_, _, _) -> updateLanguageSelectorValue(selector));
@@ -384,6 +399,48 @@ public final class MainWindow {
         return listView;
     }
 
+    /// Wraps a selection list with a MaterialFX search field.
+    ///
+    /// @param listView selection list view.
+    /// @param items source items.
+    /// @param matcher item matcher receiving a normalized query.
+    /// @param <T> item type.
+    /// @return searchable selection content.
+    private static <T> Node searchableSelectionContent(
+            ListView<T> listView,
+            List<T> items,
+            BiPredicate<T, String> matcher) {
+        MFXTextField searchField = new MFXTextField();
+        searchField.floatingTextProperty().bind(Messages.binding("gui.search"));
+        searchField.promptTextProperty().bind(Messages.binding("gui.search.placeholder"));
+        searchField.getStyleClass().add("selection-search");
+
+        FilteredList<T> filteredItems = new FilteredList<>(FXCollections.observableArrayList(items));
+        listView.setItems(filteredItems);
+        searchField.textProperty().addListener((_, _, value) -> {
+            String query = normalizeSearchQuery(value);
+            filteredItems.setPredicate(item -> query.isEmpty() || matcher.test(item, query));
+            @Nullable T selected = listView.getSelectionModel().getSelectedItem();
+            if (filteredItems.isEmpty()) {
+                listView.getSelectionModel().clearSelection();
+            } else if (selected == null || !filteredItems.contains(selected)) {
+                listView.getSelectionModel().selectFirst();
+            }
+        });
+
+        VBox content = new VBox(10, searchField, listView);
+        content.getStyleClass().add("selection-content");
+        return content;
+    }
+
+    /// Normalizes search text for case-insensitive matching.
+    ///
+    /// @param text raw search text.
+    /// @return normalized query.
+    private static String normalizeSearchQuery(@Nullable String text) {
+        return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
+    }
+
     /// Updates the language selector to match the selected locale.
     ///
     /// @param selector language selector.
@@ -412,6 +469,41 @@ public final class MainWindow {
     /// @return localized language label.
     private static String languageLabel(@Nullable LanguageOption option) {
         return option == null ? "" : Messages.get(option.labelKey());
+    }
+
+    /// Loads the persisted GUI language preference unless a system property override is present.
+    private void loadPreferredLocale() {
+        if (hasLocaleSystemProperty()) {
+            return;
+        }
+
+        try {
+            @Nullable Locale locale = preferences.readLocale();
+            if (locale != null) {
+                Messages.setLocale(locale);
+            }
+        } catch (IOException _) {
+            // The UI can still run with the default locale.
+        }
+    }
+
+    /// Persists the selected GUI language.
+    ///
+    /// @param locale selected locale.
+    private void savePreferredLocale(Locale locale) {
+        try {
+            preferences.writeLocale(locale);
+        } catch (IOException exception) {
+            showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
+        }
+    }
+
+    /// Returns whether locale was explicitly configured with a JVM property.
+    ///
+    /// @return whether the locale system property is present.
+    private static boolean hasLocaleSystemProperty() {
+        @Nullable String configuredLocale = System.getProperty(Messages.LOCALE_PROPERTY);
+        return configuredLocale != null && !configuredLocale.isBlank();
     }
 
     /// Starts repository metadata update.
@@ -483,7 +575,7 @@ public final class MainWindow {
         }
 
         ListView<ManufacturerOption> listView = selectionListView();
-        listView.getItems().setAll(manufacturers);
+        Node content = searchableSelectionContent(listView, manufacturers, MainWindow::manufacturerMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one manufacturer list cell.
             ///
@@ -501,7 +593,7 @@ public final class MainWindow {
         if (showSelectionDialog(
                 Messages.get("gui.dialog.chooseManufacturer"),
                 Messages.get("gui.dialog.chooseManufacturer.header"),
-                listView)) {
+                content)) {
             ManufacturerOption selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(selected.name(), null, null, null, state.target());
@@ -544,7 +636,7 @@ public final class MainWindow {
         }
 
         ListView<BoardOption> listView = selectionListView();
-        listView.getItems().setAll(boards);
+        Node content = searchableSelectionContent(listView, boards, MainWindow::boardMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one board list cell.
             ///
@@ -561,7 +653,7 @@ public final class MainWindow {
         if (showSelectionDialog(
                 Messages.get("gui.dialog.chooseBoard"),
                 Messages.get("gui.dialog.chooseBoard.header", state.manufacturerName()),
-                listView)) {
+                content)) {
             BoardOption selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(state.manufacturerName(), selected.name(), null, null, state.target());
@@ -604,7 +696,7 @@ public final class MainWindow {
         }
 
         ListView<ImageEntry> listView = selectionListView();
-        listView.getItems().setAll(images);
+        Node content = searchableSelectionContent(listView, images, MainWindow::imageMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one image list cell.
             ///
@@ -613,7 +705,16 @@ public final class MainWindow {
             @Override
             protected void updateItem(@Nullable ImageEntry item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : imageLabel(item));
+                clearSelectionCellStyles(this);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+
+                setText(null);
+                setGraphic(imageCellContent(item));
+                getStyleClass().add(catalogImageFlashable(item) ? "flashable-image-cell" : "unsupported-image-cell");
             }
         });
         selectCurrentImage(listView, state.image());
@@ -621,7 +722,7 @@ public final class MainWindow {
         if (showSelectionDialog(
                 Messages.get("gui.dialog.chooseOperatingSystem"),
                 Messages.get("gui.dialog.chooseOperatingSystem.header", state.boardName()),
-                listView)) {
+                content)) {
             ImageEntry selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(selected.manufacturer(), selected.board(), selected, null, state.target());
@@ -682,7 +783,7 @@ public final class MainWindow {
         }
 
         ListView<BlockDevice> listView = selectionListView();
-        listView.getItems().setAll(devices);
+        Node content = searchableSelectionContent(listView, devices, MainWindow::targetMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one target list cell.
             ///
@@ -691,7 +792,16 @@ public final class MainWindow {
             @Override
             protected void updateItem(@Nullable BlockDevice item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? null : targetLabel(item));
+                clearSelectionCellStyles(this);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+
+                setText(null);
+                setGraphic(targetCellContent(item));
+                getStyleClass().add(targetWritable(item) ? "safe-target-cell" : "blocked-target-cell");
             }
         });
         selectCurrentTarget(listView, state.target());
@@ -699,7 +809,7 @@ public final class MainWindow {
         if (showSelectionDialog(
                 Messages.get("gui.dialog.chooseStorageDevice"),
                 Messages.get("gui.dialog.chooseStorageDevice.header"),
-                listView)) {
+                content)) {
             BlockDevice selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(
@@ -727,17 +837,26 @@ public final class MainWindow {
             return;
         }
 
-        String confirmContent = Messages.get(
-                "gui.dialog.confirmFlash.content",
-                manufacturerLabel(),
-                boardLabel(),
-                imageSourceLabel(),
-                targetLabel(selectedTarget));
+        if (selectedImage != null && !catalogImageFlashable(selectedImage)) {
+            showInfo(
+                    Messages.get("gui.dialog.unsupportedImage"),
+                    Messages.get("gui.dialog.unsupportedImage.message"));
+            return;
+        }
+        if (!targetWritable(selectedTarget)) {
+            showInfo(
+                    Messages.get("gui.dialog.blockedStorage"),
+                    Messages.get("gui.dialog.blockedStorage.message", targetSafetyLabel(selectedTarget)));
+            return;
+        }
+
+        Node confirmContent = flashConfirmationContent(selectedTarget);
         if (!showConfirmationDialog(
                 Messages.get("gui.dialog.confirmFlash"),
                 Messages.get("gui.dialog.confirmFlash.header"),
                 confirmContent,
-                "gui.button.flash")) {
+                "gui.button.flash",
+                "material-confirm-dialog")) {
             return;
         }
 
@@ -827,7 +946,24 @@ public final class MainWindow {
         osButton.setDisable(busy || state.localImage() != null);
         localImageButton.setDisable(busy);
         storageButton.setDisable(busy);
-        flashButton.setDisable(busy || !hasImageSource() || state.target() == null);
+        flashButton.setDisable(!canFlash());
+    }
+
+    /// Returns whether the current state can start a flash operation.
+    ///
+    /// @return whether flashing can start.
+    private boolean canFlash() {
+        if (busy || !hasImageSource()) {
+            return false;
+        }
+
+        @Nullable BlockDevice target = state.target();
+        if (target == null || !targetWritable(target)) {
+            return false;
+        }
+
+        @Nullable ImageEntry image = state.image();
+        return image == null || catalogImageFlashable(image);
     }
 
     /// Returns whether exactly one image source is selected.
@@ -835,6 +971,48 @@ public final class MainWindow {
     /// @return whether an image source is selected.
     private boolean hasImageSource() {
         return (state.image() == null) != (state.localImage() == null);
+    }
+
+    /// Builds the final destructive-operation confirmation content.
+    ///
+    /// @param target selected target device.
+    /// @return confirmation content.
+    private Node flashConfirmationContent(BlockDevice target) {
+        GridPane summary = new GridPane();
+        summary.getStyleClass().add("confirmation-summary");
+        summary.setHgap(18);
+        summary.setVgap(8);
+        addConfirmationRow(summary, 0, "gui.dialog.confirmFlash.manufacturer", manufacturerLabel());
+        addConfirmationRow(summary, 1, "gui.dialog.confirmFlash.board", boardLabel());
+        addConfirmationRow(summary, 2, "gui.dialog.confirmFlash.imageSource", imageSourceLabel());
+        addConfirmationRow(summary, 3, "gui.dialog.confirmFlash.storage", targetLabel(target));
+
+        Label warning = new Label(Messages.get("gui.dialog.confirmFlash.warning"));
+        warning.setWrapText(true);
+        warning.getStyleClass().add("confirmation-warning");
+
+        VBox content = new VBox(12, summary, warning);
+        content.getStyleClass().add("confirmation-content");
+        return content;
+    }
+
+    /// Adds one row to a confirmation summary grid.
+    ///
+    /// @param summary target summary grid.
+    /// @param row row index.
+    /// @param keyLabelKey message key for the row label.
+    /// @param valueText row value.
+    private static void addConfirmationRow(GridPane summary, int row, String keyLabelKey, String valueText) {
+        Label keyLabel = new Label(Messages.get(keyLabelKey));
+        keyLabel.getStyleClass().add("confirmation-key");
+
+        Label valueLabel = new Label(valueText);
+        valueLabel.setWrapText(true);
+        valueLabel.getStyleClass().add("confirmation-value");
+        GridPane.setHgrow(valueLabel, Priority.ALWAYS);
+
+        summary.add(keyLabel, 0, row);
+        summary.add(valueLabel, 1, row);
     }
 
     /// Formats the manufacturer step label.
@@ -1053,18 +1231,181 @@ public final class MainWindow {
         listView.getSelectionModel().selectFirst();
     }
 
+    /// Returns whether a manufacturer option matches a search query.
+    ///
+    /// @param manufacturer manufacturer option.
+    /// @param query normalized query.
+    /// @return whether the option matches.
+    private static boolean manufacturerMatches(ManufacturerOption manufacturer, String query) {
+        return textMatches(manufacturer.name(), query)
+                || textMatches(Messages.get(
+                        "gui.list.manufacturer",
+                        manufacturer.name(),
+                        manufacturer.boardCount(),
+                        manufacturer.imageCount()), query);
+    }
+
+    /// Returns whether a board option matches a search query.
+    ///
+    /// @param board board option.
+    /// @param query normalized query.
+    /// @return whether the option matches.
+    private static boolean boardMatches(BoardOption board, String query) {
+        return textMatches(board.name(), query)
+                || textMatches(Messages.get("gui.list.board", board.name(), board.imageCount()), query);
+    }
+
+    /// Returns whether an image entry matches a search query.
+    ///
+    /// @param image image entry.
+    /// @param query normalized query.
+    /// @return whether the image matches.
+    private static boolean imageMatches(ImageEntry image, String query) {
+        return textMatches(image.displayName(), query)
+                || textMatches(image.manufacturer(), query)
+                || textMatches(image.board(), query)
+                || textMatches(image.variant(), query)
+                || textMatches(image.strategy(), query)
+                || textMatches(image.atom(), query)
+                || textMatches(imageSupportLabel(image), query);
+    }
+
+    /// Returns whether a target device matches a search query.
+    ///
+    /// @param target target device.
+    /// @param query normalized query.
+    /// @return whether the target matches.
+    private static boolean targetMatches(BlockDevice target, String query) {
+        return textMatches(target.displayName(), query)
+                || textMatches(targetPathText(target), query)
+                || textMatches(targetSizeLabel(target), query)
+                || textMatches(targetSafetyLabel(target), query)
+                || textMatches(target.model(), query)
+                || textMatches(target.busType(), query);
+    }
+
+    /// Returns whether text contains a normalized search query.
+    ///
+    /// @param text text to search.
+    /// @param query normalized query.
+    /// @return whether the text matches.
+    private static boolean textMatches(@Nullable String text, String query) {
+        return text != null && text.toLowerCase(Locale.ROOT).contains(query);
+    }
+
+    /// Clears state-dependent list cell styles.
+    ///
+    /// @param cell list cell to reset.
+    private static void clearSelectionCellStyles(MFXLegacyListCell<?> cell) {
+        cell.getStyleClass().removeAll(
+                "flashable-image-cell",
+                "unsupported-image-cell",
+                "safe-target-cell",
+                "blocked-target-cell");
+    }
+
+    /// Creates rich content for one image list cell.
+    ///
+    /// @param image image entry.
+    /// @return cell content.
+    private static Node imageCellContent(ImageEntry image) {
+        Label title = new Label(image.displayName());
+        title.setWrapText(true);
+        title.getStyleClass().add("selection-title");
+
+        Label details = new Label(Messages.get("gui.image.details", image.variant(), image.strategy()));
+        details.setWrapText(true);
+        details.getStyleClass().add("selection-detail");
+
+        Label status = statusPill(
+                imageSupportLabel(image),
+                catalogImageFlashable(image) ? "status-supported" : "status-blocked");
+        HBox statusRow = new HBox(status);
+        statusRow.getStyleClass().add("selection-pill-row");
+
+        VBox content = new VBox(4, title, details, statusRow);
+        content.getStyleClass().add("selection-cell-content");
+        return content;
+    }
+
+    /// Creates rich content for one target list cell.
+    ///
+    /// @param target target device.
+    /// @return cell content.
+    private static Node targetCellContent(BlockDevice target) {
+        Label title = new Label(target.displayName());
+        title.setWrapText(true);
+        title.getStyleClass().add("selection-title");
+
+        Label details = new Label(Messages.get("gui.target.details", targetPathText(target), targetSizeLabel(target)));
+        details.setWrapText(true);
+        details.getStyleClass().add("selection-detail");
+
+        boolean writable = targetWritable(target);
+        String statusText = writable ? Messages.get("gui.target.ready") : targetSafetyLabel(target);
+        Label status = statusPill(statusText, writable ? "status-supported" : "status-blocked");
+        HBox statusRow = new HBox(status);
+        statusRow.getStyleClass().add("selection-pill-row");
+
+        VBox content = new VBox(4, title, details, statusRow);
+        content.getStyleClass().add("selection-cell-content");
+        return content;
+    }
+
+    /// Creates a compact status label.
+    ///
+    /// @param text label text.
+    /// @param styleClass state-specific style class.
+    /// @return status label.
+    private static Label statusPill(String text, String styleClass) {
+        Label label = new Label(text);
+        label.setWrapText(true);
+        label.getStyleClass().add("status-pill");
+        label.getStyleClass().add(styleClass);
+        return label;
+    }
+
     /// Formats an image for list and summary display.
     ///
     /// @param image image entry.
     /// @return display text.
     private static String imageLabel(ImageEntry image) {
-        return image.displayName()
-                + " - "
-                + image.variant()
-                + " - "
-                + image.strategy()
-                + " - "
-                + image.support();
+        return Messages.get(
+                "gui.image.summary",
+                image.displayName(),
+                image.variant(),
+                image.strategy(),
+                imageSupportLabel(image));
+    }
+
+    /// Returns whether the current GUI writer can flash a catalog image.
+    ///
+    /// @param image image entry.
+    /// @return whether the image is flashable through the current local writer.
+    private static boolean catalogImageFlashable(ImageEntry image) {
+        return image.support() == StrategySupport.SUPPORTED
+                && "dd-v1".equals(image.strategy())
+                && image.partitionMap().size() == 1;
+    }
+
+    /// Formats the current flash support state for an image.
+    ///
+    /// @param image image entry.
+    /// @return localized support label.
+    private static String imageSupportLabel(ImageEntry image) {
+        if (catalogImageFlashable(image)) {
+            return Messages.get("gui.image.support.flashable");
+        }
+        if (image.support() == StrategySupport.UNKNOWN) {
+            return Messages.get("gui.image.support.unknown");
+        }
+        if (image.support() == StrategySupport.UNSUPPORTED) {
+            return Messages.get("gui.image.support.unsupported");
+        }
+        if (!"dd-v1".equals(image.strategy())) {
+            return Messages.get("gui.image.support.writerUnsupported");
+        }
+        return Messages.get("gui.image.support.multiTargetUnsupported");
     }
 
     /// Formats a target for list and summary display.
@@ -1073,7 +1414,42 @@ public final class MainWindow {
     /// @return display text.
     private static String targetLabel(BlockDevice target) {
         String safety = targetSafetyLabel(target);
-        return target.displayName() + " - " + targetPathText(target) + (safety.isEmpty() ? "" : " - " + safety);
+        return Messages.get(
+                "gui.target.summary",
+                target.displayName(),
+                targetPathText(target),
+                targetSizeLabel(target),
+                safety.isEmpty() ? Messages.get("gui.target.ready") : safety);
+    }
+
+    /// Returns whether a target can be written by the GUI.
+    ///
+    /// @param target target device.
+    /// @return whether the target is not blocked by safety flags.
+    private static boolean targetWritable(BlockDevice target) {
+        return !target.system() && !target.mounted() && !target.readOnly();
+    }
+
+    /// Formats a target size.
+    ///
+    /// @param target target device.
+    /// @return human-readable target size.
+    private static String targetSizeLabel(BlockDevice target) {
+        long size = target.sizeBytes();
+        if (size <= 0L) {
+            return Messages.get("gui.target.sizeUnknown");
+        }
+
+        double value = size;
+        int unitIndex = 0;
+        while (value >= 1024.0 && unitIndex < SIZE_UNITS.size() - 1) {
+            value /= 1024.0;
+            unitIndex++;
+        }
+        if (unitIndex == 0) {
+            return "%d %s".formatted(size, SIZE_UNITS.get(unitIndex));
+        }
+        return String.format(Locale.ROOT, "%.1f %s", value, SIZE_UNITS.get(unitIndex));
     }
 
     /// Converts a target path to display text.
