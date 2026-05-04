@@ -28,6 +28,15 @@ public interface ImageCatalogService {
         return RuyiImageSelector.find(listImages(), atom);
     }
 
+    /// Returns a lightweight cache status for one image.
+    ///
+    /// @param image image to inspect.
+    /// @return image cache status.
+    /// @throws IOException when the cache cannot be inspected.
+    default ImageCacheStatus cacheStatus(ImageEntry image) throws IOException {
+        return ImageCacheStatus.unknown(image.distfiles().size());
+    }
+
     /// Downloads an image artifact.
     ///
     /// @param image image to download.

@@ -123,12 +123,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             throw new IOException(Messages.get("core.download.imageNoDistfiles", image.atom()));
         }
 
-        Path downloadDirectory = directories.cacheDirectory()
-                .resolve("downloads")
-                .resolve(image.repoId())
-                .resolve(image.category())
-                .resolve(image.name())
-                .resolve(image.version());
+        Path downloadDirectory = downloadDirectory(image);
         Files.createDirectories(downloadDirectory);
 
         ArrayList<Path> downloadedDistfiles = new ArrayList<>();
@@ -145,6 +140,93 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         Path result = materializer.materialize(image, List.copyOf(downloadedDistfiles), artifactDirectory, reporter);
         reporter.report(ProgressEvent.indeterminate("download", Messages.get("core.download.imageComplete", image.atom())));
         return result;
+    }
+
+    /// Returns a lightweight cache status for one image.
+    ///
+    /// @param image image to inspect.
+    /// @return image cache status.
+    /// @throws IOException when the cache cannot be inspected.
+    @Override
+    public ImageCacheStatus cacheStatus(ImageEntry image) throws IOException {
+        List<RuyiDistfile> distfiles = image.distfiles();
+        if (distfiles.isEmpty()) {
+            return ImageCacheStatus.unknown(0);
+        }
+
+        Path downloadDirectory = downloadDirectory(image);
+        int cachedDistfiles = 0;
+        long cachedBytes = 0L;
+        long expectedBytes = 0L;
+        boolean totalBytesKnown = true;
+        boolean partialCachePresent = false;
+        boolean manualDownloadRequired = false;
+
+        for (RuyiDistfile distfile : distfiles) {
+            @Nullable Long distfileSize = distfile.sizeBytes();
+            if (distfileSize == null) {
+                totalBytesKnown = false;
+            } else {
+                expectedBytes += distfileSize;
+            }
+
+            Path target = downloadDirectory.resolve(distfile.name());
+            boolean cached = false;
+            if (Files.isRegularFile(target)) {
+                long size = Files.size(target);
+                if (distfileSize == null || size == distfileSize) {
+                    cached = true;
+                    cachedDistfiles++;
+                    cachedBytes += size;
+                }
+            }
+
+            if (!cached) {
+                if (distfile.fetchRestricted()) {
+                    manualDownloadRequired = true;
+                }
+
+                Path partial = downloadDirectory.resolve(distfile.name() + ".part");
+                if (Files.isRegularFile(partial)) {
+                    long partialBytes = Files.size(partial);
+                    if (distfileSize == null || partialBytes <= distfileSize) {
+                        cachedBytes += partialBytes;
+                        partialCachePresent = partialCachePresent || partialBytes > 0L;
+                    }
+                }
+            }
+        }
+
+        ImageCacheStatus.State state;
+        if (cachedDistfiles == distfiles.size()) {
+            state = ImageCacheStatus.State.COMPLETE;
+        } else if (manualDownloadRequired) {
+            state = ImageCacheStatus.State.MANUAL_REQUIRED;
+        } else if (cachedDistfiles > 0 || partialCachePresent) {
+            state = ImageCacheStatus.State.PARTIAL;
+        } else {
+            state = ImageCacheStatus.State.EMPTY;
+        }
+
+        return new ImageCacheStatus(
+                state,
+                cachedDistfiles,
+                distfiles.size(),
+                cachedBytes,
+                totalBytesKnown ? expectedBytes : null);
+    }
+
+    /// Resolves the download cache directory for one image.
+    ///
+    /// @param image image entry.
+    /// @return download cache directory.
+    private Path downloadDirectory(ImageEntry image) {
+        return directories.cacheDirectory()
+                .resolve("downloads")
+                .resolve(image.repoId())
+                .resolve(image.category())
+                .resolve(image.name())
+                .resolve(image.version());
     }
 
     /// Reads all provisionable image manifests from one repository.

@@ -124,6 +124,53 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals(StrategySupport.UNSUPPORTED, image.support());
     }
 
+    /// Verifies lightweight distfile cache status inspection.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when test fixture files cannot be created or read.
+    @Test
+    public void reportsImageCacheStatus(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        writeConfig(configDirectory, repoDirectory);
+        writeRepository(repoDirectory);
+
+        RuyiImageCatalogService service = new RuyiImageCatalogService(
+                new AppDirectories(configDirectory, cacheDirectory),
+                new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory)));
+        ImageEntry image = service.listImages().images().getFirst();
+
+        ImageCacheStatus emptyStatus = service.cacheStatus(image);
+        assertEquals(ImageCacheStatus.State.EMPTY, emptyStatus.state());
+        assertEquals(0, emptyStatus.cachedDistfiles());
+        assertEquals(1, emptyStatus.totalDistfiles());
+        assertEquals(0L, emptyStatus.cachedBytes());
+        assertEquals(1024L, emptyStatus.totalBytes());
+
+        Path downloadDirectory = cacheDirectory
+                .resolve("downloads")
+                .resolve("ruyisdk")
+                .resolve("board-image")
+                .resolve("revyos-milkv-meles")
+                .resolve("1.2.3");
+        Files.createDirectories(downloadDirectory);
+        Files.write(downloadDirectory.resolve("image.raw.part"), new byte[512]);
+
+        ImageCacheStatus partialStatus = service.cacheStatus(image);
+        assertEquals(ImageCacheStatus.State.PARTIAL, partialStatus.state());
+        assertEquals(0, partialStatus.cachedDistfiles());
+        assertEquals(512L, partialStatus.cachedBytes());
+
+        Files.write(downloadDirectory.resolve("image.raw"), new byte[1024]);
+
+        ImageCacheStatus completeStatus = service.cacheStatus(image);
+        assertEquals(ImageCacheStatus.State.COMPLETE, completeStatus.state());
+        assertEquals(1, completeStatus.cachedDistfiles());
+        assertEquals(1024L, completeStatus.cachedBytes());
+    }
+
     /// Writes the application config fixture.
     ///
     /// @param configDirectory config directory.

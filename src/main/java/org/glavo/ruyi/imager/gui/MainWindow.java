@@ -41,6 +41,7 @@ import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.flash.FlashRequest;
+import org.glavo.ruyi.imager.core.image.ImageCacheStatus;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.i18n.Messages;
@@ -696,6 +697,7 @@ public final class MainWindow {
         }
 
         ListView<ImageEntry> listView = selectionListView();
+        @Unmodifiable Map<String, ImageCacheStatus> cacheStatuses = imageCacheStatuses(images);
         Node content = searchableSelectionContent(listView, images, MainWindow::imageMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one image list cell.
@@ -713,7 +715,7 @@ public final class MainWindow {
                 }
 
                 setText(null);
-                setGraphic(imageCellContent(item));
+                setGraphic(imageCellContent(item, cacheStatus(cacheStatuses, item)));
                 getStyleClass().add(catalogImageFlashable(item) ? "flashable-image-cell" : "unsupported-image-cell");
             }
         });
@@ -1044,7 +1046,7 @@ public final class MainWindow {
         }
 
         @Nullable ImageEntry image = state.image();
-        return image == null ? Messages.get("gui.value.os.none") : imageLabel(image);
+        return image == null ? Messages.get("gui.value.os.none") : imageLabel(image, imageCacheStatus(image));
     }
 
     /// Formats the selected local image option.
@@ -1066,7 +1068,7 @@ public final class MainWindow {
     private String imageSourceLabel() {
         @Nullable ImageEntry image = state.image();
         if (image != null) {
-            return imageLabel(image);
+            return imageLabel(image, imageCacheStatus(image));
         }
 
         @Nullable Path localImage = state.localImage();
@@ -1293,6 +1295,42 @@ public final class MainWindow {
         return text != null && text.toLowerCase(Locale.ROOT).contains(query);
     }
 
+    /// Reads cache statuses for a list of images.
+    ///
+    /// @param images image entries.
+    /// @return cache status map keyed by image atom.
+    private @Unmodifiable Map<String, ImageCacheStatus> imageCacheStatuses(List<ImageEntry> images) {
+        LinkedHashMap<String, ImageCacheStatus> result = new LinkedHashMap<>();
+        for (ImageEntry image : images) {
+            result.put(image.atom(), imageCacheStatus(image));
+        }
+        return Map.copyOf(result);
+    }
+
+    /// Reads the cache status for one image.
+    ///
+    /// @param image image entry.
+    /// @return cache status, or unknown when status inspection fails.
+    private ImageCacheStatus imageCacheStatus(ImageEntry image) {
+        try {
+            return services.images().cacheStatus(image);
+        } catch (IOException _) {
+            return ImageCacheStatus.unknown(image.distfiles().size());
+        }
+    }
+
+    /// Returns a cached status for one image.
+    ///
+    /// @param cacheStatuses cache status map keyed by image atom.
+    /// @param image image entry.
+    /// @return cache status.
+    private static ImageCacheStatus cacheStatus(
+            Map<String, ImageCacheStatus> cacheStatuses,
+            ImageEntry image) {
+        @Nullable ImageCacheStatus cacheStatus = cacheStatuses.get(image.atom());
+        return cacheStatus == null ? ImageCacheStatus.unknown(image.distfiles().size()) : cacheStatus;
+    }
+
     /// Clears state-dependent list cell styles.
     ///
     /// @param cell list cell to reset.
@@ -1307,20 +1345,26 @@ public final class MainWindow {
     /// Creates rich content for one image list cell.
     ///
     /// @param image image entry.
+    /// @param cacheStatus image cache status.
     /// @return cell content.
-    private static Node imageCellContent(ImageEntry image) {
+    private static Node imageCellContent(ImageEntry image, ImageCacheStatus cacheStatus) {
         Label title = new Label(image.displayName());
         title.setWrapText(true);
         title.getStyleClass().add("selection-title");
 
-        Label details = new Label(Messages.get("gui.image.details", image.variant(), image.strategy()));
+        Label details = new Label(Messages.get(
+                "gui.image.details",
+                image.variant(),
+                image.strategy(),
+                imageCacheStatusLabel(cacheStatus)));
         details.setWrapText(true);
         details.getStyleClass().add("selection-detail");
 
-        Label status = statusPill(
+        Label supportStatus = statusPill(
                 imageSupportLabel(image),
                 catalogImageFlashable(image) ? "status-supported" : "status-blocked");
-        HBox statusRow = new HBox(status);
+        Label cacheStatusLabel = statusPill(imageCacheStatusLabel(cacheStatus), imageCacheStatusStyle(cacheStatus));
+        HBox statusRow = new HBox(6, supportStatus, cacheStatusLabel);
         statusRow.getStyleClass().add("selection-pill-row");
 
         VBox content = new VBox(4, title, details, statusRow);
@@ -1368,14 +1412,16 @@ public final class MainWindow {
     /// Formats an image for list and summary display.
     ///
     /// @param image image entry.
+    /// @param cacheStatus image cache status.
     /// @return display text.
-    private static String imageLabel(ImageEntry image) {
+    private static String imageLabel(ImageEntry image, ImageCacheStatus cacheStatus) {
         return Messages.get(
                 "gui.image.summary",
                 image.displayName(),
                 image.variant(),
                 image.strategy(),
-                imageSupportLabel(image));
+                imageSupportLabel(image),
+                imageCacheStatusLabel(cacheStatus));
     }
 
     /// Returns whether the current GUI writer can flash a catalog image.
@@ -1406,6 +1452,36 @@ public final class MainWindow {
             return Messages.get("gui.image.support.writerUnsupported");
         }
         return Messages.get("gui.image.support.multiTargetUnsupported");
+    }
+
+    /// Formats an image cache state.
+    ///
+    /// @param cacheStatus image cache status.
+    /// @return localized cache label.
+    private static String imageCacheStatusLabel(ImageCacheStatus cacheStatus) {
+        return switch (cacheStatus.state()) {
+            case COMPLETE -> Messages.get("gui.image.cache.cached");
+            case PARTIAL -> Messages.get(
+                    "gui.image.cache.partial",
+                    cacheStatus.cachedDistfiles(),
+                    cacheStatus.totalDistfiles());
+            case EMPTY -> Messages.get("gui.image.cache.downloadRequired");
+            case MANUAL_REQUIRED -> Messages.get("gui.image.cache.manualRequired");
+            case UNKNOWN -> Messages.get("gui.image.cache.unknown");
+        };
+    }
+
+    /// Chooses a style class for an image cache state.
+    ///
+    /// @param cacheStatus image cache status.
+    /// @return style class.
+    private static String imageCacheStatusStyle(ImageCacheStatus cacheStatus) {
+        return switch (cacheStatus.state()) {
+            case COMPLETE -> "status-supported";
+            case PARTIAL -> "status-warning";
+            case EMPTY, UNKNOWN -> "status-neutral";
+            case MANUAL_REQUIRED -> "status-blocked";
+        };
     }
 
     /// Formats a target for list and summary display.

@@ -247,6 +247,16 @@
     -fx-text-fill: #1f7a4d;
 }
 
+.status-neutral {
+    -fx-background-color: #e8f1fb;
+    -fx-text-fill: #315f8f;
+}
+
+.status-warning {
+    -fx-background-color: #fff4d8;
+    -fx-text-fill: #8a6200;
+}
+
 .status-blocked {
     -fx-background-color: #ffe6df;
     -fx-text-fill: #a33a25;

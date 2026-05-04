@@ -27,6 +27,7 @@
 - Image catalog 已从 Ruyi `metadata.vendor.name` 读取 manufacturer，用于 GUI 的制造商分组。
 - Image selection 已支持 atom/版本解析：精确 `category/name(version)`、短名、`category/name`、`name:`、`slug:` 和 SemVer 范围；默认选择最新非 prerelease。
 - Distfile 下载器已支持 HTTP/HTTPS、`.part` 临时文件、Range 续传、原子落盘、大小校验、SHA-256/SHA-512 校验、缓存复用，以及 `restrict = ["fetch"]` 拒绝自动下载。
+- Image catalog service 已提供轻量 cache status 检查，可报告目录镜像 distfile 是否已缓存、部分缓存、需要下载或需要手动下载。
 - Artifact 物化已支持 raw copy、bare gzip 解压、zip 安全解包、tar 解包、tar.gz 解包，以及 zip/tar 的 `stripComponents`；`tar.xz`、`tar.zst`、`tar.bz2`、`tar.lz4`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。
 - 本地 `dd-v1` 刷写核心已接入默认服务图，支持本地镜像和 Ruyi 镜像物化路径写入 `BlockDevice.path()`，包含系统盘、已挂载、只读、容量、自写入安全检查、flush 和写后 verify。
 - Windows 只读块设备枚举已接入，输出 `\\.\PHYSICALDRIVE*`、容量、型号、bus type、removable/system/mounted/read-only。非 Windows 平台目前仍使用占位枚举服务。
@@ -34,7 +35,7 @@
 - JavaFX GUI 已实现程序化主窗口和 CSS；目录镜像选择流程已改为类似 Armbian Imager 的 Manufacturer -> Board -> Operating System -> Storage Device 四步级联，并显示 storage 安全阻断状态。
 - GUI 已支持后台触发 repo metadata update；本地镜像选择已从目录四步流程中拆出，与 Manufacturer -> Board -> Operating System 目录选择并列显示为二选一入口，并在本地镜像模式下跳过目录选择步骤。
 - GUI 已接入 MaterialFX 主题，主流程按钮、进度条、滚动容器、选择列表、选择/确认/提示弹窗已切换为 MaterialFX 控件或 legacy MaterialFX 控件。
-- GUI 选择弹窗已增加搜索框；操作系统列表显示策略和本地后端支持状态，存储设备列表显示容量和安全状态，并在 unsupported image 或 blocked target 时提前禁用刷写入口。
+- GUI 选择弹窗已增加搜索框；操作系统列表显示策略、本地后端支持状态和缓存状态，存储设备列表显示容量和安全状态，并在 unsupported image 或 blocked target 时提前禁用刷写入口。
 - GUI 最终确认弹窗已改为结构化摘要，明确展示 manufacturer、board、image source、storage 和覆盖警告。
 - GUI header 已增加运行时语言切换入口，当前支持 English 和简体中文；切换后通过 `Messages` locale property 刷新已绑定文本，并将用户语言偏好持久化到 GUI preferences 文件。
 - i18n 基础设施已接入 `ResourceBundle`，当前提供英文和简体中文资源；GUI 文本、CLI 运行时错误、CLI root help、核心下载/仓库/刷写进度与结果消息已走同一套消息资源，可通过系统 locale 或 `ruyi.imager.locale` 覆盖。`Messages` 已暴露 locale property 和 `StringBinding` helper，GUI 固定文本可随 locale 切换更新。
@@ -53,7 +54,6 @@
   - 增加 tar.xz、tar.zst、tar.bz2 等 Ruyi 常见压缩 tar archive 支持。
   - 明确 unsupported archive 的用户提示和 fallback 路径。
 - GUI：
-  - 增加 image cache 状态提示。
   - 为 fastboot 和多目标 strategy 增加专门流程。
 - 测试：
   - 增加 CLI fixture repo 集成测试，覆盖 `repo update`、`image list/download --json` 和 unsupported strategy。
