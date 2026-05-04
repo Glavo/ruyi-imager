@@ -8,9 +8,7 @@ import javafx.concurrent.Task;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Parent;
-import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
@@ -21,12 +19,17 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
+import javafx.stage.Modality;
 import javafx.stage.Window;
 import io.github.palexdev.materialfx.controls.MFXButton;
 import io.github.palexdev.materialfx.controls.MFXProgressBar;
 import io.github.palexdev.materialfx.controls.MFXScrollPane;
 import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListCell;
 import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListView;
+import io.github.palexdev.materialfx.dialogs.MFXGenericDialog;
+import io.github.palexdev.materialfx.dialogs.MFXGenericDialogBuilder;
+import io.github.palexdev.materialfx.dialogs.MFXStageDialog;
+import io.github.palexdev.materialfx.dialogs.MFXStageDialogBuilder;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
@@ -39,6 +42,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.File;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -46,6 +50,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /// Main JavaFX window for the guided imager workflow.
@@ -398,12 +403,10 @@ public final class MainWindow {
         });
         selectCurrentManufacturer(listView, state.manufacturerName());
 
-        Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle(Messages.get("gui.dialog.chooseManufacturer"));
-        dialog.setHeaderText(Messages.get("gui.dialog.chooseManufacturer.header"));
-        dialog.getDialogPane().setContent(listView);
-        dialog.showAndWait();
-        if (dialog.getResult() == ButtonType.OK) {
+        if (showSelectionDialog(
+                Messages.get("gui.dialog.chooseManufacturer"),
+                Messages.get("gui.dialog.chooseManufacturer.header"),
+                listView)) {
             ManufacturerOption selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(selected.name(), null, null, null, state.target());
@@ -460,12 +463,10 @@ public final class MainWindow {
         });
         selectCurrentBoard(listView, state.boardName());
 
-        Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle(Messages.get("gui.dialog.chooseBoard"));
-        dialog.setHeaderText(Messages.get("gui.dialog.chooseBoard.header", state.manufacturerName()));
-        dialog.getDialogPane().setContent(listView);
-        dialog.showAndWait();
-        if (dialog.getResult() == ButtonType.OK) {
+        if (showSelectionDialog(
+                Messages.get("gui.dialog.chooseBoard"),
+                Messages.get("gui.dialog.chooseBoard.header", state.manufacturerName()),
+                listView)) {
             BoardOption selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(state.manufacturerName(), selected.name(), null, null, state.target());
@@ -522,12 +523,10 @@ public final class MainWindow {
         });
         selectCurrentImage(listView, state.image());
 
-        Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle(Messages.get("gui.dialog.chooseOperatingSystem"));
-        dialog.setHeaderText(Messages.get("gui.dialog.chooseOperatingSystem.header", state.boardName()));
-        dialog.getDialogPane().setContent(listView);
-        dialog.showAndWait();
-        if (dialog.getResult() == ButtonType.OK) {
+        if (showSelectionDialog(
+                Messages.get("gui.dialog.chooseOperatingSystem"),
+                Messages.get("gui.dialog.chooseOperatingSystem.header", state.boardName()),
+                listView)) {
             ImageEntry selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(selected.manufacturer(), selected.board(), selected, null, state.target());
@@ -552,7 +551,7 @@ public final class MainWindow {
             }
         }
 
-        @Nullable Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        @Nullable Window owner = ownerWindow();
         @Nullable File selected = chooser.showOpenDialog(owner);
         if (selected == null) {
             return;
@@ -602,12 +601,10 @@ public final class MainWindow {
         });
         selectCurrentTarget(listView, state.target());
 
-        Alert dialog = new Alert(Alert.AlertType.CONFIRMATION);
-        dialog.setTitle(Messages.get("gui.dialog.chooseStorageDevice"));
-        dialog.setHeaderText(Messages.get("gui.dialog.chooseStorageDevice.header"));
-        dialog.getDialogPane().setContent(listView);
-        dialog.showAndWait();
-        if (dialog.getResult() == ButtonType.OK) {
+        if (showSelectionDialog(
+                Messages.get("gui.dialog.chooseStorageDevice"),
+                Messages.get("gui.dialog.chooseStorageDevice.header"),
+                listView)) {
             BlockDevice selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(
@@ -635,17 +632,17 @@ public final class MainWindow {
             return;
         }
 
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle(Messages.get("gui.dialog.confirmFlash"));
-        confirm.setHeaderText(Messages.get("gui.dialog.confirmFlash.header"));
-        confirm.setContentText(Messages.get(
+        String confirmContent = Messages.get(
                 "gui.dialog.confirmFlash.content",
                 manufacturerLabel(),
                 boardLabel(),
                 imageSourceLabel(),
-                targetLabel(selectedTarget)));
-        confirm.showAndWait();
-        if (confirm.getResult() != ButtonType.OK) {
+                targetLabel(selectedTarget));
+        if (!showConfirmationDialog(
+                Messages.get("gui.dialog.confirmFlash"),
+                Messages.get("gui.dialog.confirmFlash.header"),
+                confirmContent,
+                "gui.button.flash")) {
             return;
         }
 
@@ -1041,7 +1038,7 @@ public final class MainWindow {
     /// @param title dialog title.
     /// @param message dialog message.
     private void showInfo(String title, String message) {
-        showAlert(Alert.AlertType.INFORMATION, title, message);
+        showMessageDialog(title, message, "material-info-dialog");
     }
 
     /// Shows an error dialog.
@@ -1049,28 +1046,173 @@ public final class MainWindow {
     /// @param title dialog title.
     /// @param message dialog message.
     private void showError(String title, @Nullable String message) {
-        showAlert(Alert.AlertType.ERROR, title, message == null ? Messages.get("gui.dialog.unknownFailure") : message);
+        showMessageDialog(
+                title,
+                message == null ? Messages.get("gui.dialog.unknownFailure") : message,
+                "material-error-dialog");
     }
 
-    /// Shows an alert on the JavaFX application thread.
+    /// Shows a MaterialFX message dialog on the JavaFX application thread.
     ///
-    /// @param type alert type.
     /// @param title dialog title.
     /// @param message dialog message.
-    private void showAlert(Alert.AlertType type, String title, String message) {
-        Runnable action = () -> {
-            Alert alert = new Alert(type);
-            alert.setTitle(title);
-            alert.setHeaderText(title);
-            alert.setContentText(message);
-            alert.showAndWait();
-        };
+    /// @param styleClass dialog style class.
+    private void showMessageDialog(String title, String message, String styleClass) {
+        Runnable action = () -> showMaterialDialog(
+                title,
+                title,
+                messageContent(message),
+                "gui.dialog.ok",
+                styleClass,
+                false);
 
         if (Platform.isFxApplicationThread()) {
             action.run();
         } else {
             Platform.runLater(action);
         }
+    }
+
+    /// Shows a MaterialFX selection dialog.
+    ///
+    /// @param title dialog title.
+    /// @param header dialog header.
+    /// @param content dialog content.
+    /// @return whether the user accepted the dialog.
+    private boolean showSelectionDialog(String title, String header, Node content) {
+        return showConfirmationDialog(title, header, content, "gui.dialog.select", "material-selection-dialog");
+    }
+
+    /// Shows a MaterialFX confirmation dialog with text content.
+    ///
+    /// @param title dialog title.
+    /// @param header dialog header.
+    /// @param message dialog message.
+    /// @param confirmKey confirm button message key.
+    /// @return whether the user accepted the dialog.
+    private boolean showConfirmationDialog(String title, String header, String message, String confirmKey) {
+        return showConfirmationDialog(title, header, messageContent(message), confirmKey, "material-confirm-dialog");
+    }
+
+    /// Shows a MaterialFX confirmation dialog with custom content.
+    ///
+    /// @param title dialog title.
+    /// @param header dialog header.
+    /// @param content dialog content.
+    /// @param confirmKey confirm button message key.
+    /// @param styleClass dialog style class.
+    /// @return whether the user accepted the dialog.
+    private boolean showConfirmationDialog(
+            String title,
+            String header,
+            Node content,
+            String confirmKey,
+            String styleClass) {
+        return showMaterialDialog(title, header, content, confirmKey, styleClass, true);
+    }
+
+    /// Shows a MaterialFX dialog.
+    ///
+    /// @param title dialog title.
+    /// @param header dialog header.
+    /// @param content dialog content.
+    /// @param confirmKey confirm button message key.
+    /// @param styleClass dialog style class.
+    /// @param showCancel whether to show a cancel action.
+    /// @return whether the user accepted the dialog.
+    private boolean showMaterialDialog(
+            String title,
+            String header,
+            Node content,
+            String confirmKey,
+            String styleClass,
+            boolean showCancel) {
+        AtomicBoolean accepted = new AtomicBoolean();
+        @Nullable MFXButton cancelButton = showCancel
+                ? dialogActionButton("gui.dialog.cancel", "dialog-secondary-button")
+                : null;
+        MFXButton confirmButton = dialogActionButton(confirmKey, "dialog-primary-button");
+        MFXGenericDialogBuilder dialogBuilder = MFXGenericDialogBuilder.build()
+                .setHeaderText(header)
+                .setContent(content)
+                .setShowClose(false)
+                .setShowMinimize(false)
+                .setShowAlwaysOnTop(false)
+                .addStyleClasses("material-dialog", styleClass);
+        @Nullable String stylesheet = applicationStylesheet();
+        if (stylesheet != null) {
+            dialogBuilder.addStylesheets(stylesheet);
+        }
+        if (cancelButton == null) {
+            dialogBuilder.addActions(confirmButton);
+        } else {
+            dialogBuilder.addActions(cancelButton, confirmButton);
+        }
+        MFXGenericDialog dialogContent = dialogBuilder.get();
+        MFXStageDialogBuilder builder = MFXStageDialogBuilder.build()
+                .setContent(dialogContent)
+                .setOwnerNode(root)
+                .setCenterInOwnerNode(true)
+                .setScrimOwner(true)
+                .setScrimStrength(0.35)
+                .setDraggable(true)
+                .setOverlayClose(false)
+                .initModality(Modality.WINDOW_MODAL)
+                .setTitle(title);
+        @Nullable Window owner = ownerWindow();
+        if (owner != null) {
+            builder.initOwner(owner);
+        }
+
+        MFXStageDialog dialog = builder.get();
+        if (cancelButton != null) {
+            cancelButton.setOnAction(_ -> dialog.close());
+        }
+        confirmButton.setOnAction(_ -> {
+            accepted.set(true);
+            dialog.close();
+        });
+        dialog.showAndWait();
+        dialog.dispose();
+        return accepted.get();
+    }
+
+    /// Creates a MaterialFX dialog button.
+    ///
+    /// @param key message key.
+    /// @param styleClass button style class.
+    /// @return dialog action button.
+    private static MFXButton dialogActionButton(String key, String styleClass) {
+        MFXButton button = localizedButton(key);
+        button.getStyleClass().add("dialog-button");
+        button.getStyleClass().add(styleClass);
+        return button;
+    }
+
+    /// Creates wrapped message content for MaterialFX dialogs.
+    ///
+    /// @param message message text.
+    /// @return message content label.
+    private static Label messageContent(String message) {
+        Label label = new Label(message);
+        label.setWrapText(true);
+        label.getStyleClass().add("dialog-message");
+        return label;
+    }
+
+    /// Returns the current window owner.
+    ///
+    /// @return owner window, or null before the root is attached to a scene.
+    private @Nullable Window ownerWindow() {
+        return root.getScene() == null ? null : root.getScene().getWindow();
+    }
+
+    /// Returns the application stylesheet URL for independent dialog scenes.
+    ///
+    /// @return stylesheet URL, or null when the resource is unavailable.
+    private static @Nullable String applicationStylesheet() {
+        URL stylesheet = MainWindow.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
+        return stylesheet == null ? null : stylesheet.toExternalForm();
     }
 
     /// Holds the current guided workflow selections.
