@@ -19,6 +19,7 @@ dependencies {
     implementation("info.picocli:picocli:4.7.7")
     implementation("io.github.palexdev:materialfx:21.18.0-alpha")
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
+    implementation("org.glavo.kala:kala-compress-archivers-tar:1.27.1-3")
     implementation("org.tomlj:tomlj:1.1.1")
 
     val osName = System.getProperty("os.name").lowercase()

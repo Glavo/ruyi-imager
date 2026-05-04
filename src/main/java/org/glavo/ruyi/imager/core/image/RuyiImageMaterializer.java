@@ -3,6 +3,8 @@
 
 package org.glavo.ruyi.imager.core.image;
 
+import kala.compress.archivers.tar.TarArchiveEntry;
+import kala.compress.archivers.tar.TarArchiveInputStream;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.i18n.Messages;
@@ -13,7 +15,6 @@ import org.jetbrains.annotations.Unmodifiable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -239,51 +240,31 @@ public final class RuyiImageMaterializer {
     /// @throws IOException when extraction fails or the archive attempts path traversal.
     private static void extractTar(InputStream input, Path artifactDirectory, int stripComponents) throws IOException {
         Path normalizedRoot = artifactDirectory.toAbsolutePath().normalize();
-        byte[] header = new byte[512];
-        @Nullable String pendingLongName = null;
-        while (true) {
-            int headerBytes = input.readNBytes(header, 0, header.length);
-            if (headerBytes == 0) {
-                break;
-            }
-            if (headerBytes != header.length) {
-                throw new IOException(Messages.get("core.materialize.truncatedTarHeader"));
-            }
-            if (isZeroBlock(header)) {
-                break;
-            }
-
-            long size = parseTarOctal(header, 124, 12);
-            char type = (char) header[156];
-            String entryName = pendingLongName == null ? tarEntryName(header) : pendingLongName;
-            pendingLongName = null;
-
-            if (type == 'L') {
-                pendingLongName = readTarString(input, size);
-                skipTarPadding(input, size);
-                continue;
-            }
-
-            @Nullable String strippedName = strippedArchiveEntryName(entryName, stripComponents);
-            if (strippedName != null) {
-                if (type == '5') {
-                    Files.createDirectories(resolveArchiveTarget(normalizedRoot, strippedName, "Tar"));
-                } else if (type == 0 || type == '0') {
-                    Path target = resolveArchiveTarget(normalizedRoot, strippedName, "Tar");
-                    @Nullable Path parent = target.getParent();
-                    if (parent != null) {
-                        Files.createDirectories(parent);
-                    }
-                    try (OutputStream output = Files.newOutputStream(target)) {
-                        copyExactly(input, output, size);
-                    }
-                    skipTarPadding(input, size);
+        try (TarArchiveInputStream tarInput = new TarArchiveInputStream(input)) {
+            @Nullable TarArchiveEntry entry;
+            while ((entry = tarInput.getNextEntry()) != null) {
+                @Nullable String strippedName = strippedArchiveEntryName(entry.getName(), stripComponents);
+                if (strippedName == null) {
                     continue;
                 }
-            }
 
-            input.skipNBytes(size);
-            skipTarPadding(input, size);
+                Path target = resolveArchiveTarget(normalizedRoot, strippedName, "Tar");
+                if (entry.isDirectory()) {
+                    Files.createDirectories(target);
+                    continue;
+                }
+                if (!entry.isFile() || !tarInput.canReadEntryData(entry)) {
+                    continue;
+                }
+
+                @Nullable Path parent = target.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                try (OutputStream output = Files.newOutputStream(target)) {
+                    tarInput.transferTo(output);
+                }
+            }
         }
     }
 
@@ -352,119 +333,6 @@ public final class RuyiImageMaterializer {
             builder.append(parts.get(i));
         }
         return builder.toString();
-    }
-
-    /// Checks whether a tar block is all zero bytes.
-    ///
-    /// @param block tar block.
-    /// @return whether the block is empty.
-    private static boolean isZeroBlock(byte[] block) {
-        for (byte value : block) {
-            if (value != 0) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /// Reads a tar entry name from a header.
-    ///
-    /// @param header tar header.
-    /// @return entry name.
-    private static String tarEntryName(byte[] header) {
-        String name = tarString(header, 0, 100);
-        String prefix = tarString(header, 345, 155);
-        return prefix.isEmpty() ? name : prefix + "/" + name;
-    }
-
-    /// Reads a NUL-terminated tar string field.
-    ///
-    /// @param header tar header.
-    /// @param offset field offset.
-    /// @param length field length.
-    /// @return string field.
-    private static String tarString(byte[] header, int offset, int length) {
-        int end = offset;
-        int limit = offset + length;
-        while (end < limit && header[end] != 0) {
-            end++;
-        }
-        return new String(header, offset, end - offset, StandardCharsets.UTF_8).strip();
-    }
-
-    /// Parses an octal tar numeric field.
-    ///
-    /// @param header tar header.
-    /// @param offset field offset.
-    /// @param length field length.
-    /// @return parsed value.
-    private static long parseTarOctal(byte[] header, int offset, int length) {
-        long value = 0L;
-        int limit = offset + length;
-        for (int i = offset; i < limit; i++) {
-            byte current = header[i];
-            if (current == 0 || current == ' ') {
-                continue;
-            }
-            if (current < '0' || current > '7') {
-                break;
-            }
-            value = (value << 3) + (current - '0');
-        }
-        return value;
-    }
-
-    /// Reads a tar data section as a string.
-    ///
-    /// @param input tar input stream.
-    /// @param size entry size.
-    /// @return entry data string.
-    /// @throws IOException when the entry is too large or truncated.
-    private static String readTarString(InputStream input, long size) throws IOException {
-        if (size > Integer.MAX_VALUE) {
-            throw new IOException(Messages.get("core.materialize.tarStringTooLarge"));
-        }
-        byte[] bytes = input.readNBytes(Math.toIntExact(size));
-        if (bytes.length != size) {
-            throw new IOException(Messages.get("core.materialize.truncatedTarString"));
-        }
-
-        int length = bytes.length;
-        while (length > 0 && bytes[length - 1] == 0) {
-            length--;
-        }
-        return new String(bytes, 0, length, StandardCharsets.UTF_8);
-    }
-
-    /// Copies exactly one tar entry payload.
-    ///
-    /// @param input tar input stream.
-    /// @param output output stream.
-    /// @param size bytes to copy.
-    /// @throws IOException when the input is truncated.
-    private static void copyExactly(InputStream input, OutputStream output, long size) throws IOException {
-        byte[] buffer = new byte[64 * 1024];
-        long remaining = size;
-        while (remaining > 0L) {
-            int read = input.read(buffer, 0, Math.toIntExact(Math.min(buffer.length, remaining)));
-            if (read < 0) {
-                throw new IOException(Messages.get("core.materialize.truncatedTarEntry"));
-            }
-            output.write(buffer, 0, read);
-            remaining -= read;
-        }
-    }
-
-    /// Skips tar padding after an entry payload.
-    ///
-    /// @param input tar input stream.
-    /// @param size entry size.
-    /// @throws IOException when padding is truncated.
-    private static void skipTarPadding(InputStream input, long size) throws IOException {
-        long padding = (512L - (size % 512L)) % 512L;
-        if (padding > 0L) {
-            input.skipNBytes(padding);
-        }
     }
 
     /// Resolves partition paths safely under the artifact directory.

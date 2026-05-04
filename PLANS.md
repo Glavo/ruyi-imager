@@ -19,7 +19,7 @@
 - Image catalog 已支持扫描 `packages/` 或旧 `manifests/`，解析 provisionable manifest、strategy、partition map、distfiles、checksums、mirror URL、slug、manufacturer，并支持 atom/版本/slug/SemVer 选择。
 - Distfile 下载器已支持 HTTP/HTTPS、`.part` 续传、原子落盘、大小和 SHA-256/SHA-512 校验、缓存复用，以及 `restrict = ["fetch"]` 的手动下载提示。
 - Image catalog service 已提供轻量 cache status，可报告目录镜像 distfile 是否已缓存、部分缓存、需要下载或需要手动下载。
-- Artifact 物化已支持 raw、gzip、zip、tar、tar.gz；`tar.xz`、`tar.zst`、`tar.bz2`、`tar.lz4`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。
+- Artifact 物化已支持 raw、gzip、zip、tar、tar.gz；tar 读取已使用 `Glavo/kala-compress`，`tar.xz`、`tar.zst`、`tar.bz2`、`tar.lz4`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。
 - 本地 `dd-v1` 刷写已接入默认服务图，支持本地镜像和已物化 Ruyi 镜像写入 `BlockDevice.path()`，包含系统盘、已挂载、只读、容量、自写入、flush 和写后 verify 检查。
 - Strategy support 目前只将当前本地写盘可执行的 `dd-v1` 标为 supported；`fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 标为已知但未实现。
 - Windows 只读块设备枚举已接入；非 Windows 平台目前仍使用占位枚举服务。
