@@ -85,6 +85,9 @@ public final class MainWindow {
     /// Compact bottom inset between modal selection lists and dialog actions.
     private static final double SELECTION_CONTENT_BOTTOM_INSET = 14.0;
 
+    /// Fixed width used by the independent local-image option.
+    private static final double LOCAL_IMAGE_OPTION_WIDTH = 340.0;
+
     /// Core services shared with the CLI.
     private final AppServices services;
 
@@ -311,6 +314,8 @@ public final class MainWindow {
         localTitle.getStyleClass().add("choice-title");
 
         VBox localFlow = new VBox(12, localTitle, createLocalImageOption());
+        localFlow.setAlignment(Pos.CENTER);
+        localFlow.setFillWidth(false);
         localFlow.getStyleClass().add("local-choice");
         HBox.setHgrow(localFlow, Priority.ALWAYS);
 
@@ -318,7 +323,7 @@ public final class MainWindow {
         separator.getStyleClass().add("choice-separator");
 
         HBox sourceChoices = new HBox(16, catalogFlow, separator, localFlow);
-        sourceChoices.setAlignment(Pos.TOP_CENTER);
+        sourceChoices.setAlignment(Pos.CENTER);
         sourceChoices.getStyleClass().add("source-choices");
 
         VBox workflow = new VBox(14,
@@ -345,6 +350,8 @@ public final class MainWindow {
 
         HBox row = new HBox(16, text, localImageButton);
         row.setAlignment(Pos.CENTER_LEFT);
+        row.setPrefWidth(LOCAL_IMAGE_OPTION_WIDTH);
+        row.setMaxWidth(LOCAL_IMAGE_OPTION_WIDTH);
         row.getStyleClass().add("independent-option-row");
 
         return row;
