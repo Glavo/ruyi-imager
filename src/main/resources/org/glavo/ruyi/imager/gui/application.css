@@ -234,6 +234,14 @@
     -fx-text-fill: #394756;
 }
 
+.selection-tree-view .tree-cell > .tree-disclosure-node > .arrow {
+    -fx-background-color: #394756;
+}
+
+.selection-tree-view .tree-cell:selected > .tree-disclosure-node > .arrow {
+    -fx-background-color: #126879;
+}
+
 .selection-list-view .list-cell.unsupported-image-cell,
 .selection-list-view .list-cell.blocked-target-cell,
 .selection-tree-view .tree-cell.unsupported-image-cell {
