@@ -175,6 +175,11 @@
     -fx-border-color: #dce6ef;
     -fx-border-radius: 8;
     -fx-padding: 4;
+    -fx-effect: null;
+}
+
+.selection-list-view .list-view {
+    -fx-effect: null;
 }
 
 .selection-content {

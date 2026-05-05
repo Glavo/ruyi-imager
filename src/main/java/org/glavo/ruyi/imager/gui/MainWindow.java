@@ -426,6 +426,7 @@ public final class MainWindow {
     private static <T> MFXLegacyListView<T> selectionListView() {
         MFXLegacyListView<T> listView = new MFXLegacyListView<>();
         listView.getStyleClass().add("selection-list-view");
+        listView.setEffect(null);
         listView.setMinSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
         listView.setPrefSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
         listView.setMaxSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
