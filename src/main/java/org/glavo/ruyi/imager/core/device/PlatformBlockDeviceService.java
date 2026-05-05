@@ -21,6 +21,10 @@ public final class PlatformBlockDeviceService implements BlockDeviceService {
         String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (osName.startsWith("windows")) {
             this.delegate = new WindowsBlockDeviceService();
+        } else if (osName.contains("linux")) {
+            this.delegate = new LinuxBlockDeviceService();
+        } else if (osName.contains("mac") || osName.contains("darwin")) {
+            this.delegate = new MacOSBlockDeviceService();
         } else {
             this.delegate = new StubBlockDeviceService();
         }
