@@ -7,6 +7,7 @@ import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.transformation.FilteredList;
 import javafx.concurrent.Task;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -74,6 +75,15 @@ public final class MainWindow {
 
     /// Binary size units used by storage device summaries.
     private static final @Unmodifiable List<String> SIZE_UNITS = List.of("B", "KiB", "MiB", "GiB", "TiB");
+
+    /// Fixed width used by modal selection lists.
+    private static final double SELECTION_LIST_WIDTH = 640.0;
+
+    /// Fixed height used by modal selection lists so dialog actions never overlap them.
+    private static final double SELECTION_LIST_HEIGHT = 320.0;
+
+    /// Bottom inset reserved for MaterialFX dialog action buttons.
+    private static final double SELECTION_CONTENT_BOTTOM_INSET = 74.0;
 
     /// Core services shared with the CLI.
     private final AppServices services;
@@ -395,8 +405,9 @@ public final class MainWindow {
     private static <T> MFXLegacyListView<T> selectionListView() {
         MFXLegacyListView<T> listView = new MFXLegacyListView<>();
         listView.getStyleClass().add("selection-list-view");
-        listView.setPrefSize(640, 360);
-        listView.setMaxHeight(420);
+        listView.setMinSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
+        listView.setPrefSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
+        listView.setMaxSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
         return listView;
     }
 
@@ -430,7 +441,12 @@ public final class MainWindow {
         });
 
         VBox content = new VBox(10, searchField, listView);
+        content.setMinWidth(SELECTION_LIST_WIDTH);
+        content.setPrefWidth(SELECTION_LIST_WIDTH);
+        content.setMaxWidth(SELECTION_LIST_WIDTH);
+        content.setPadding(new Insets(0.0, 0.0, SELECTION_CONTENT_BOTTOM_INSET, 0.0));
         content.getStyleClass().add("selection-content");
+        VBox.setVgrow(listView, Priority.NEVER);
         return content;
     }
 
