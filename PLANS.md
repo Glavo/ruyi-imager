@@ -16,7 +16,7 @@
 - CLI 已支持 `repo update`、`image list/download`、`device list`，以及通过 `--atom` 或 `--local-image` 刷写目标设备；JSON/NDJSON 输出已接入主要命令。
 - Core service 已建立：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FlashService`，由 `AppServices` 组装供 CLI/GUI 共用。
 - Ruyi repo/store 已支持默认 repo、用户配置覆盖、overlay repo、本地 repo、JGit clone/pull、mirror/dist URL 解析。
-- Image catalog 已支持扫描 `packages/` 或旧 `manifests/`，解析 provisionable manifest、strategy、partition map、distfiles、checksums、mirror URL、slug、manufacturer，并支持 atom/版本/slug/SemVer 选择。
+- Image catalog 已支持扫描 `packages/` 或旧 `manifests/`，解析 provisionable manifest、strategy、partition map、distfiles、checksums、mirror URL、slug，并按 Ruyi device id 推导开发板制造商，支持 atom/版本/slug/SemVer 选择。
 - Distfile 下载器已支持 HTTP/HTTPS、`.part` 续传、原子落盘、大小和 SHA-256/SHA-512 校验、缓存复用，以及 `restrict = ["fetch"]` 的手动下载提示。
 - Image catalog service 已提供轻量 cache status，可报告目录镜像 distfile 是否已缓存、部分缓存、需要下载或需要手动下载。
 - Artifact 物化已支持 raw、gzip、zip、tar、tar.gz；tar 读取已使用 `Glavo/kala-compress`，`tar.xz`、`tar.zst`、`tar.bz2`、`tar.lz4`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。

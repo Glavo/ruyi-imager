@@ -34,6 +34,18 @@ import java.util.Set;
 /// Ruyi-backed image catalog service.
 @NotNullByDefault
 public final class RuyiImageCatalogService implements ImageCatalogService {
+    /// Known Ruyi device vendor id to display-name mapping.
+    private static final @Unmodifiable Map<String, String> DEVICE_MANUFACTURERS = Map.ofEntries(
+            Map.entry("awol", "Allwinner"),
+            Map.entry("canaan", "Canaan"),
+            Map.entry("milkv", "Milk-V"),
+            Map.entry("pine64", "Pine64"),
+            Map.entry("sifive", "SiFive"),
+            Map.entry("sipeed", "Sipeed"),
+            Map.entry("spacemit", "SpacemiT"),
+            Map.entry("starfive", "StarFive"),
+            Map.entry("wch", "WinChipHead"));
+
     /// Application directories used to find metadata and downloads.
     private final AppDirectories directories;
 
@@ -345,7 +357,8 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         @Unmodifiable List<RuyiDistfile> distfiles = readDistfiles(metadata, manifest);
         @Nullable String slug = readSlug(manifest);
         String displayName = readDisplayName(manifest, category, name, version);
-        String manufacturer = readManufacturer(manifest, metadata.id());
+        String boardName = deriveBoardName(category, name);
+        String manufacturer = deriveManufacturer(category, name, manifest, metadata.id());
         String atom = category + "/" + name + "(" + version + ")";
         return new ImageEntry(
                 metadata.id(),
@@ -356,8 +369,8 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 atom,
                 displayName,
                 manufacturer,
-                deriveBoardName(category, name),
-                deriveVariantName(name),
+                boardName,
+                deriveVariantName(category, name),
                 strategy,
                 partitionMap,
                 distfiles,
@@ -498,12 +511,38 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         return category + "/" + name + " " + version;
     }
 
-    /// Reads the manufacturer name from manifest metadata.
+    /// Derives the target board manufacturer.
     ///
+    /// @param category package category.
+    /// @param name package name.
     /// @param manifest package manifest.
     /// @param fallback fallback manufacturer name.
     /// @return manufacturer name.
-    private static String readManufacturer(TomlTable manifest, String fallback) {
+    private static String deriveManufacturer(
+            String category,
+            String name,
+            TomlTable manifest,
+            String fallback) {
+        if ("board-image".equals(category)) {
+            String[] fragments = name.split("-");
+            int vendorIndex = deviceVendorIndex(fragments);
+            if (vendorIndex >= 0) {
+                @Nullable String manufacturer = DEVICE_MANUFACTURERS.get(fragments[vendorIndex]);
+                if (manufacturer != null) {
+                    return manufacturer;
+                }
+            }
+        }
+
+        return readPackageVendor(manifest, fallback);
+    }
+
+    /// Reads the package vendor name from manifest metadata.
+    ///
+    /// @param manifest package manifest.
+    /// @param fallback fallback vendor name.
+    /// @return package vendor name.
+    private static String readPackageVendor(TomlTable manifest, String fallback) {
         @Nullable TomlTable metadata = manifest.getTable("metadata");
         if (metadata != null) {
             @Nullable TomlTable vendor = metadata.getTable("vendor");
@@ -554,22 +593,79 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         }
 
         String[] fragments = name.split("-");
-        if (fragments.length >= 3) {
-            return fragments[fragments.length - 2] + "-" + fragments[fragments.length - 1];
+        int vendorIndex = deviceVendorIndex(fragments);
+        if (vendorIndex >= 0) {
+            return joinFragments(fragments, vendorIndex, deviceEndIndex(fragments, vendorIndex));
         }
         return name;
     }
 
     /// Derives a variant label from Ruyi image naming conventions.
     ///
+    /// @param category package category.
     /// @param name package name.
     /// @return variant label.
-    private static String deriveVariantName(String name) {
+    private static String deriveVariantName(String category, String name) {
         String[] fragments = name.split("-");
-        if (fragments.length >= 4 && fragments[fragments.length - 1].matches("[0-9]+g")) {
+        int vendorIndex = "board-image".equals(category) ? deviceVendorIndex(fragments) : -1;
+        if (vendorIndex >= 0
+                && deviceEndIndex(fragments, vendorIndex) < fragments.length) {
+            return fragments[fragments.length - 1];
+        }
+        if (fragments.length >= 4 && isVariantFragment(fragments[fragments.length - 1])) {
             return fragments[fragments.length - 1];
         }
         return "generic";
+    }
+
+    /// Finds the vendor id fragment in a board-image package name.
+    ///
+    /// @param fragments package name fragments.
+    /// @return fragment index, or -1 when no known vendor id is present.
+    private static int deviceVendorIndex(String @Unmodifiable [] fragments) {
+        for (int i = 0; i < fragments.length; i++) {
+            if (DEVICE_MANUFACTURERS.containsKey(fragments[i])) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /// Returns the exclusive device-id end index in package name fragments.
+    ///
+    /// @param fragments package name fragments.
+    /// @param vendorIndex index of the device vendor fragment.
+    /// @return exclusive device-id end index.
+    private static int deviceEndIndex(String @Unmodifiable [] fragments, int vendorIndex) {
+        if (fragments.length - vendorIndex >= 3 && isVariantFragment(fragments[fragments.length - 1])) {
+            return fragments.length - 1;
+        }
+        return fragments.length;
+    }
+
+    /// Returns whether one package-name fragment is a known compact variant marker.
+    ///
+    /// @param fragment package-name fragment.
+    /// @return whether the fragment is a variant marker.
+    private static boolean isVariantFragment(String fragment) {
+        return fragment.matches("[0-9]+g");
+    }
+
+    /// Joins package name fragments with hyphens.
+    ///
+    /// @param fragments package name fragments.
+    /// @param start inclusive start index.
+    /// @param end exclusive end index.
+    /// @return joined fragment range.
+    private static String joinFragments(String @Unmodifiable [] fragments, int start, int end) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = start; i < end; i++) {
+            if (builder.length() > 0) {
+                builder.append('-');
+            }
+            builder.append(fragments[i]);
+        }
+        return builder.toString();
     }
 
     /// Classifies support for a provision strategy.
