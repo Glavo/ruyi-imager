@@ -183,6 +183,10 @@
     -fx-min-width: 640px;
 }
 
+.selection-list-view .mfx-scroll-bar:vertical {
+    -fx-padding: 5 0.5 5 0.5;
+}
+
 .selection-search {
     -fx-background-color: #ffffff;
     -fx-border-color: #d6e0ea;

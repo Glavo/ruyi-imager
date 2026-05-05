@@ -82,8 +82,8 @@ public final class MainWindow {
     /// Fixed height used by modal selection lists so dialog actions never overlap them.
     private static final double SELECTION_LIST_HEIGHT = 320.0;
 
-    /// Bottom inset reserved for MaterialFX dialog action buttons.
-    private static final double SELECTION_CONTENT_BOTTOM_INSET = 74.0;
+    /// Compact bottom inset between modal selection lists and dialog actions.
+    private static final double SELECTION_CONTENT_BOTTOM_INSET = 14.0;
 
     /// Core services shared with the CLI.
     private final AppServices services;
@@ -960,10 +960,13 @@ public final class MainWindow {
         storageValue.setText(target == null ? Messages.get("gui.value.storage.none") : targetLabel(target));
         repoUpdateButton.setDisable(busy);
         manufacturerButton.setDisable(busy);
-        boardButton.setDisable(busy || state.localImage() != null);
-        osButton.setDisable(busy || state.localImage() != null);
+        boardButton.setDisable(busy || state.localImage() != null || state.manufacturerName() == null);
+        osButton.setDisable(busy
+                || state.localImage() != null
+                || state.manufacturerName() == null
+                || state.boardName() == null);
         localImageButton.setDisable(busy);
-        storageButton.setDisable(busy);
+        storageButton.setDisable(busy || !hasImageSource());
         flashButton.setDisable(!canFlash());
     }
 
