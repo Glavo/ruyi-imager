@@ -8,6 +8,8 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -45,7 +47,7 @@ public record ImageEntry(
         StrategySupport support) {
     /// Copies collections into immutable instances.
     public ImageEntry {
-        partitionMap = Map.copyOf(partitionMap);
+        partitionMap = Collections.unmodifiableMap(new LinkedHashMap<>(partitionMap));
         distfiles = List.copyOf(distfiles);
     }
 }

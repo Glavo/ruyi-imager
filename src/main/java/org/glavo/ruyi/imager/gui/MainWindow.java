@@ -41,7 +41,9 @@ import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
+import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.flash.FlashRequest;
+import org.glavo.ruyi.imager.core.flash.FlashTarget;
 import org.glavo.ruyi.imager.core.image.ImageCacheStatus;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
@@ -121,6 +123,9 @@ public final class MainWindow {
     /// Storage selection summary.
     private final Label storageValue = new Label();
 
+    /// Target step title.
+    private final Label targetTitle = new Label();
+
     /// Manufacturer selection button.
     private final Button manufacturerButton = localizedButton("gui.button.chooseManufacturer");
 
@@ -133,8 +138,8 @@ public final class MainWindow {
     /// Local image selection button.
     private final Button localImageButton = localizedButton("gui.button.useLocalImage");
 
-    /// Storage selection button.
-    private final Button storageButton = localizedButton("gui.button.chooseStorage");
+    /// Target selection button.
+    private final Button storageButton = new MFXButton();
 
     /// Repository metadata update button.
     private final Button repoUpdateButton = localizedButton("gui.button.updateMetadata");
@@ -292,9 +297,9 @@ public final class MainWindow {
 
         flashButton.setOnAction(_ -> flash());
 
-        osButton.getStyleClass().add("step-button");
         localImageButton.getStyleClass().add("secondary-action-button");
         flashButton.getStyleClass().add("primary-action-button");
+        targetTitle.getStyleClass().add("step-title");
 
         HBox writeActions = new HBox(flashButton);
         writeActions.getStyleClass().add("write-actions");
@@ -328,7 +333,7 @@ public final class MainWindow {
 
         VBox workflow = new VBox(14,
                 sourceChoices,
-                createStep("4", "gui.step.storage", storageValue, storageButton),
+                createStep("4", targetTitle, storageValue, storageButton),
                 writeActions);
         workflow.getStyleClass().add("workflow");
         return workflow;
@@ -365,12 +370,22 @@ public final class MainWindow {
     /// @param action action button.
     /// @return workflow row.
     private HBox createStep(String number, String titleKey, Label value, Node action) {
+        Label titleLabel = localizedLabel(titleKey);
+        return createStep(number, titleLabel, value, action);
+    }
+
+    /// Creates one workflow row.
+    ///
+    /// @param number step number.
+    /// @param titleLabel step title label.
+    /// @param value current step value.
+    /// @param action action button.
+    /// @return workflow row.
+    private HBox createStep(String number, Label titleLabel, Label value, Node action) {
         Label badge = new Label(number);
         badge.getStyleClass().add("step-badge");
 
-        Label titleLabel = localizedLabel(titleKey);
         titleLabel.getStyleClass().add("step-title");
-
         value.getStyleClass().add("step-value");
         VBox text = new VBox(4, titleLabel, value);
         HBox.setHgrow(text, Priority.ALWAYS);
@@ -750,7 +765,12 @@ public final class MainWindow {
                 content)) {
             ImageEntry selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
-                state = new WizardState(selected.manufacturer(), selected.board(), selected, null, state.target());
+                state = new WizardState(
+                        selected.manufacturer(),
+                        selected.board(),
+                        selected,
+                        null,
+                        compatibleTarget(state.target(), selected, null));
                 refreshState();
             }
         }
@@ -778,12 +798,34 @@ public final class MainWindow {
             return;
         }
 
-        state = new WizardState(null, null, null, selected.toPath(), state.target());
+        Path selectedPath = selected.toPath();
+        state = new WizardState(
+                null,
+                null,
+                null,
+                selectedPath,
+                compatibleTarget(state.target(), null, selectedPath));
         refreshState();
     }
 
     /// Opens the storage selection dialog.
     private void chooseStorage() {
+        if (requiresFastbootTarget()) {
+            Task<List<FastbootDevice>> task = new Task<>() {
+                /// Loads fastboot devices outside the JavaFX application thread.
+                ///
+                /// @return fastboot devices.
+                @Override
+                protected List<FastbootDevice> call() throws Exception {
+                    updateMessage(Messages.get("gui.progress.detectingFastbootDevices"));
+                    return services.fastboot().listDevices();
+                }
+            };
+
+            startBackgroundTask(task, Messages.get("gui.dialog.deviceError"), this::showFastbootDialog);
+            return;
+        }
+
         Task<List<BlockDevice>> task = new Task<>() {
             /// Loads target devices outside the JavaFX application thread.
             ///
@@ -796,6 +838,56 @@ public final class MainWindow {
         };
 
         startBackgroundTask(task, Messages.get("gui.dialog.deviceError"), this::showStorageDialog);
+    }
+
+    /// Shows the fastboot target selection dialog.
+    ///
+    /// @param devices target devices.
+    private void showFastbootDialog(List<FastbootDevice> devices) {
+        if (devices.isEmpty()) {
+            showInfo(Messages.get("gui.dialog.noFastbootDevices"), Messages.get("gui.dialog.noFastbootDevices.message"));
+            return;
+        }
+
+        ListView<FastbootDevice> listView = selectionListView();
+        Node content = searchableSelectionContent(listView, devices, MainWindow::fastbootTargetMatches);
+        listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
+            /// Updates one fastboot target list cell.
+            ///
+            /// @param item target device.
+            /// @param empty whether the cell is empty.
+            @Override
+            protected void updateItem(@Nullable FastbootDevice item, boolean empty) {
+                super.updateItem(item, empty);
+                clearSelectionCellStyles(this);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+
+                setText(null);
+                setGraphic(fastbootTargetCellContent(item));
+                getStyleClass().add("safe-target-cell");
+            }
+        });
+        selectCurrentFastbootTarget(listView, state.target());
+
+        if (showSelectionDialog(
+                Messages.get("gui.dialog.chooseFastbootDevice"),
+                Messages.get("gui.dialog.chooseFastbootDevice.header"),
+                content)) {
+            FastbootDevice selected = listView.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                state = new WizardState(
+                        state.manufacturerName(),
+                        state.boardName(),
+                        state.image(),
+                        state.localImage(),
+                        FlashTarget.fastbootDevice(selected));
+                refreshState();
+            }
+        }
     }
 
     /// Shows the storage selection dialog.
@@ -829,7 +921,7 @@ public final class MainWindow {
                 getStyleClass().add(targetWritable(item) ? "safe-target-cell" : "blocked-target-cell");
             }
         });
-        selectCurrentTarget(listView, state.target());
+        selectCurrentBlockTarget(listView, state.target());
 
         if (showSelectionDialog(
                 Messages.get("gui.dialog.chooseStorageDevice"),
@@ -842,7 +934,7 @@ public final class MainWindow {
                         state.boardName(),
                         state.image(),
                         state.localImage(),
-                        selected);
+                        FlashTarget.blockDevice(selected));
                 refreshState();
             }
         }
@@ -857,7 +949,7 @@ public final class MainWindow {
 
         @Nullable ImageEntry selectedImage = state.image();
         @Nullable Path selectedLocalImage = state.localImage();
-        BlockDevice selectedTarget = state.target();
+        @Nullable FlashTarget selectedTarget = state.target();
         if ((selectedImage == null) == (selectedLocalImage == null) || selectedTarget == null) {
             return;
         }
@@ -868,10 +960,11 @@ public final class MainWindow {
                     Messages.get("gui.dialog.unsupportedImage.message"));
             return;
         }
-        if (!targetWritable(selectedTarget)) {
+        @Nullable BlockDevice blockDevice = selectedTarget.blockDevice();
+        if (blockDevice != null && !targetWritable(blockDevice)) {
             showInfo(
                     Messages.get("gui.dialog.blockedStorage"),
-                    Messages.get("gui.dialog.blockedStorage.message", targetSafetyLabel(selectedTarget)));
+                    Messages.get("gui.dialog.blockedStorage.message", targetSafetyLabel(blockDevice)));
             return;
         }
 
@@ -963,8 +1056,11 @@ public final class MainWindow {
         boardValue.setText(boardLabel());
         osValue.setText(osLabel());
         localImageValue.setText(localImageLabel());
-        BlockDevice target = state.target();
-        storageValue.setText(target == null ? Messages.get("gui.value.storage.none") : targetLabel(target));
+        boolean fastbootTarget = requiresFastbootTarget();
+        targetTitle.setText(Messages.get(fastbootTarget ? "gui.step.fastboot" : "gui.step.storage"));
+        storageButton.setText(Messages.get(fastbootTarget ? "gui.button.chooseFastboot" : "gui.button.chooseStorage"));
+        @Nullable FlashTarget target = state.target();
+        storageValue.setText(target == null ? targetNoneLabel() : targetLabel(target));
         repoUpdateButton.setDisable(busy);
         manufacturerButton.setDisable(busy);
         boardButton.setDisable(busy || state.localImage() != null || state.manufacturerName() == null);
@@ -985,13 +1081,21 @@ public final class MainWindow {
             return false;
         }
 
-        @Nullable BlockDevice target = state.target();
-        if (target == null || !targetWritable(target)) {
+        @Nullable FlashTarget target = state.target();
+        if (target == null) {
             return false;
         }
 
         @Nullable ImageEntry image = state.image();
-        return image == null || catalogImageFlashable(image);
+        if (image != null && !catalogImageFlashable(image)) {
+            return false;
+        }
+        if (requiresFastbootTarget()) {
+            return target.isFastbootDevice();
+        }
+
+        @Nullable BlockDevice blockDevice = target.blockDevice();
+        return blockDevice != null && targetWritable(blockDevice);
     }
 
     /// Returns whether exactly one image source is selected.
@@ -1001,11 +1105,50 @@ public final class MainWindow {
         return (state.image() == null) != (state.localImage() == null);
     }
 
+    /// Returns whether the selected catalog image requires a fastboot target.
+    ///
+    /// @return whether target selection should use fastboot devices.
+    private boolean requiresFastbootTarget() {
+        @Nullable ImageEntry image = state.image();
+        return image != null && fastbootStrategy(image.strategy());
+    }
+
+    /// Returns the localized empty target label for the current strategy.
+    ///
+    /// @return empty target label.
+    private String targetNoneLabel() {
+        return requiresFastbootTarget()
+                ? Messages.get("gui.value.fastboot.none")
+                : Messages.get("gui.value.storage.none");
+    }
+
+    /// Keeps a target only when it matches the selected image source.
+    ///
+    /// @param target current target.
+    /// @param image selected catalog image.
+    /// @param localImage selected local image.
+    /// @return compatible target, or null when target type no longer matches.
+    private static @Nullable FlashTarget compatibleTarget(
+            @Nullable FlashTarget target,
+            @Nullable ImageEntry image,
+            @Nullable Path localImage) {
+        if (target == null) {
+            return null;
+        }
+        if (localImage != null) {
+            return target.isBlockDevice() ? target : null;
+        }
+        if (image != null && fastbootStrategy(image.strategy())) {
+            return target.isFastbootDevice() ? target : null;
+        }
+        return target.isBlockDevice() ? target : null;
+    }
+
     /// Builds the final destructive-operation confirmation content.
     ///
     /// @param target selected target device.
     /// @return confirmation content.
-    private Node flashConfirmationContent(BlockDevice target) {
+    private Node flashConfirmationContent(FlashTarget target) {
         GridPane summary = new GridPane();
         summary.getStyleClass().add("confirmation-summary");
         summary.setHgap(18);
@@ -1013,9 +1156,11 @@ public final class MainWindow {
         addConfirmationRow(summary, 0, "gui.dialog.confirmFlash.manufacturer", manufacturerLabel());
         addConfirmationRow(summary, 1, "gui.dialog.confirmFlash.board", boardLabel());
         addConfirmationRow(summary, 2, "gui.dialog.confirmFlash.imageSource", imageSourceLabel());
-        addConfirmationRow(summary, 3, "gui.dialog.confirmFlash.storage", targetLabel(target));
+        addConfirmationRow(summary, 3, "gui.dialog.confirmFlash.target", targetLabel(target));
 
-        Label warning = new Label(Messages.get("gui.dialog.confirmFlash.warning"));
+        Label warning = new Label(Messages.get(target.isFastbootDevice()
+                ? "gui.dialog.confirmFlash.fastbootWarning"
+                : "gui.dialog.confirmFlash.storageWarning"));
         warning.setWrapText(true);
         warning.getStyleClass().add("confirmation-warning");
 
@@ -1240,18 +1385,39 @@ public final class MainWindow {
         listView.getSelectionModel().selectFirst();
     }
 
-    /// Selects the current target when the dialog opens.
+    /// Selects the current block target when the dialog opens.
     ///
     /// @param listView target list view.
     /// @param target selected target.
-    private static void selectCurrentTarget(ListView<BlockDevice> listView, @Nullable BlockDevice target) {
-        if (target == null) {
+    private static void selectCurrentBlockTarget(ListView<BlockDevice> listView, @Nullable FlashTarget target) {
+        @Nullable BlockDevice blockDevice = target == null ? null : target.blockDevice();
+        if (blockDevice == null) {
             listView.getSelectionModel().selectFirst();
             return;
         }
 
         for (int i = 0; i < listView.getItems().size(); i++) {
-            if (listView.getItems().get(i).id().equals(target.id())) {
+            if (listView.getItems().get(i).id().equals(blockDevice.id())) {
+                listView.getSelectionModel().select(i);
+                return;
+            }
+        }
+        listView.getSelectionModel().selectFirst();
+    }
+
+    /// Selects the current fastboot target when the dialog opens.
+    ///
+    /// @param listView target list view.
+    /// @param target selected target.
+    private static void selectCurrentFastbootTarget(ListView<FastbootDevice> listView, @Nullable FlashTarget target) {
+        @Nullable FastbootDevice fastbootDevice = target == null ? null : target.fastbootDevice();
+        if (fastbootDevice == null) {
+            listView.getSelectionModel().selectFirst();
+            return;
+        }
+
+        for (int i = 0; i < listView.getItems().size(); i++) {
+            if (listView.getItems().get(i).id().equals(fastbootDevice.id())) {
                 listView.getSelectionModel().select(i);
                 return;
             }
@@ -1310,6 +1476,17 @@ public final class MainWindow {
                 || textMatches(targetSafetyLabel(target), query)
                 || textMatches(target.model(), query)
                 || textMatches(target.busType(), query);
+    }
+
+    /// Returns whether a fastboot target matches a search query.
+    ///
+    /// @param target target device.
+    /// @param query normalized query.
+    /// @return whether the target matches.
+    private static boolean fastbootTargetMatches(FastbootDevice target, String query) {
+        return textMatches(target.displayName(), query)
+                || textMatches(target.serial(), query)
+                || textMatches(target.state(), query);
     }
 
     /// Returns whether text contains a normalized search query.
@@ -1422,6 +1599,28 @@ public final class MainWindow {
         return content;
     }
 
+    /// Creates rich content for one fastboot target list cell.
+    ///
+    /// @param target target device.
+    /// @return cell content.
+    private static Node fastbootTargetCellContent(FastbootDevice target) {
+        Label title = new Label(target.displayName());
+        title.setWrapText(true);
+        title.getStyleClass().add("selection-title");
+
+        Label details = new Label(Messages.get("gui.fastboot.details", target.serial(), target.state()));
+        details.setWrapText(true);
+        details.getStyleClass().add("selection-detail");
+
+        Label status = statusPill(Messages.get("gui.fastboot.ready"), "status-supported");
+        HBox statusRow = new HBox(status);
+        statusRow.getStyleClass().add("selection-pill-row");
+
+        VBox content = new VBox(4, title, details, statusRow);
+        content.getStyleClass().add("selection-cell-content");
+        return content;
+    }
+
     /// Creates a compact status label.
     ///
     /// @param text label text.
@@ -1455,9 +1654,21 @@ public final class MainWindow {
     /// @param image image entry.
     /// @return whether the image is flashable through the current local writer.
     private static boolean catalogImageFlashable(ImageEntry image) {
-        return image.support() == StrategySupport.SUPPORTED
-                && "dd-v1".equals(image.strategy())
-                && image.partitionMap().size() == 1;
+        if (image.support() != StrategySupport.SUPPORTED) {
+            return false;
+        }
+        if ("dd-v1".equals(image.strategy())) {
+            return image.partitionMap().size() == 1;
+        }
+        return fastbootStrategy(image.strategy()) && !image.partitionMap().isEmpty();
+    }
+
+    /// Returns whether a strategy uses fastboot.
+    ///
+    /// @param strategy strategy name.
+    /// @return whether this is a fastboot strategy.
+    private static boolean fastbootStrategy(String strategy) {
+        return "fastboot-v1".equals(strategy) || "fastboot-v1(lpi4a-uboot)".equals(strategy);
     }
 
     /// Formats the current flash support state for an image.
@@ -1466,6 +1677,9 @@ public final class MainWindow {
     /// @return localized support label.
     private static String imageSupportLabel(ImageEntry image) {
         if (catalogImageFlashable(image)) {
+            if (fastbootStrategy(image.strategy())) {
+                return Messages.get("gui.image.support.fastbootFlashable");
+            }
             return Messages.get("gui.image.support.flashable");
         }
         if (image.support() == StrategySupport.UNKNOWN) {
@@ -1473,6 +1687,9 @@ public final class MainWindow {
         }
         if (image.support() == StrategySupport.UNSUPPORTED) {
             return Messages.get("gui.image.support.unsupported");
+        }
+        if (fastbootStrategy(image.strategy())) {
+            return Messages.get("gui.image.support.noPartitions");
         }
         if (!"dd-v1".equals(image.strategy())) {
             return Messages.get("gui.image.support.writerUnsupported");
@@ -1514,6 +1731,24 @@ public final class MainWindow {
     ///
     /// @param target target device.
     /// @return display text.
+    private static String targetLabel(FlashTarget target) {
+        @Nullable BlockDevice blockDevice = target.blockDevice();
+        if (blockDevice != null) {
+            return targetLabel(blockDevice);
+        }
+
+        @Nullable FastbootDevice fastbootDevice = target.fastbootDevice();
+        if (fastbootDevice != null) {
+            return fastbootTargetLabel(fastbootDevice);
+        }
+
+        return "";
+    }
+
+    /// Formats a block target for list and summary display.
+    ///
+    /// @param target target device.
+    /// @return display text.
     private static String targetLabel(BlockDevice target) {
         String safety = targetSafetyLabel(target);
         return Messages.get(
@@ -1522,6 +1757,14 @@ public final class MainWindow {
                 targetPathText(target),
                 targetSizeLabel(target),
                 safety.isEmpty() ? Messages.get("gui.target.ready") : safety);
+    }
+
+    /// Formats a fastboot target for list and summary display.
+    ///
+    /// @param target target device.
+    /// @return display text.
+    private static String fastbootTargetLabel(FastbootDevice target) {
+        return Messages.get("gui.fastboot.summary", target.serial(), target.state());
     }
 
     /// Returns whether a target can be written by the GUI.
@@ -1802,14 +2045,14 @@ public final class MainWindow {
     /// @param boardName selected board name.
     /// @param image selected operating system image.
     /// @param localImage selected local image file.
-    /// @param target selected storage device.
+    /// @param target selected target device.
     @NotNullByDefault
     private record WizardState(
             @Nullable String manufacturerName,
             @Nullable String boardName,
             @Nullable ImageEntry image,
             @Nullable Path localImage,
-            @Nullable BlockDevice target) {
+            @Nullable FlashTarget target) {
     }
 
     /// Manufacturer option derived from image metadata.

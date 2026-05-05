@@ -9,7 +9,9 @@ import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
+import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.flash.FlashRequest;
+import org.glavo.ruyi.imager.core.flash.FlashTarget;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.i18n.Messages;
@@ -443,6 +445,13 @@ public final class CliApplication implements Runnable {
                 descriptionKey = "cli.option.json.object")
         private boolean json;
 
+        /// Whether to list fastboot devices instead of block devices.
+        @Option(
+                names = "--fastboot",
+                description = "List fastboot devices.",
+                descriptionKey = "cli.option.fastboot")
+        private boolean fastbootDevices;
+
         /// Creates the device list command.
         ///
         /// @param services shared application services.
@@ -456,6 +465,10 @@ public final class CliApplication implements Runnable {
         @Override
         public Integer call() {
             try {
+                if (fastbootDevices) {
+                    return listFastbootDevices();
+                }
+
                 List<BlockDevice> devices = services.devices().listDevices();
                 if (json) {
                     Map<String, Object> output = new LinkedHashMap<>();
@@ -467,6 +480,30 @@ public final class CliApplication implements Runnable {
                 } else {
                     for (BlockDevice device : devices) {
                         System.out.printf("%s\t%s\t%s%n", device.id(), device.displayName(), devicePathText(device));
+                    }
+                }
+                return CommandLine.ExitCode.OK;
+            } catch (IOException | RuntimeException e) {
+                return fail(exceptionMessage(e), json);
+            }
+        }
+
+        /// Lists fastboot devices.
+        ///
+        /// @return process exit code.
+        private Integer listFastbootDevices() {
+            try {
+                List<FastbootDevice> devices = services.fastboot().listDevices();
+                if (json) {
+                    Map<String, Object> output = new LinkedHashMap<>();
+                    output.put("type", "fastboot-device-list");
+                    output.put("devices", fastbootDeviceOutput(devices));
+                    JsonOutput.print(output);
+                } else if (devices.isEmpty()) {
+                    System.out.println(Messages.get("cli.device.none"));
+                } else {
+                    for (FastbootDevice device : devices) {
+                        System.out.printf("%s\t%s\t%s%n", device.id(), device.serial(), device.state());
                     }
                 }
                 return CommandLine.ExitCode.OK;
@@ -500,6 +537,24 @@ public final class CliApplication implements Runnable {
         return List.copyOf(output);
     }
 
+    /// Converts fastboot devices to stable JSON output maps.
+    ///
+    /// @param devices devices to serialize.
+    /// @return immutable JSON-ready device maps.
+    private static @Unmodifiable List<@Unmodifiable Map<String, @Nullable Object>> fastbootDeviceOutput(
+            List<FastbootDevice> devices) {
+        ArrayList<@Unmodifiable Map<String, @Nullable Object>> output = new ArrayList<>(devices.size());
+        for (FastbootDevice device : devices) {
+            Map<String, @Nullable Object> map = new LinkedHashMap<>();
+            map.put("id", device.id());
+            map.put("displayName", device.displayName());
+            map.put("serial", device.serial());
+            map.put("state", device.state());
+            output.add(Collections.unmodifiableMap(map));
+        }
+        return List.copyOf(output);
+    }
+
     /// Converts a device target path to CLI text.
     ///
     /// @param device block device.
@@ -510,6 +565,14 @@ public final class CliApplication implements Runnable {
             return text.substring(0, text.length() - 1);
         }
         return text;
+    }
+
+    /// Returns whether a strategy uses fastboot.
+    ///
+    /// @param strategy strategy name.
+    /// @return whether this is a fastboot strategy.
+    private static boolean fastbootStrategy(String strategy) {
+        return "fastboot-v1".equals(strategy) || "fastboot-v1(lpi4a-uboot)".equals(strategy);
     }
 
     /// Flashes an image to a target device.
@@ -593,12 +656,7 @@ public final class CliApplication implements Runnable {
             }
 
             try {
-                BlockDevice target = services.devices().findDevice(requestedDeviceId);
-                if (target == null) {
-                    return fail(Messages.get("cli.error.unknownTargetDevice", requestedDeviceId), json);
-                }
-
-                ImageEntry image = null;
+                @Nullable ImageEntry image = null;
                 Path requestedLocalImage = localImage;
                 if (atom != null) {
                     image = services.images().findImage(atom);
@@ -607,6 +665,21 @@ public final class CliApplication implements Runnable {
                     }
                 } else if (requestedLocalImage != null && !Files.isRegularFile(requestedLocalImage)) {
                     return fail(Messages.get("cli.error.localImageMissing", requestedLocalImage), json);
+                }
+
+                FlashTarget target;
+                if (image != null && fastbootStrategy(image.strategy())) {
+                    @Nullable FastbootDevice fastbootDevice = services.fastboot().findDevice(requestedDeviceId);
+                    if (fastbootDevice == null) {
+                        return fail(Messages.get("cli.error.unknownTargetDevice", requestedDeviceId), json);
+                    }
+                    target = FlashTarget.fastbootDevice(fastbootDevice);
+                } else {
+                    @Nullable BlockDevice blockDevice = services.devices().findDevice(requestedDeviceId);
+                    if (blockDevice == null) {
+                        return fail(Messages.get("cli.error.unknownTargetDevice", requestedDeviceId), json);
+                    }
+                    target = FlashTarget.blockDevice(blockDevice);
                 }
 
                 OperationResult result = services.flash().flash(

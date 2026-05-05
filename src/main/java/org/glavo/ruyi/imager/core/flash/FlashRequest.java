@@ -15,14 +15,28 @@ import java.nio.file.Path;
 ///
 /// @param image image selected from the Ruyi catalog.
 /// @param localImage local image file selected by path.
-/// @param target target block device.
+/// @param target target selected for the strategy.
 /// @param verify whether post-write verification should run.
 @NotNullByDefault
 public record FlashRequest(
         @Nullable ImageEntry image,
         @Nullable Path localImage,
-        BlockDevice target,
+        FlashTarget target,
         boolean verify) {
+    /// Creates a request targeting a block device.
+    ///
+    /// @param image image selected from the Ruyi catalog.
+    /// @param localImage local image file selected by path.
+    /// @param target target block device.
+    /// @param verify whether post-write verification should run.
+    public FlashRequest(
+            @Nullable ImageEntry image,
+            @Nullable Path localImage,
+            BlockDevice target,
+            boolean verify) {
+        this(image, localImage, FlashTarget.blockDevice(target), verify);
+    }
+
     /// Validates the selected image source.
     public FlashRequest {
         if ((image == null) == (localImage == null)) {

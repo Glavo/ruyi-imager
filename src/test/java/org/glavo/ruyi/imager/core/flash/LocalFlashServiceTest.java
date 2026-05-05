@@ -7,10 +7,14 @@ import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
+import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
+import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -71,6 +76,56 @@ public final class LocalFlashServiceTest {
 
         assertTrue(result.success(), result.message());
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
+    }
+
+    /// Flashes a materialized Ruyi fastboot image through a fastboot backend.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void flashesRuyiFastbootImageWithMaterializedPartitions(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Path boot = artifactDirectory.resolve("boot.ext4");
+        Path root = artifactDirectory.resolve("root.ext4");
+        Files.write(boot, new byte[]{1, 2, 3});
+        Files.write(root, new byte[]{4, 5, 6});
+
+        ImageEntry image = imageEntry("fastboot-v1", Map.of("boot", "boot.ext4", "root", "root.ext4"));
+        CapturingFastbootService fastboot = new CapturingFastbootService();
+        FastbootDevice device = new FastbootDevice("test-fastboot", "test-fastboot", "fastboot");
+
+        OperationResult result = new LocalFlashService(
+                new FixedImageCatalogService(artifactDirectory),
+                fastboot).flash(
+                new FlashRequest(image, null, FlashTarget.fastbootDevice(device), false),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertEquals("fastboot-v1", fastboot.strategy);
+        assertEquals(device, fastboot.device);
+        assertEquals(boot, fastboot.partitions.get("boot"));
+        assertEquals(root, fastboot.partitions.get("root"));
+    }
+
+    /// Refuses to flash fastboot images to block device targets.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesFastbootImageWithBlockTarget(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Files.write(artifactDirectory.resolve("boot.ext4"), new byte[]{1});
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(target, new byte[8]);
+
+        ImageEntry image = imageEntry("fastboot-v1", Map.of("boot", "boot.ext4"));
+        OperationResult result = new LocalFlashService(new FixedImageCatalogService(artifactDirectory)).flash(
+                new FlashRequest(image, null, target(target, 8, false, false), false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
     }
 
     /// Refuses to write to a target marked as a system disk.
@@ -190,6 +245,15 @@ public final class LocalFlashServiceTest {
     /// @param strategy provision strategy.
     /// @return test image entry.
     private static ImageEntry imageEntry(String strategy) {
+        return imageEntry(strategy, Map.of("disk", "artifact.raw"));
+    }
+
+    /// Creates a test image entry.
+    ///
+    /// @param strategy provision strategy.
+    /// @param partitionMap partition map.
+    /// @return test image entry.
+    private static ImageEntry imageEntry(String strategy, @Unmodifiable Map<String, String> partitionMap) {
         return new ImageEntry(
                 "ruyisdk",
                 "board-image",
@@ -202,9 +266,49 @@ public final class LocalFlashServiceTest {
                 "test-board",
                 "generic",
                 strategy,
-                Map.of("disk", "artifact.raw"),
+                partitionMap,
                 List.of(),
                 StrategySupport.SUPPORTED);
+    }
+
+    /// Fastboot service that captures flash requests.
+    @NotNullByDefault
+    private static final class CapturingFastbootService implements FastbootService {
+        /// Captured strategy.
+        private @Nullable String strategy;
+
+        /// Captured partition map.
+        private @Unmodifiable Map<String, Path> partitions = Map.of();
+
+        /// Captured device.
+        private @Nullable FastbootDevice device;
+
+        /// Lists no devices.
+        ///
+        /// @return empty fastboot device list.
+        @Override
+        public @Unmodifiable List<FastbootDevice> listDevices() {
+            return List.of();
+        }
+
+        /// Captures one fastboot flash request.
+        ///
+        /// @param strategy Ruyi provision strategy.
+        /// @param partitions materialized partition images keyed by target partition name.
+        /// @param device target fastboot device.
+        /// @param reporter progress reporter.
+        /// @return success result.
+        @Override
+        public OperationResult flash(
+                String strategy,
+                @Unmodifiable Map<String, Path> partitions,
+                FastbootDevice device,
+                ProgressReporter reporter) {
+            this.strategy = strategy;
+            this.partitions = Map.copyOf(partitions);
+            this.device = device;
+            return OperationResult.success("Fastboot complete.");
+        }
     }
 
     /// Image catalog service that has no images.

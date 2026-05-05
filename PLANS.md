@@ -13,7 +13,7 @@
 
 - 工程已是 Java 25 Gradle `application`，主类为 `org.glavo.ruyi.imager.Main`；依赖包含 JavaFX 25、MaterialFX、Picocli、Jackson、Tomlj、JGit 和 JetBrains annotations。
 - 入口已统一：无参数或 `gui` 启动 JavaFX，其他参数进入 CLI。
-- CLI 已支持 `repo update`、`image list/download`、`device list`，以及通过 `--atom` 或 `--local-image` 刷写目标设备；JSON/NDJSON 输出已接入主要命令。
+- CLI 已支持 `repo update`、`image list/download`、`device list`、`device list --fastboot`，以及通过 `--atom` 或 `--local-image` 刷写目标设备；JSON/NDJSON 输出已接入主要命令。
 - Core service 已建立：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FlashService`，由 `AppServices` 组装供 CLI/GUI 共用。
 - Ruyi repo/store 已支持默认 repo、用户配置覆盖、overlay repo、本地 repo、JGit clone/pull、mirror/dist URL 解析。
 - Image catalog 已支持扫描 `packages/` 或旧 `manifests/`，解析 provisionable manifest、strategy、partition map、distfiles、checksums、mirror URL、slug，并按 Ruyi device id 推导开发板制造商，支持 atom/版本/slug/SemVer 选择。
@@ -21,9 +21,9 @@
 - Image catalog service 已提供轻量 cache status，可报告目录镜像 distfile 是否已缓存、部分缓存、需要下载或需要手动下载。
 - Artifact 物化已支持 raw、gzip、zip、tar、tar.gz；tar 读取已使用 `Glavo/kala-compress`，`tar.xz`、`tar.zst`、`tar.bz2`、`tar.lz4`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。
 - 本地 `dd-v1` 刷写已接入默认服务图，支持本地镜像和已物化 Ruyi 镜像写入 `BlockDevice.path()`，包含系统盘、已挂载、只读、容量、自写入、flush 和写后 verify 检查。
-- Strategy support 目前只将当前本地写盘可执行的 `dd-v1` 标为 supported；`fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 标为已知但未实现。
+- Strategy support 目前将 `dd-v1`、`fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 标为 supported；dd 使用本地块设备写入，fastboot 使用受控外部 `fastboot` 命令执行。
 - Windows 只读块设备枚举已接入；非 Windows 平台目前仍使用占位枚举服务。
-- GUI 已实现 MaterialFX 风格主窗口、更宽默认窗口、运行时中英文切换、语言偏好持久化、目录镜像/本地镜像二选一流程、右侧本地镜像入口居中、渐进式步骤启用、搜索式选择弹窗、策略/缓存/目标风险状态标记、结构化最终确认弹窗。
+- GUI 已实现 MaterialFX 风格主窗口、更宽默认窗口、运行时中英文切换、语言偏好持久化、目录镜像/本地镜像二选一流程、右侧本地镜像入口居中、渐进式步骤启用、搜索式选择弹窗、dd/fastboot 目标切换、策略/缓存/目标风险状态标记、结构化最终确认弹窗。
 - i18n 基础设施已接入 `ResourceBundle`；`Messages` 提供 locale property 和 `StringBinding` helper，当前资源包含 English 和简体中文。
 
 ### Next Work
@@ -34,13 +34,12 @@
   - 评估是否需要原生/FFM 后端替代直接 `FileChannel` 写物理设备。
 - 刷写策略：
   - 扩展 `dd-v1` 多分区 target mapping。
-  - 实现 `fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 的受控外部工具执行、设备检测和日志输出。
-  - 增加取消、失败清理和更细粒度进度统计。
+  - 增加 fastboot 自动重连等待、取消、失败清理和更细粒度进度统计。
 - 镜像物化：
   - 增加 tar.xz、tar.zst、tar.bz2 等 Ruyi 常见压缩 tar archive 支持。
   - 改进 unsupported archive 的用户提示和 fallback 路径。
 - GUI：
-  - 为 fastboot 和多目标 strategy 增加专门流程。
+  - 为多目标 dd strategy 增加专门流程。
 - 测试：
   - 增加 CLI fixture repo 集成测试，覆盖 `repo update`、`image list/download --json` 和 unsupported strategy。
   - 增加 GUI ViewModel/service 层测试或 JavaFX smoke test。

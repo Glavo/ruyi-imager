@@ -5,6 +5,8 @@ package org.glavo.ruyi.imager.core;
 
 import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.device.PlatformBlockDeviceService;
+import org.glavo.ruyi.imager.core.fastboot.FastbootService;
+import org.glavo.ruyi.imager.core.fastboot.ProcessFastbootService;
 import org.glavo.ruyi.imager.core.flash.FlashService;
 import org.glavo.ruyi.imager.core.flash.LocalFlashService;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
@@ -20,6 +22,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 /// @param repository repository metadata service.
 /// @param images image catalog and download service.
 /// @param devices target device service.
+/// @param fastboot fastboot device and flashing service.
 /// @param flash flash orchestration service.
 @NotNullByDefault
 public record AppServices(
@@ -27,6 +30,7 @@ public record AppServices(
         RepositoryService repository,
         ImageCatalogService images,
         BlockDeviceService devices,
+        FastbootService fastboot,
         FlashService flash) {
     /// Creates the default production service graph.
     ///
@@ -37,7 +41,8 @@ public record AppServices(
         RepositoryService repository = new RuyiRepositoryService(repositoryStore);
         ImageCatalogService images = new RuyiImageCatalogService(directories, repositoryStore);
         BlockDeviceService devices = new PlatformBlockDeviceService();
-        FlashService flash = new LocalFlashService(images);
-        return new AppServices(directories, repository, images, devices, flash);
+        FastbootService fastboot = new ProcessFastbootService();
+        FlashService flash = new LocalFlashService(images, fastboot);
+        return new AppServices(directories, repository, images, devices, fastboot, flash);
     }
 }

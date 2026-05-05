@@ -96,12 +96,12 @@ public final class RuyiImageCatalogServiceTest {
         assertNull(service.findImage("slug:missing"));
     }
 
-    /// Verifies known but unimplemented provision strategies are exposed as unsupported.
+    /// Verifies known fastboot provision strategies are exposed as supported.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when test fixture files cannot be created or read.
     @Test
-    public void classifiesFastbootImagesAsUnsupported(@TempDir Path temporaryDirectory) throws Exception {
+    public void classifiesFastbootImagesAsSupported(@TempDir Path temporaryDirectory) throws Exception {
         Path configDirectory = temporaryDirectory.resolve("config");
         Path cacheDirectory = temporaryDirectory.resolve("cache");
         Path repoDirectory = temporaryDirectory.resolve("repo");
@@ -123,7 +123,7 @@ public final class RuyiImageCatalogServiceTest {
         ImageEntry image = service.listImages().images().getFirst();
 
         assertEquals("fastboot-v1", image.strategy());
-        assertEquals(StrategySupport.UNSUPPORTED, image.support());
+        assertEquals(StrategySupport.SUPPORTED, image.support());
     }
 
     /// Verifies board-image manufacturer and variant are derived from the device id.
