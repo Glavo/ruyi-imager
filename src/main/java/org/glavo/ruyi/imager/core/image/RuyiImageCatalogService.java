@@ -252,10 +252,11 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             return List.of();
         }
 
+        @Unmodifiable List<String> deviceIds = readDeviceIds(metadata.root());
         ArrayList<ImageEntry> result = new ArrayList<>();
         try (var categories = Files.newDirectoryStream(packageRoot, Files::isDirectory)) {
             for (Path categoryPath : categories) {
-                readCategory(metadata, categoryPath, result);
+                readCategory(metadata, categoryPath, deviceIds, result);
             }
         }
         return List.copyOf(result);
@@ -275,20 +276,80 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         return Files.isDirectory(manifests) ? manifests : null;
     }
 
+    /// Reads known Ruyi device ids from repository entity metadata.
+    ///
+    /// @param repositoryRoot repository root.
+    /// @return immutable device ids sorted by longest match first.
+    /// @throws IOException when device metadata cannot be read.
+    private static @Unmodifiable List<String> readDeviceIds(Path repositoryRoot) throws IOException {
+        Path deviceRoot = repositoryRoot.resolve("entities").resolve("device");
+        if (!Files.isDirectory(deviceRoot)) {
+            return List.of();
+        }
+
+        HashSet<String> seen = new HashSet<>();
+        ArrayList<String> result = new ArrayList<>();
+        try (var files = Files.newDirectoryStream(deviceRoot, "*.toml")) {
+            for (Path file : files) {
+                @Nullable String id = readDeviceId(file);
+                if (id != null && seen.add(id)) {
+                    result.add(id);
+                }
+            }
+        }
+        result.sort(Comparator
+                .<String>comparingInt(RuyiImageCatalogService::fragmentCount)
+                .thenComparingInt(String::length)
+                .reversed());
+        return List.copyOf(result);
+    }
+
+    /// Reads one device id from an entity file.
+    ///
+    /// @param path entity file path.
+    /// @return device id, or null when absent.
+    /// @throws IOException when the entity file cannot be parsed.
+    private static @Nullable String readDeviceId(Path path) throws IOException {
+        TomlParseResult entity = parseToml(path);
+        @Nullable TomlTable device = entity.getTable("device");
+        if (device == null) {
+            return null;
+        }
+
+        @Nullable String id = device.getString("id");
+        return id == null || id.isBlank() ? null : id;
+    }
+
+    /// Counts hyphen-separated fragments in an id.
+    ///
+    /// @param id id to inspect.
+    /// @return fragment count.
+    private static int fragmentCount(String id) {
+        int count = 1;
+        for (int i = 0; i < id.length(); i++) {
+            if (id.charAt(i) == '-') {
+                count++;
+            }
+        }
+        return count;
+    }
+
     /// Reads all package manifests under one category.
     ///
     /// @param metadata repository metadata.
     /// @param categoryPath category path.
+    /// @param deviceIds known device ids.
     /// @param result mutable output list.
     /// @throws IOException when manifests cannot be read.
     private static void readCategory(
             RuyiRepositoryMetadata metadata,
             Path categoryPath,
+            @Unmodifiable List<String> deviceIds,
             ArrayList<ImageEntry> result) throws IOException {
         String category = categoryPath.getFileName().toString();
         try (var packages = Files.newDirectoryStream(categoryPath, Files::isDirectory)) {
             for (Path packagePath : packages) {
-                readPackage(metadata, category, packagePath, result);
+                readPackage(metadata, category, packagePath, deviceIds, result);
             }
         }
     }
@@ -298,12 +359,14 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// @param metadata repository metadata.
     /// @param category package category.
     /// @param packagePath package path.
+    /// @param deviceIds known device ids.
     /// @param result mutable output list.
     /// @throws IOException when manifests cannot be read.
     private static void readPackage(
             RuyiRepositoryMetadata metadata,
             String category,
             Path packagePath,
+            @Unmodifiable List<String> deviceIds,
             ArrayList<ImageEntry> result) throws IOException {
         String name = packagePath.getFileName().toString();
         try (var versions = Files.newDirectoryStream(packagePath, "*.toml")) {
@@ -314,7 +377,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 }
 
                 String version = fileName.substring(0, fileName.length() - ".toml".length());
-                @Nullable ImageEntry image = readImageManifest(metadata, category, name, version, manifestPath);
+                @Nullable ImageEntry image = readImageManifest(metadata, category, name, version, manifestPath, deviceIds);
                 if (image != null) {
                     result.add(image);
                 }
@@ -329,6 +392,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// @param name package name.
     /// @param version package version.
     /// @param manifestPath manifest path.
+    /// @param deviceIds known device ids.
     /// @return image entry, or null when the package is not provisionable.
     /// @throws IOException when the manifest cannot be parsed.
     private static @Nullable ImageEntry readImageManifest(
@@ -336,7 +400,8 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             String category,
             String name,
             String version,
-            Path manifestPath) throws IOException {
+            Path manifestPath,
+            @Unmodifiable List<String> deviceIds) throws IOException {
         TomlParseResult manifest = parseToml(manifestPath);
         @Nullable TomlTable provisionable = manifest.getTable("provisionable");
         if (provisionable == null || !hasKind(manifest, "provisionable")) {
@@ -357,8 +422,9 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         @Unmodifiable List<RuyiDistfile> distfiles = readDistfiles(metadata, manifest);
         @Nullable String slug = readSlug(manifest);
         String displayName = readDisplayName(manifest, category, name, version);
-        String boardName = deriveBoardName(category, name);
-        String manufacturer = deriveManufacturer(category, name, manifest, metadata.id());
+        @Nullable DeviceNameParts deviceName = parseDeviceName(category, name, deviceIds);
+        String boardName = deriveBoardName(category, name, deviceName);
+        String manufacturer = deriveManufacturer(category, name, manifest, metadata.id(), deviceName);
         String atom = category + "/" + name + "(" + version + ")";
         return new ImageEntry(
                 metadata.id(),
@@ -370,7 +436,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 displayName,
                 manufacturer,
                 boardName,
-                deriveVariantName(category, name),
+                deriveVariantName(category, name, deviceName),
                 strategy,
                 partitionMap,
                 distfiles,
@@ -517,12 +583,21 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// @param name package name.
     /// @param manifest package manifest.
     /// @param fallback fallback manufacturer name.
+    /// @param deviceName parsed device name from entity metadata.
     /// @return manufacturer name.
     private static String deriveManufacturer(
             String category,
             String name,
             TomlTable manifest,
-            String fallback) {
+            String fallback,
+            @Nullable DeviceNameParts deviceName) {
+        if (deviceName != null) {
+            @Nullable String manufacturer = DEVICE_MANUFACTURERS.get(firstFragment(deviceName.deviceId()));
+            if (manufacturer != null) {
+                return manufacturer;
+            }
+        }
+
         if ("board-image".equals(category)) {
             String[] fragments = name.split("-");
             int vendorIndex = deviceVendorIndex(fragments);
@@ -586,10 +661,14 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     ///
     /// @param category package category.
     /// @param name package name.
+    /// @param deviceName parsed device name from entity metadata.
     /// @return board label.
-    private static String deriveBoardName(String category, String name) {
+    private static String deriveBoardName(String category, String name, @Nullable DeviceNameParts deviceName) {
         if (!"board-image".equals(category)) {
             return name;
+        }
+        if (deviceName != null) {
+            return deviceName.deviceId();
         }
 
         String[] fragments = name.split("-");
@@ -604,8 +683,13 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     ///
     /// @param category package category.
     /// @param name package name.
+    /// @param deviceName parsed device name from entity metadata.
     /// @return variant label.
-    private static String deriveVariantName(String category, String name) {
+    private static String deriveVariantName(String category, String name, @Nullable DeviceNameParts deviceName) {
+        if (deviceName != null) {
+            return deviceName.variant();
+        }
+
         String[] fragments = name.split("-");
         int vendorIndex = "board-image".equals(category) ? deviceVendorIndex(fragments) : -1;
         if (vendorIndex >= 0
@@ -616,6 +700,72 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             return fragments[fragments.length - 1];
         }
         return "generic";
+    }
+
+    /// Parses the device id and variant from a board-image package name.
+    ///
+    /// @param category package category.
+    /// @param name package name.
+    /// @param deviceIds known device ids sorted by longest match first.
+    /// @return parsed device name, or null when no known device id matches.
+    private static @Nullable DeviceNameParts parseDeviceName(
+            String category,
+            String name,
+            @Unmodifiable List<String> deviceIds) {
+        if (!"board-image".equals(category)) {
+            return null;
+        }
+
+        for (String deviceId : deviceIds) {
+            @Nullable DeviceNameParts deviceName = matchDeviceId(name, deviceId);
+            if (deviceName != null) {
+                return deviceName;
+            }
+        }
+        return null;
+    }
+
+    /// Matches one device id in a board-image package name.
+    ///
+    /// @param name package name.
+    /// @param deviceId device id to match.
+    /// @return parsed device name, or null when the device id is not present.
+    private static @Nullable DeviceNameParts matchDeviceId(String name, String deviceId) {
+        if (name.equals(deviceId)) {
+            return new DeviceNameParts(deviceId, "generic");
+        }
+
+        String marker = "-" + deviceId;
+        int fromIndex = 0;
+        while (fromIndex < name.length()) {
+            int markerIndex = name.indexOf(marker, fromIndex);
+            if (markerIndex < 0) {
+                return null;
+            }
+
+            int deviceStart = markerIndex + 1;
+            int deviceEnd = deviceStart + deviceId.length();
+            if (deviceEnd == name.length()) {
+                return new DeviceNameParts(deviceId, "generic");
+            }
+            if (name.charAt(deviceEnd) == '-') {
+                String variant = name.substring(deviceEnd + 1);
+                if (!variant.isBlank()) {
+                    return new DeviceNameParts(deviceId, variant);
+                }
+            }
+            fromIndex = markerIndex + 1;
+        }
+        return null;
+    }
+
+    /// Returns the first hyphen-separated fragment.
+    ///
+    /// @param text text to inspect.
+    /// @return first fragment.
+    private static String firstFragment(String text) {
+        int hyphen = text.indexOf('-');
+        return hyphen < 0 ? text : text.substring(0, hyphen);
     }
 
     /// Finds the vendor id fragment in a board-image package name.
@@ -666,6 +816,14 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             builder.append(fragments[i]);
         }
         return builder.toString();
+    }
+
+    /// Device and variant parsed from a board-image package name.
+    ///
+    /// @param deviceId Ruyi device id.
+    /// @param variant package variant, or `generic` when absent.
+    @NotNullByDefault
+    private record DeviceNameParts(String deviceId, String variant) {
     }
 
     /// Classifies support for a provision strategy.

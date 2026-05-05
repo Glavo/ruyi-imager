@@ -160,6 +160,42 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals("4g", image.variant());
     }
 
+    /// Verifies board-image board names use device entities before suffix heuristics.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when test fixture files cannot be created or read.
+    @Test
+    public void derivesBoardFromDeviceEntityBeforePackageSuffix(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        writeConfig(configDirectory, repoDirectory);
+        writeRepositoryConfig(repoDirectory);
+        writeDeviceEntity(repoDirectory, "sipeed-lpi4a");
+        writeImageManifest(
+                repoDirectory,
+                "revyos-sipeed-lpi4a-headless",
+                "1.2.3",
+                "Headless RevyOS image for Sipeed LicheePi 4A",
+                "revyos-lpi4a-headless",
+                "image.raw",
+                "dd-v1",
+                "PLCT");
+
+        RuyiImageCatalogService service = new RuyiImageCatalogService(
+                new AppDirectories(configDirectory, cacheDirectory),
+                new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory)));
+
+        @Nullable ImageEntry image = service.findImage("revyos-sipeed-lpi4a-headless");
+
+        assertNotNull(image);
+        assertEquals("Sipeed", image.manufacturer());
+        assertEquals("sipeed-lpi4a", image.board());
+        assertEquals("headless", image.variant());
+    }
+
+
     /// Verifies lightweight distfile cache status inspection.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -242,6 +278,25 @@ public final class RuyiImageCatalogServiceTest {
                 id = "ruyi-dist"
                 urls = ["https://dist.example/dist/"]
                 """);
+    }
+
+    /// Writes one device entity fixture.
+    ///
+    /// @param repoDirectory repository directory.
+    /// @param deviceId device id.
+    /// @throws Exception when fixture files cannot be written.
+    private static void writeDeviceEntity(Path repoDirectory, String deviceId) throws Exception {
+        Path deviceDirectory = repoDirectory.resolve("entities").resolve("device");
+        Files.createDirectories(deviceDirectory);
+        Files.writeString(
+                deviceDirectory.resolve(deviceId + ".toml"),
+                """
+                        ruyi-entity = "v0"
+
+                        [device]
+                        id = "%s"
+                        display_name = "%s"
+                        """.formatted(deviceId, deviceId));
     }
 
     /// Writes one image manifest fixture.
