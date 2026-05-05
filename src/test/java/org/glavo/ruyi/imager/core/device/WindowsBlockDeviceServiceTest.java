@@ -34,6 +34,7 @@ public final class WindowsBlockDeviceServiceTest {
                     "removable": false,
                     "system": true,
                     "mounted": true,
+                    "mountPoints": ["C:\\\\", "D:\\\\"],
                     "readOnly": false
                   },
                   {
@@ -61,6 +62,7 @@ public final class WindowsBlockDeviceServiceTest {
         assertEquals(512110190592L, systemDisk.sizeBytes());
         assertTrue(systemDisk.system());
         assertTrue(systemDisk.mounted());
+        assertEquals(List.of("C:\\", "D:\\"), systemDisk.mountPoints());
         assertFalse(systemDisk.removable());
         assertEquals("Internal NVMe", systemDisk.model());
         assertEquals("NVMe", systemDisk.busType());
@@ -99,6 +101,7 @@ public final class WindowsBlockDeviceServiceTest {
         assertTrue(device.path().toString().startsWith("\\\\.\\PHYSICALDRIVE3"));
         assertEquals("Disk 3", device.displayName());
         assertFalse(device.mounted());
+        assertTrue(device.mountPoints().isEmpty());
         assertTrue(device.readOnly());
         assertNull(device.model());
         assertNull(device.busType());

@@ -54,7 +54,7 @@ public final class CliApplicationTest {
     public void deviceListJsonUsesStringPaths(@TempDir Path temporaryDirectory) throws Exception {
         Path target = temporaryDirectory.resolve("target.raw");
         Files.write(target, new byte[32]);
-        BlockDevice device = blockDevice("test-device", target, 32L, false, true, true);
+        BlockDevice device = blockDevice("test-device", target, 32L, false, true, true, List.of("E:\\"));
 
         CliResult result = runCli(services(temporaryDirectory, List.of(device)), "device", "list", "--json");
 
@@ -66,6 +66,7 @@ public final class CliApplicationTest {
         assertEquals(target.toString(), deviceNode.path("path").asText());
         assertTrue(deviceNode.path("removable").asBoolean());
         assertTrue(deviceNode.path("mounted").asBoolean());
+        assertEquals("E:\\", deviceNode.path("mountPoints").path(0).asText());
         assertTrue(deviceNode.path("readOnly").asBoolean());
     }
 
@@ -273,7 +274,39 @@ public final class CliApplicationTest {
             boolean system,
             boolean mounted,
             boolean readOnly) {
-        return new BlockDevice(id, "Test Device", path, sizeBytes, true, system, mounted, readOnly, "Test", "file");
+        return blockDevice(id, path, sizeBytes, system, mounted, readOnly, List.of());
+    }
+
+    /// Creates a test block device.
+    ///
+    /// @param id device id.
+    /// @param path target path.
+    /// @param sizeBytes target size.
+    /// @param system whether the target is a system disk.
+    /// @param mounted whether the target has mounted volumes.
+    /// @param readOnly whether the target is read-only.
+    /// @param mountPoints mounted volume paths.
+    /// @return test device.
+    private static BlockDevice blockDevice(
+            String id,
+            Path path,
+            long sizeBytes,
+            boolean system,
+            boolean mounted,
+            boolean readOnly,
+            @Unmodifiable List<String> mountPoints) {
+        return new BlockDevice(
+                id,
+                "Test Device",
+                path,
+                sizeBytes,
+                true,
+                system,
+                mounted,
+                readOnly,
+                "Test",
+                "file",
+                mountPoints);
     }
 
     /// Runs the CLI and captures standard streams.

@@ -479,7 +479,17 @@ public final class CliApplication implements Runnable {
                     System.out.println(Messages.get("cli.device.none"));
                 } else {
                     for (BlockDevice device : devices) {
-                        System.out.printf("%s\t%s\t%s%n", device.id(), device.displayName(), devicePathText(device));
+                        String mountPoints = deviceMountPointsText(device);
+                        if (mountPoints.isEmpty()) {
+                            System.out.printf("%s\t%s\t%s%n", device.id(), device.displayName(), devicePathText(device));
+                        } else {
+                            System.out.printf(
+                                    "%s\t%s\t%s\t%s%n",
+                                    device.id(),
+                                    device.displayName(),
+                                    devicePathText(device),
+                                    mountPoints);
+                        }
                     }
                 }
                 return CommandLine.ExitCode.OK;
@@ -529,6 +539,7 @@ public final class CliApplication implements Runnable {
             map.put("removable", device.removable());
             map.put("system", device.system());
             map.put("mounted", device.mounted());
+            map.put("mountPoints", device.mountPoints());
             map.put("readOnly", device.readOnly());
             map.put("model", device.model());
             map.put("busType", device.busType());
@@ -565,6 +576,17 @@ public final class CliApplication implements Runnable {
             return text.substring(0, text.length() - 1);
         }
         return text;
+    }
+
+    /// Formats device mount points for CLI output.
+    ///
+    /// @param device block device.
+    /// @return mount point text, or empty string when none are known.
+    private static String deviceMountPointsText(BlockDevice device) {
+        if (device.mountPoints().isEmpty()) {
+            return "";
+        }
+        return String.join(", ", device.mountPoints());
     }
 
     /// Returns whether a strategy uses fastboot.

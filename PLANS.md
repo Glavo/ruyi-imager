@@ -22,7 +22,7 @@
 - Artifact 物化已支持 raw、gzip、zip、tar、tar.gz；tar 读取已使用 `Glavo/kala-compress`，`tar.xz`、`tar.zst`、`tar.bz2`、`tar.lz4`、`xz`、`zst`、`bz2`、`lz4`、`deb` 仍显式 unsupported。
 - 本地 `dd-v1` 刷写已接入默认服务图，支持本地镜像和已物化 Ruyi 镜像写入 `BlockDevice.path()`，包含系统盘、已挂载、只读、容量、自写入、flush 和写后 verify 检查。
 - Strategy support 目前将 `dd-v1`、`fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 标为 supported；dd 使用本地块设备写入，fastboot 使用受控外部 `fastboot` 命令执行。
-- Windows 只读块设备枚举已接入；非 Windows 平台目前仍使用占位枚举服务。
+- Windows 只读块设备枚举已接入，并会保留已挂载卷的挂载点用于 CLI/GUI 展示；非 Windows 平台目前仍使用占位枚举服务。
 - GUI 已实现 MaterialFX 风格主窗口、更宽默认窗口、运行时中英文切换、语言偏好持久化、目录镜像/本地镜像二选一流程、右侧本地镜像入口居中、渐进式步骤启用、搜索式选择弹窗、dd/fastboot 目标切换、策略/缓存/目标风险状态标记、结构化最终确认弹窗。
 - i18n 基础设施已接入 `ResourceBundle`；`Messages` 提供 locale property 和 `StringBinding` helper，当前资源包含 English 和简体中文。
 

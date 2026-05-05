@@ -1584,7 +1584,7 @@ public final class MainWindow {
         title.setWrapText(true);
         title.getStyleClass().add("selection-title");
 
-        Label details = new Label(Messages.get("gui.target.details", targetPathText(target), targetSizeLabel(target)));
+        Label details = new Label(targetDetailsLabel(target));
         details.setWrapText(true);
         details.getStyleClass().add("selection-detail");
 
@@ -1751,12 +1751,23 @@ public final class MainWindow {
     /// @return display text.
     private static String targetLabel(BlockDevice target) {
         String safety = targetSafetyLabel(target);
+        String status = safety.isEmpty() ? Messages.get("gui.target.ready") : safety;
+        if (target.mounted() && !target.mountPoints().isEmpty()) {
+            return Messages.get(
+                    "gui.target.summaryMounted",
+                    target.displayName(),
+                    targetPathText(target),
+                    targetSizeLabel(target),
+                    mountPointsLabel(target),
+                    status);
+        }
+
         return Messages.get(
                 "gui.target.summary",
                 target.displayName(),
                 targetPathText(target),
                 targetSizeLabel(target),
-                safety.isEmpty() ? Messages.get("gui.target.ready") : safety);
+                status);
     }
 
     /// Formats a fastboot target for list and summary display.
@@ -1809,6 +1820,29 @@ public final class MainWindow {
         return text;
     }
 
+    /// Formats target details for list display.
+    ///
+    /// @param target target device.
+    /// @return target details.
+    private static String targetDetailsLabel(BlockDevice target) {
+        if (target.mounted() && !target.mountPoints().isEmpty()) {
+            return Messages.get(
+                    "gui.target.detailsMounted",
+                    targetPathText(target),
+                    targetSizeLabel(target),
+                    mountPointsLabel(target));
+        }
+        return Messages.get("gui.target.details", targetPathText(target), targetSizeLabel(target));
+    }
+
+    /// Formats known mount points for one target.
+    ///
+    /// @param target target device.
+    /// @return mount point label.
+    private static String mountPointsLabel(BlockDevice target) {
+        return String.join(", ", target.mountPoints());
+    }
+
     /// Formats target safety flags.
     ///
     /// @param target target device.
@@ -1819,7 +1853,11 @@ public final class MainWindow {
             flags.add(Messages.get("gui.target.system"));
         }
         if (target.mounted()) {
-            flags.add(Messages.get("gui.target.mounted"));
+            if (target.mountPoints().isEmpty()) {
+                flags.add(Messages.get("gui.target.mounted"));
+            } else {
+                flags.add(Messages.get("gui.target.mountedWithPoints", mountPointsLabel(target)));
+            }
         }
         if (target.readOnly()) {
             flags.add(Messages.get("gui.target.readOnly"));

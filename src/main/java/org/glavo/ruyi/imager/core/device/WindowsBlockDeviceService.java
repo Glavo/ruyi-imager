@@ -49,11 +49,14 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
             $items = @()
             foreach ($disk in (Get-CimInstance -ClassName Win32_DiskDrive | Sort-Object Index)) {
                 $letters = @()
+                $mountPoints = @()
                 try {
                     foreach ($partition in (Get-CimAssociatedInstance -InputObject $disk -Association Win32_DiskDriveToDiskPartition)) {
                         foreach ($logicalDisk in (Get-CimAssociatedInstance -InputObject $partition -Association Win32_LogicalDiskToPartition)) {
                             if ($logicalDisk.DeviceID) {
-                                $letters += [string]$logicalDisk.DeviceID
+                                $letter = [string]$logicalDisk.DeviceID
+                                $letters += $letter
+                                $mountPoints += ($letter.TrimEnd('\') + '\')
                             }
                         }
                     }
@@ -88,6 +91,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
                     system = [bool]$system
                     mounted = [bool]$mounted
                     readOnly = [bool]$readOnly
+                    mountPoints = @($mountPoints)
                 }
             }
 
@@ -187,6 +191,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         boolean system = booleanValue(node, "system", false);
         boolean mounted = booleanValue(node, "mounted", false);
         boolean readOnly = booleanValue(node, "readOnly", false);
+        @Unmodifiable List<String> mountPoints = stringListValue(node, "mountPoints");
 
         return new BlockDevice(
                 "windows-disk-" + index,
@@ -198,7 +203,46 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
                 mounted,
                 readOnly,
                 model,
-                busType);
+                busType,
+                mountPoints);
+    }
+
+    /// Reads a string list field.
+    ///
+    /// @param node JSON object.
+    /// @param fieldName field name.
+    /// @return immutable string list.
+    private static @Unmodifiable List<String> stringListValue(JsonNode node, String fieldName) {
+        @Nullable JsonNode value = node.get(fieldName);
+        if (value == null || value.isNull()) {
+            return List.of();
+        }
+
+        ArrayList<String> result = new ArrayList<>();
+        if (value.isArray()) {
+            Iterator<JsonNode> iterator = value.elements();
+            while (iterator.hasNext()) {
+                addStringListValue(result, iterator.next());
+            }
+        } else {
+            addStringListValue(result, value);
+        }
+        return List.copyOf(result);
+    }
+
+    /// Adds one JSON string value to a list.
+    ///
+    /// @param result mutable result list.
+    /// @param value JSON value.
+    private static void addStringListValue(ArrayList<String> result, JsonNode value) {
+        if (value.isNull()) {
+            return;
+        }
+
+        String text = value.asText();
+        if (!text.isBlank()) {
+            result.add(text.strip());
+        }
     }
 
     /// Builds a human-readable disk label.
