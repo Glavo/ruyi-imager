@@ -1895,6 +1895,7 @@ public final class MainWindow {
 
         VBox content = new VBox(4, title, details, statusRow);
         content.getStyleClass().add("selection-cell-content");
+        content.setMouseTransparent(true);
         return content;
     }
 

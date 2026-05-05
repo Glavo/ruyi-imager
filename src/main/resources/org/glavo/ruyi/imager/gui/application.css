@@ -252,6 +252,12 @@
     -fx-background-color: #ffe5d6;
 }
 
+.selection-tree-view .tree-cell.flashable-image-cell:selected,
+.selection-tree-view .tree-cell.os-category-tree-cell:selected {
+    -fx-background-color: #e3f3f6;
+    -fx-text-fill: #126879;
+}
+
 .selection-cell-content {
     -fx-fill-width: true;
 }
