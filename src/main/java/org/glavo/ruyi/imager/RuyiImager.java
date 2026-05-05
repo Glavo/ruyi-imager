@@ -42,7 +42,7 @@ public final class RuyiImager extends Application {
         }
 
         MainWindow window = new MainWindow(currentServices);
-        Scene scene = new Scene(window.root(), 980, 640);
+        Scene scene = new Scene(window.root(), 1180, 640);
         URL stylesheet = RuyiImager.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
         if (stylesheet != null) {
             scene.getStylesheets().add(stylesheet.toExternalForm());
