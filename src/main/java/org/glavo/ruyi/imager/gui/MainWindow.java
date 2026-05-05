@@ -415,7 +415,6 @@ public final class MainWindow {
     /// @return localized button.
     private static MFXButton localizedButton(String key) {
         MFXButton button = new MFXButton();
-        button.setButtonType(io.github.palexdev.materialfx.enums.ButtonType.RAISED);
         button.textProperty().bind(Messages.binding(key));
         return button;
     }

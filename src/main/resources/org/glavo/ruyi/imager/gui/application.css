@@ -64,7 +64,6 @@
     -fx-border-radius: 8;
     -fx-background-radius: 8;
     -fx-padding: 16 20;
-    -fx-effect: dropshadow(gaussian, rgba(34, 49, 63, 0.08), 18, 0.16, 0, 4);
 }
 
 .option-value {
@@ -78,7 +77,6 @@
     -fx-border-radius: 8;
     -fx-background-radius: 8;
     -fx-padding: 18 20;
-    -fx-effect: dropshadow(gaussian, rgba(34, 49, 63, 0.08), 18, 0.16, 0, 4);
 }
 
 .step-badge {
