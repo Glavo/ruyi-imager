@@ -16,6 +16,9 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.Separator;
+import javafx.scene.control.TreeCell;
+import javafx.scene.control.TreeItem;
+import javafx.scene.control.TreeView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -77,6 +80,28 @@ public final class MainWindow {
 
     /// Binary size units used by storage device summaries.
     private static final @Unmodifiable List<String> SIZE_UNITS = List.of("B", "KiB", "MiB", "GiB", "TiB");
+
+    /// Operating system category aliases recognized from Ruyi image metadata.
+    private static final @Unmodifiable List<OperatingSystemCategoryAlias> OPERATING_SYSTEM_CATEGORY_ALIASES = List.of(
+            new OperatingSystemCategoryAlias("revyos", "RevyOS"),
+            new OperatingSystemCategoryAlias("ubuntu", "Ubuntu"),
+            new OperatingSystemCategoryAlias("debian", "Debian"),
+            new OperatingSystemCategoryAlias("openwrt", "OpenWrt"),
+            new OperatingSystemCategoryAlias("openbsd", "OpenBSD"),
+            new OperatingSystemCategoryAlias("freebsd", "FreeBSD"),
+            new OperatingSystemCategoryAlias("openkylin", "openKylin"),
+            new OperatingSystemCategoryAlias("fedora", "Fedora"),
+            new OperatingSystemCategoryAlias("archlinux", "Arch Linux"),
+            new OperatingSystemCategoryAlias("arch", "Arch Linux"),
+            new OperatingSystemCategoryAlias("alpine", "Alpine Linux"),
+            new OperatingSystemCategoryAlias("gentoo", "Gentoo"),
+            new OperatingSystemCategoryAlias("deepin", "deepin"),
+            new OperatingSystemCategoryAlias("android", "Android"),
+            new OperatingSystemCategoryAlias("buildroot", "Buildroot"),
+            new OperatingSystemCategoryAlias("rtthread", "RT-Thread"),
+            new OperatingSystemCategoryAlias("zephyr", "Zephyr"),
+            new OperatingSystemCategoryAlias("u-boot", "U-Boot"),
+            new OperatingSystemCategoryAlias("uboot", "U-Boot"));
 
     /// Fixed width used by modal selection lists.
     private static final double SELECTION_LIST_WIDTH = 640.0;
@@ -433,6 +458,21 @@ public final class MainWindow {
         return listView;
     }
 
+    /// Creates a styled selection tree.
+    ///
+    /// @param <T> item type.
+    /// @return selection tree view.
+    private static <T> TreeView<T> selectionTreeView() {
+        TreeView<T> treeView = new TreeView<>();
+        treeView.getStyleClass().add("selection-tree-view");
+        treeView.setEffect(null);
+        treeView.setShowRoot(false);
+        treeView.setMinSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
+        treeView.setPrefSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
+        treeView.setMaxSize(SELECTION_LIST_WIDTH, SELECTION_LIST_HEIGHT);
+        return treeView;
+    }
+
     /// Wraps a selection list with a MaterialFX search field.
     ///
     /// @param listView selection list view.
@@ -444,10 +484,7 @@ public final class MainWindow {
             ListView<T> listView,
             List<T> items,
             BiPredicate<T, String> matcher) {
-        MFXTextField searchField = new MFXTextField();
-        searchField.floatingTextProperty().bind(Messages.binding("gui.search"));
-        searchField.promptTextProperty().bind(Messages.binding("gui.search.placeholder"));
-        searchField.getStyleClass().add("selection-search");
+        MFXTextField searchField = selectionSearchField();
 
         FilteredList<T> filteredItems = new FilteredList<>(FXCollections.observableArrayList(items));
         listView.setItems(filteredItems);
@@ -470,6 +507,153 @@ public final class MainWindow {
         content.getStyleClass().add("selection-content");
         VBox.setVgrow(listView, Priority.NEVER);
         return content;
+    }
+
+    /// Creates the search field used by selection dialogs.
+    ///
+    /// @return selection search field.
+    private static MFXTextField selectionSearchField() {
+        MFXTextField searchField = new MFXTextField();
+        searchField.floatingTextProperty().bind(Messages.binding("gui.search"));
+        searchField.promptTextProperty().bind(Messages.binding("gui.search.placeholder"));
+        searchField.getStyleClass().add("selection-search");
+        return searchField;
+    }
+
+    /// Wraps an operating system tree with search.
+    ///
+    /// @param treeView operating system tree view.
+    /// @param images source image entries.
+    /// @param currentImage currently selected image.
+    /// @return operating system selection content.
+    private static Node operatingSystemSelectionContent(
+            TreeView<OperatingSystemTreeNode> treeView,
+            List<ImageEntry> images,
+            @Nullable ImageEntry currentImage) {
+        MFXTextField searchField = selectionSearchField();
+
+        Runnable refreshTree = () -> {
+            String query = normalizeSearchQuery(searchField.getText());
+            @Nullable ImageEntry selected = selectedTreeImage(treeView);
+            populateOperatingSystemTree(
+                    treeView,
+                    images,
+                    query,
+                    selected == null ? currentImage : selected);
+        };
+
+        searchField.textProperty().addListener((_, _, _) -> refreshTree.run());
+        populateOperatingSystemTree(treeView, images, "", currentImage);
+
+        VBox content = new VBox(10, searchField, treeView);
+        content.setMinWidth(SELECTION_LIST_WIDTH);
+        content.setPrefWidth(SELECTION_LIST_WIDTH);
+        content.setMaxWidth(SELECTION_LIST_WIDTH);
+        content.setPadding(new Insets(0.0, 0.0, SELECTION_CONTENT_BOTTOM_INSET, 0.0));
+        content.getStyleClass().add("selection-content");
+        VBox.setVgrow(treeView, Priority.NEVER);
+        return content;
+    }
+
+    /// Populates the operating system tree with category and image nodes.
+    ///
+    /// @param treeView operating system tree view.
+    /// @param images source image entries.
+    /// @param query normalized search query.
+    /// @param selectedImage image to select after rebuilding.
+    private static void populateOperatingSystemTree(
+            TreeView<OperatingSystemTreeNode> treeView,
+            List<ImageEntry> images,
+            String query,
+            @Nullable ImageEntry selectedImage) {
+        TreeItem<OperatingSystemTreeNode> root = new TreeItem<>(
+                new OperatingSystemTreeNode("", null, 0));
+        root.setExpanded(true);
+
+        @Nullable TreeItem<OperatingSystemTreeNode> selectedItem = null;
+        @Unmodifiable List<OperatingSystemCategoryOption> categories = operatingSystemCategoryOptions(images);
+        for (OperatingSystemCategoryOption category : categories) {
+            boolean categoryMatches = textMatches(category.name(), query)
+                    || textMatches(Messages.get("gui.osCategory.item", category.name(), category.imageCount()), query);
+            ArrayList<ImageEntry> matchingImages = new ArrayList<>();
+            for (ImageEntry image : images) {
+                if (operatingSystemCategoryId(image).equals(category.id())
+                        && (query.isEmpty() || categoryMatches || imageMatches(image, query))) {
+                    matchingImages.add(image);
+                }
+            }
+            if (matchingImages.isEmpty()) {
+                continue;
+            }
+
+            TreeItem<OperatingSystemTreeNode> categoryItem = new TreeItem<>(
+                    new OperatingSystemTreeNode(category.name(), null, matchingImages.size()));
+            categoryItem.setExpanded(true);
+            for (ImageEntry image : matchingImages) {
+                TreeItem<OperatingSystemTreeNode> imageItem = new TreeItem<>(
+                        new OperatingSystemTreeNode("", image, 0));
+                categoryItem.getChildren().add(imageItem);
+                if (selectedImage != null && selectedImage.atom().equals(image.atom())) {
+                    selectedItem = imageItem;
+                }
+            }
+            root.getChildren().add(categoryItem);
+        }
+
+        treeView.setRoot(root);
+        if (selectedItem == null) {
+            selectedItem = firstImageTreeItem(root);
+        }
+        if (selectedItem == null) {
+            treeView.getSelectionModel().clearSelection();
+        } else {
+            treeView.getSelectionModel().select(selectedItem);
+        }
+    }
+
+    /// Returns the selected image from an operating system tree.
+    ///
+    /// @param treeView operating system tree view.
+    /// @return selected image, first image under a selected category, or null when the tree is empty.
+    private static @Nullable ImageEntry selectedTreeImage(TreeView<OperatingSystemTreeNode> treeView) {
+        @Nullable TreeItem<OperatingSystemTreeNode> selectedItem =
+                treeView.getSelectionModel().getSelectedItem();
+        if (selectedItem == null) {
+            return null;
+        }
+
+        @Nullable OperatingSystemTreeNode node = selectedItem.getValue();
+        if (node == null) {
+            return null;
+        }
+        @Nullable ImageEntry image = node.image();
+        if (image != null) {
+            return image;
+        }
+
+        @Nullable TreeItem<OperatingSystemTreeNode> firstChild = firstImageTreeItem(selectedItem);
+        if (firstChild == null) {
+            return null;
+        }
+        @Nullable OperatingSystemTreeNode firstChildNode = firstChild.getValue();
+        return firstChildNode == null ? null : firstChildNode.image();
+    }
+
+    /// Finds the first image leaf in an operating system tree.
+    ///
+    /// @param root root tree item.
+    /// @return first image tree item, or null when the tree is empty.
+    private static @Nullable TreeItem<OperatingSystemTreeNode> firstImageTreeItem(
+            TreeItem<OperatingSystemTreeNode> root) {
+        for (TreeItem<OperatingSystemTreeNode> categoryItem : root.getChildren()) {
+            for (TreeItem<OperatingSystemTreeNode> imageItem : categoryItem.getChildren()) {
+                @Nullable OperatingSystemTreeNode node = imageItem.getValue();
+                if (node != null && node.image() != null) {
+                    return imageItem;
+                }
+            }
+        }
+        return null;
     }
 
     /// Normalizes search text for case-insensitive matching.
@@ -734,36 +918,44 @@ public final class MainWindow {
             return;
         }
 
-        ListView<ImageEntry> listView = selectionListView();
+        TreeView<OperatingSystemTreeNode> treeView = selectionTreeView();
         @Unmodifiable Map<String, ImageCacheStatus> cacheStatuses = imageCacheStatuses(images);
-        Node content = searchableSelectionContent(listView, images, MainWindow::imageMatches);
-        listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
-            /// Updates one image list cell.
+        Node content = operatingSystemSelectionContent(treeView, images, state.image());
+        treeView.setCellFactory(_ -> new TreeCell<>() {
+            /// Updates one operating system tree cell.
             ///
-            /// @param item image item.
+            /// @param item tree node.
             /// @param empty whether the cell is empty.
             @Override
-            protected void updateItem(@Nullable ImageEntry item, boolean empty) {
+            protected void updateItem(@Nullable OperatingSystemTreeNode item, boolean empty) {
                 super.updateItem(item, empty);
-                clearSelectionCellStyles(this);
+                clearSelectionTreeCellStyles(this);
                 if (empty || item == null) {
                     setText(null);
                     setGraphic(null);
                     return;
                 }
 
-                setText(null);
-                setGraphic(imageCellContent(item, cacheStatus(cacheStatuses, item)));
-                getStyleClass().add(catalogImageFlashable(item) ? "flashable-image-cell" : "unsupported-image-cell");
+                @Nullable ImageEntry image = item.image();
+                if (image == null) {
+                    setText(Messages.get("gui.osCategory.item", item.name(), item.imageCount()));
+                    setGraphic(null);
+                    getStyleClass().add("os-category-tree-cell");
+                } else {
+                    setText(null);
+                    setGraphic(imageCellContent(image, cacheStatus(cacheStatuses, image)));
+                    getStyleClass().add(catalogImageFlashable(image)
+                            ? "flashable-image-cell"
+                            : "unsupported-image-cell");
+                }
             }
         });
-        selectCurrentImage(listView, state.image());
 
         if (showSelectionDialog(
                 Messages.get("gui.dialog.chooseOperatingSystem"),
                 Messages.get("gui.dialog.chooseOperatingSystem.header", state.boardName()),
                 content)) {
-            ImageEntry selected = listView.getSelectionModel().getSelectedItem();
+            @Nullable ImageEntry selected = selectedTreeImage(treeView);
             if (selected != null) {
                 state = new WizardState(
                         selected.manufacturer(),
@@ -1326,6 +1518,145 @@ public final class MainWindow {
         return List.copyOf(filtered);
     }
 
+    /// Builds operating system categories from image metadata.
+    ///
+    /// @param images available images.
+    /// @return operating system categories sorted by name.
+    private static @Unmodifiable List<OperatingSystemCategoryOption> operatingSystemCategoryOptions(
+            List<ImageEntry> images) {
+        LinkedHashMap<String, String> names = new LinkedHashMap<>();
+        LinkedHashMap<String, Integer> counts = new LinkedHashMap<>();
+        for (ImageEntry image : images) {
+            String name = operatingSystemCategoryName(image);
+            String id = operatingSystemCategoryId(name);
+            names.putIfAbsent(id, name);
+            counts.merge(id, 1, Integer::sum);
+        }
+
+        ArrayList<OperatingSystemCategoryOption> categories = new ArrayList<>(names.size());
+        for (Map.Entry<String, String> entry : names.entrySet()) {
+            @Nullable Integer count = counts.get(entry.getKey());
+            categories.add(new OperatingSystemCategoryOption(
+                    entry.getKey(),
+                    entry.getValue(),
+                    count == null ? 0 : count));
+        }
+        categories.sort(Comparator.comparing(OperatingSystemCategoryOption::name));
+        return List.copyOf(categories);
+    }
+
+    /// Derives an operating system category id for one image.
+    ///
+    /// @param image image entry.
+    /// @return stable category id.
+    private static String operatingSystemCategoryId(ImageEntry image) {
+        return operatingSystemCategoryId(operatingSystemCategoryName(image));
+    }
+
+    /// Normalizes an operating system category name to a stable id.
+    ///
+    /// @param name category display name.
+    /// @return category id.
+    private static String operatingSystemCategoryId(String name) {
+        return normalizeCategorySearchText(name).trim().replace(' ', '-');
+    }
+
+    /// Derives an operating system category name for one image.
+    ///
+    /// @param image image entry.
+    /// @return category display name.
+    private static String operatingSystemCategoryName(ImageEntry image) {
+        String text = categorySourceText(image);
+        for (OperatingSystemCategoryAlias alias : OPERATING_SYSTEM_CATEGORY_ALIASES) {
+            if (text.contains(" " + normalizeCategorySearchText(alias.matchText()).trim() + " ")) {
+                return alias.name();
+            }
+        }
+
+        return fallbackOperatingSystemCategoryName(image.name());
+    }
+
+    /// Builds normalized text used by operating system category matching.
+    ///
+    /// @param image image entry.
+    /// @return normalized source text with word boundaries.
+    private static String categorySourceText(ImageEntry image) {
+        StringBuilder builder = new StringBuilder();
+        appendCategorySource(builder, image.name());
+        appendCategorySource(builder, image.slug());
+        appendCategorySource(builder, image.displayName());
+        appendCategorySource(builder, image.atom());
+        return normalizeCategorySearchText(builder.toString());
+    }
+
+    /// Appends one value to category matching source text.
+    ///
+    /// @param builder source text builder.
+    /// @param value value to append.
+    private static void appendCategorySource(StringBuilder builder, @Nullable String value) {
+        if (value != null && !value.isBlank()) {
+            if (!builder.isEmpty()) {
+                builder.append(' ');
+            }
+            builder.append(value);
+        }
+    }
+
+    /// Normalizes arbitrary text for category matching.
+    ///
+    /// @param text raw text.
+    /// @return normalized text padded with spaces.
+    private static String normalizeCategorySearchText(String text) {
+        StringBuilder builder = new StringBuilder(text.length() + 2);
+        builder.append(' ');
+        boolean previousSpace = true;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = Character.toLowerCase(text.charAt(i));
+            if (Character.isLetterOrDigit(ch)) {
+                builder.append(ch);
+                previousSpace = false;
+            } else if (!previousSpace) {
+                builder.append(' ');
+                previousSpace = true;
+            }
+        }
+        if (!previousSpace) {
+            builder.append(' ');
+        }
+        return builder.toString();
+    }
+
+    /// Falls back to the first package-name segment as the category.
+    ///
+    /// @param name package name.
+    /// @return category display name.
+    private static String fallbackOperatingSystemCategoryName(String name) {
+        String trimmed = name.trim();
+        if (trimmed.isEmpty()) {
+            return Messages.get("gui.osCategory.other");
+        }
+
+        int delimiterIndex = trimmed.indexOf('-');
+        String token = delimiterIndex <= 0 ? trimmed : trimmed.substring(0, delimiterIndex);
+        token = token.strip();
+        if (token.isEmpty()) {
+            return Messages.get("gui.osCategory.other");
+        }
+        return titleCaseCategoryToken(token);
+    }
+
+    /// Converts an unknown package-name token into a readable category label.
+    ///
+    /// @param token package-name token.
+    /// @return display label.
+    private static String titleCaseCategoryToken(String token) {
+        String lower = token.toLowerCase(Locale.ROOT);
+        if (lower.length() <= 1) {
+            return lower.toUpperCase(Locale.ROOT);
+        }
+        return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
+    }
+
     /// Selects the current manufacturer when the dialog opens.
     ///
     /// @param listView manufacturer list view.
@@ -1359,25 +1690,6 @@ public final class MainWindow {
 
         for (int i = 0; i < listView.getItems().size(); i++) {
             if (listView.getItems().get(i).name().equals(boardName)) {
-                listView.getSelectionModel().select(i);
-                return;
-            }
-        }
-        listView.getSelectionModel().selectFirst();
-    }
-
-    /// Selects the current image when the dialog opens.
-    ///
-    /// @param listView image list view.
-    /// @param image selected image.
-    private static void selectCurrentImage(ListView<ImageEntry> listView, @Nullable ImageEntry image) {
-        if (image == null) {
-            listView.getSelectionModel().selectFirst();
-            return;
-        }
-
-        for (int i = 0; i < listView.getItems().size(); i++) {
-            if (listView.getItems().get(i).atom().equals(image.atom())) {
                 listView.getSelectionModel().select(i);
                 return;
             }
@@ -1456,6 +1768,7 @@ public final class MainWindow {
     /// @return whether the image matches.
     private static boolean imageMatches(ImageEntry image, String query) {
         return textMatches(image.displayName(), query)
+                || textMatches(operatingSystemCategoryName(image), query)
                 || textMatches(image.manufacturer(), query)
                 || textMatches(image.board(), query)
                 || textMatches(image.variant(), query)
@@ -1543,6 +1856,16 @@ public final class MainWindow {
                 "unsupported-image-cell",
                 "safe-target-cell",
                 "blocked-target-cell");
+    }
+
+    /// Clears state-dependent tree cell styles.
+    ///
+    /// @param cell tree cell to reset.
+    private static void clearSelectionTreeCellStyles(TreeCell<?> cell) {
+        cell.getStyleClass().removeAll(
+                "os-category-tree-cell",
+                "flashable-image-cell",
+                "unsupported-image-cell");
     }
 
     /// Creates rich content for one image list cell.
@@ -2108,5 +2431,31 @@ public final class MainWindow {
     /// @param imageCount number of images available for the board.
     @NotNullByDefault
     private record BoardOption(String name, int imageCount) {
+    }
+
+    /// Operating system category alias used for image metadata inference.
+    ///
+    /// @param matchText token recognized from image metadata.
+    /// @param name category display name.
+    @NotNullByDefault
+    private record OperatingSystemCategoryAlias(String matchText, String name) {
+    }
+
+    /// Operating system category option shown in the image picker.
+    ///
+    /// @param id stable category id.
+    /// @param name category display name.
+    /// @param imageCount number of images in the category.
+    @NotNullByDefault
+    private record OperatingSystemCategoryOption(String id, String name, int imageCount) {
+    }
+
+    /// Operating system tree node shown in the image picker.
+    ///
+    /// @param name category display name for category nodes.
+    /// @param image image entry for leaf nodes.
+    /// @param imageCount visible image count for category nodes.
+    @NotNullByDefault
+    private record OperatingSystemTreeNode(String name, @Nullable ImageEntry image, int imageCount) {
     }
 }

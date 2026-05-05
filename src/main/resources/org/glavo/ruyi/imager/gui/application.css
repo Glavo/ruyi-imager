@@ -182,6 +182,15 @@
     -fx-effect: null;
 }
 
+.selection-tree-view {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 8;
+    -fx-border-color: #dce6ef;
+    -fx-border-radius: 8;
+    -fx-padding: 4;
+    -fx-effect: null;
+}
+
 .selection-content {
     -fx-min-width: 640px;
 }
@@ -203,23 +212,43 @@
     -fx-padding: 10 12;
 }
 
+.selection-tree-view .tree-cell {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 6;
+    -fx-padding: 8 10;
+}
+
 .selection-list-view .list-cell:selected {
     -fx-background-color: #e3f3f6;
     -fx-text-fill: #126879;
 }
 
+.selection-tree-view .tree-cell:selected {
+    -fx-background-color: #e3f3f6;
+    -fx-text-fill: #126879;
+}
+
+.selection-tree-view .tree-cell.os-category-tree-cell {
+    -fx-font-size: 13px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #394756;
+}
+
 .selection-list-view .list-cell.unsupported-image-cell,
-.selection-list-view .list-cell.blocked-target-cell {
+.selection-list-view .list-cell.blocked-target-cell,
+.selection-tree-view .tree-cell.unsupported-image-cell {
     -fx-background-color: #fff7f0;
 }
 
 .selection-list-view .list-cell.flashable-image-cell,
-.selection-list-view .list-cell.safe-target-cell {
+.selection-list-view .list-cell.safe-target-cell,
+.selection-tree-view .tree-cell.flashable-image-cell {
     -fx-background-color: #ffffff;
 }
 
 .selection-list-view .list-cell.unsupported-image-cell:selected,
-.selection-list-view .list-cell.blocked-target-cell:selected {
+.selection-list-view .list-cell.blocked-target-cell:selected,
+.selection-tree-view .tree-cell.unsupported-image-cell:selected {
     -fx-background-color: #ffe5d6;
 }
 
