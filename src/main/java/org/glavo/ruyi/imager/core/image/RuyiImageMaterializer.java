@@ -5,6 +5,8 @@ package org.glavo.ruyi.imager.core.image;
 
 import kala.compress.archivers.tar.TarArchiveEntry;
 import kala.compress.archivers.tar.TarArchiveInputStream;
+import kala.compress.compressors.CompressorException;
+import kala.compress.compressors.CompressorStreamFactory;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.i18n.Messages;
@@ -30,17 +32,12 @@ import java.util.zip.ZipInputStream;
 /// Materializes downloaded Ruyi distfiles into flashable image artifacts.
 @NotNullByDefault
 public final class RuyiImageMaterializer {
+    /// Compressor stream factory with optional compressor modules loaded through ServiceLoader.
+    private static final CompressorStreamFactory COMPRESSOR_STREAMS =
+            CompressorStreamFactory.DEFAULT.withInstalledProviders();
+
     /// Unpack methods that are recognized but not implemented in Java yet.
-    private static final Set<String> UNSUPPORTED_METHODS = Set.of(
-            "tar.bz2",
-            "tar.lz4",
-            "tar.xz",
-            "tar.zst",
-            "bz2",
-            "lz4",
-            "xz",
-            "zst",
-            "deb");
+    private static final @Unmodifiable Set<String> UNSUPPORTED_METHODS = Set.of("deb");
 
     /// Materializes all downloaded distfiles for an image.
     ///
@@ -115,6 +112,16 @@ public final class RuyiImageMaterializer {
         }
         if ("tar.auto".equals(method)) {
             extractAutoTar(distfile, source, artifactDirectory);
+            return;
+        }
+        if (method.startsWith("tar.")) {
+            try (InputStream input = compressedInputStream(source, compressorNameForMethod(method.substring("tar.".length())))) {
+                extractTar(input, artifactDirectory, distfile.stripComponents());
+            }
+            return;
+        }
+        if (isSingleStreamCompression(method)) {
+            decompressCompressed(source, artifactDirectory.resolve(removeLastExtension(distfile.name())), method);
             return;
         }
         if (UNSUPPORTED_METHODS.contains(method)) {
@@ -192,6 +199,68 @@ public final class RuyiImageMaterializer {
              OutputStream output = Files.newOutputStream(target)) {
             input.transferTo(output);
         }
+    }
+
+    /// Decompresses a bare single-stream compressed distfile.
+    ///
+    /// @param source source path.
+    /// @param target target path.
+    /// @param method compression method.
+    /// @throws IOException when decompression fails.
+    private static void decompressCompressed(Path source, Path target, String method) throws IOException {
+        @Nullable Path parent = target.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        try (InputStream input = compressedInputStream(source, compressorNameForMethod(method));
+             OutputStream output = Files.newOutputStream(target)) {
+            input.transferTo(output);
+        }
+    }
+
+    /// Opens a compressed input stream with a Kala Compress compressor.
+    ///
+    /// @param source source path.
+    /// @param compressorName Kala Compress compressor name.
+    /// @return opened decompressor stream.
+    /// @throws IOException when the stream cannot be opened.
+    private static InputStream compressedInputStream(Path source, String compressorName) throws IOException {
+        InputStream input = Files.newInputStream(source);
+        try {
+            return COMPRESSOR_STREAMS.createCompressorInputStream(compressorName, input);
+        } catch (CompressorException exception) {
+            try {
+                input.close();
+            } catch (IOException suppressed) {
+                exception.addSuppressed(suppressed);
+            }
+            throw new IOException(
+                    Messages.get("core.materialize.unsupportedMethod", compressorName, source.getFileName()),
+                    exception);
+        }
+    }
+
+    /// Returns whether an unpack method is a bare single-stream compression.
+    ///
+    /// @param method unpack method.
+    /// @return whether the method is a supported bare compressor.
+    private static boolean isSingleStreamCompression(String method) {
+        return "bz2".equals(method) || "lz4".equals(method) || "xz".equals(method) || "zst".equals(method);
+    }
+
+    /// Maps an unpack method suffix to a Kala Compress compressor name.
+    ///
+    /// @param method unpack method suffix.
+    /// @return Kala Compress compressor name.
+    /// @throws IOException when the method is unknown.
+    private static String compressorNameForMethod(String method) throws IOException {
+        return switch (method) {
+            case "bz2" -> CompressorStreamFactory.BZIP2;
+            case "lz4" -> CompressorStreamFactory.LZ4_FRAMED;
+            case "xz" -> CompressorStreamFactory.XZ;
+            case "zst" -> CompressorStreamFactory.ZSTANDARD;
+            default -> throw new IOException(Messages.get("core.materialize.unsupportedMethod", method, method));
+        };
     }
 
     /// Extracts a zip archive into the artifact directory.
@@ -278,6 +347,14 @@ public final class RuyiImageMaterializer {
         String name = distfile.name().toLowerCase(Locale.ROOT);
         if (name.endsWith(".tar.gz") || name.endsWith(".tgz")) {
             try (InputStream input = new GZIPInputStream(Files.newInputStream(source))) {
+                extractTar(input, artifactDirectory, distfile.stripComponents());
+            }
+            return;
+        }
+
+        if (name.matches(".*\\.tar\\.(bz2|lz4|xz|zst)$")) {
+            String method = name.substring(name.lastIndexOf('.') + 1);
+            try (InputStream input = compressedInputStream(source, compressorNameForMethod(method))) {
                 extractTar(input, artifactDirectory, distfile.stripComponents());
             }
             return;

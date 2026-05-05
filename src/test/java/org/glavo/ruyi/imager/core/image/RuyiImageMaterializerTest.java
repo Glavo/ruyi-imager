@@ -3,6 +3,9 @@
 
 package org.glavo.ruyi.imager.core.image;
 
+import kala.compress.compressors.CompressorException;
+import kala.compress.compressors.CompressorOutputStream;
+import kala.compress.compressors.CompressorStreamFactory;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -33,6 +36,10 @@ public final class RuyiImageMaterializerTest {
     /// Progress reporter that ignores progress events.
     private static final ProgressReporter NO_PROGRESS = _ -> {
     };
+
+    /// Compressor stream factory with optional compressor modules loaded through ServiceLoader.
+    private static final CompressorStreamFactory COMPRESSOR_STREAMS =
+            CompressorStreamFactory.DEFAULT.withInstalledProviders();
 
     /// Verifies raw distfiles are copied into the artifact directory.
     ///
@@ -137,6 +144,84 @@ public final class RuyiImageMaterializerTest {
         assertArrayEquals(content, Files.readAllBytes(result));
     }
 
+    /// Verifies tar.xz distfiles are extracted into the artifact directory.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void materializesTarXzDistfile(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "tar xz image".getBytes(StandardCharsets.UTF_8);
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.tar.xz");
+        Files.createDirectories(source.getParent());
+        writeCompressedTar(source, CompressorStreamFactory.XZ, "images/image.raw", content);
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.tar.xz", null, "images/image.raw");
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+
+        assertEquals(artifactDirectory.resolve("images").resolve("image.raw").toAbsolutePath().normalize(), result);
+        assertArrayEquals(content, Files.readAllBytes(result));
+    }
+
+    /// Verifies declared tar.bz2 distfiles are extracted into the artifact directory.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void materializesDeclaredTarBz2Distfile(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "tar bzip2 image".getBytes(StandardCharsets.UTF_8);
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.tbz2");
+        Files.createDirectories(source.getParent());
+        writeCompressedTar(source, CompressorStreamFactory.BZIP2, "images/image.raw", content);
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.tbz2", "tar.bz2", "images/image.raw");
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+
+        assertEquals(artifactDirectory.resolve("images").resolve("image.raw").toAbsolutePath().normalize(), result);
+        assertArrayEquals(content, Files.readAllBytes(result));
+    }
+
+    /// Verifies tar.zst distfiles are extracted into the artifact directory.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void materializesTarZstDistfile(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "tar zstd image".getBytes(StandardCharsets.UTF_8);
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.tar.zst");
+        Files.createDirectories(source.getParent());
+        writeCompressedTar(source, CompressorStreamFactory.ZSTANDARD, "images/image.raw", content);
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.tar.zst", null, "images/image.raw");
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+
+        assertEquals(artifactDirectory.resolve("images").resolve("image.raw").toAbsolutePath().normalize(), result);
+        assertArrayEquals(content, Files.readAllBytes(result));
+    }
+
+    /// Verifies bare xz distfiles are decompressed.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void materializesBareXzDistfile(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "xz image".getBytes(StandardCharsets.UTF_8);
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.raw.xz");
+        Files.createDirectories(source.getParent());
+        try (OutputStream output = compressorOutputStream(Files.newOutputStream(source), CompressorStreamFactory.XZ)) {
+            output.write(content);
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.raw.xz", null, "image.raw");
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+
+        assertEquals(artifactDirectory.resolve("image.raw").toAbsolutePath().normalize(), result);
+        assertArrayEquals(content, Files.readAllBytes(result));
+    }
+
     /// Verifies tar path traversal entries are rejected.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -162,11 +247,11 @@ public final class RuyiImageMaterializerTest {
     /// @throws Exception when fixture files cannot be written.
     @Test
     public void rejectsUnsupportedArchiveFormat(@TempDir Path temporaryDirectory) throws Exception {
-        Path source = temporaryDirectory.resolve("downloads").resolve("image.tar.xz");
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.deb");
         Files.createDirectories(source.getParent());
         Files.write(source, new byte[]{1, 2, 3});
 
-        ImageEntry image = image("image.tar.xz", null, "image.raw");
+        ImageEntry image = image("image.deb", null, "image.raw");
 
         assertThrows(IOException.class, () -> new RuyiImageMaterializer().materialize(
                 image,
@@ -232,6 +317,44 @@ public final class RuyiImageMaterializerTest {
     private static void writeTar(Path target, String entryName, byte[] content) throws IOException {
         try (OutputStream output = Files.newOutputStream(target)) {
             writeTar(output, entryName, content);
+        }
+    }
+
+    /// Writes a one-file compressed tar archive.
+    ///
+    /// @param target target archive path.
+    /// @param compressorName Kala Compress compressor name.
+    /// @param entryName archive entry name.
+    /// @param content entry content.
+    /// @throws IOException when writing fails.
+    private static void writeCompressedTar(
+            Path target,
+            String compressorName,
+            String entryName,
+            byte[] content) throws IOException {
+        try (OutputStream output = compressorOutputStream(Files.newOutputStream(target), compressorName)) {
+            writeTar(output, entryName, content);
+        }
+    }
+
+    /// Opens a compressed output stream.
+    ///
+    /// @param output backing output stream.
+    /// @param compressorName Kala Compress compressor name.
+    /// @return compressor output stream.
+    /// @throws IOException when the compressor cannot be created.
+    private static CompressorOutputStream<?> compressorOutputStream(
+            OutputStream output,
+            String compressorName) throws IOException {
+        try {
+            return COMPRESSOR_STREAMS.createCompressorOutputStream(compressorName, output);
+        } catch (CompressorException exception) {
+            try {
+                output.close();
+            } catch (IOException suppressed) {
+                exception.addSuppressed(suppressed);
+            }
+            throw new IOException(exception);
         }
     }
 
