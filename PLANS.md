@@ -20,7 +20,7 @@
 - Bundled fastboot：发行包会下载并携带 Android SDK Platform Tools 中的 Windows/macOS/Linux x86-64 fastboot；运行时优先使用发行目录内的 bundled fastboot，缺失或不支持的平台退回 PATH；平台识别覆盖 Windows、macOS、Darwin、Linux 的 x86-64 别名。
 - 设备枚举：Windows、Linux、macOS 只读块设备枚举已接入，保留挂载点用于 CLI/GUI 展示；三套平台 parser fixture 已覆盖。
 - CLI：支持 `repo update`、`image list/download`、`device list`、`device list --fastboot`、`flash --atom`、`flash --local-image`、多分区 `--partition-device`，主要命令支持 JSON/NDJSON；本地 Ruyi repo fixture 集成测试覆盖 repo update、image list/download 和 unsupported strategy。
-- GUI：MaterialFX 主窗口、运行时中英文切换、语言偏好持久化、调整后的默认窗口尺寸、目录镜像/本地镜像二选一、渐进式步骤启用、树形操作系统分类选择及 MaterialFX 风格滚动条、storage/fastboot 目标切换、多分区 `dd-v1` 目标映射、策略/缓存/目标风险标记、最终确认弹窗；选择规则已拆出为可单测逻辑；JavaFX smoke test 覆盖 OS 树选择和多分区存储选择控件。
+- GUI：MaterialFX 主窗口、运行时中英文切换、语言偏好持久化、调整后的默认窗口尺寸、目录镜像/本地镜像二选一、渐进式步骤启用、树形操作系统分类选择及 MaterialFX 风格滚动条、可搜索选择弹窗标题与搜索框同一行布局、storage/fastboot 目标切换、多分区 `dd-v1` 目标映射、策略/缓存/目标风险标记、最终确认弹窗；选择规则已拆出为可单测逻辑；JavaFX smoke test 覆盖 OS 树选择和多分区存储选择控件。
 - 日志：基于 `java.util.logging` 写入默认轮转日志文件，支持 CLI `--log-level`、`--verbose`、`--log-file` 以及 JVM/env 配置；CLI JSON 错误和 GUI 错误弹窗会提示日志路径；日志脱敏 URL query/fragment、常见 secret 字段和截断外部命令输出；repo、catalog、download、materialize、device、fastboot、flash 和 GUI 后台任务边界已记录关键诊断信息。
 
 ### Remaining

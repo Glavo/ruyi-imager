@@ -105,10 +105,12 @@ public final class MainWindowJavaFxSmokeTest {
                         Map.of("disk", "ubuntu.raw"));
 
                 TreeView<MainWindow.OperatingSystemTreeNode> treeView = MainWindow.selectionTreeView();
-                Node content = MainWindow.operatingSystemSelectionContent(treeView, List.of(revyos, ubuntu), revyos);
+                Node content = MainWindow.operatingSystemSelectionContent("Choose OS", treeView, List.of(revyos, ubuntu), revyos);
                 VBox contentBox = assertInstanceOf(VBox.class, content);
-                HBox searchRow = assertInstanceOf(HBox.class, contentBox.getChildren().get(0));
-                TextField searchField = assertInstanceOf(TextField.class, searchRow.getChildren().getFirst());
+                HBox headerRow = assertInstanceOf(HBox.class, contentBox.getChildren().get(0));
+                TextField searchField = assertInstanceOf(
+                        TextField.class,
+                        headerRow.getChildren().get(headerRow.getChildren().size() - 1));
 
                 assertEquals(revyos, MainWindow.selectedTreeImage(treeView));
 
@@ -161,7 +163,7 @@ public final class MainWindowJavaFxSmokeTest {
     public void showsOperatingSystemTreeScrollbar() throws Exception {
         runOnJavaFxThread(() -> {
             TreeView<MainWindow.OperatingSystemTreeNode> treeView = MainWindow.selectionTreeView();
-            Node content = MainWindow.operatingSystemSelectionContent(treeView, manyImages(), null);
+            Node content = MainWindow.operatingSystemSelectionContent("Choose OS", treeView, manyImages(), null);
             Parent parent = assertInstanceOf(Parent.class, content);
             Scene scene = new Scene(parent);
             @Nullable String stylesheet = applicationStylesheet();

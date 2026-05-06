@@ -270,8 +270,14 @@
     -fx-background-radius: 2em;
 }
 
-.selection-search-row {
-    -fx-alignment: center-right;
+.selection-dialog-header-row {
+    -fx-alignment: center-left;
+}
+
+.selection-dialog-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #18212b;
 }
 
 .selection-search {
@@ -398,6 +404,18 @@
     -fx-background-color: #ffffff;
     -fx-background-radius: 8;
     -fx-padding: 20;
+}
+
+.material-search-selection-dialog .header-label {
+    -fx-font-size: 0;
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
+    -fx-padding: 0;
+}
+
+.material-search-selection-dialog .content-container {
+    -fx-padding: 0 0 10 0;
 }
 
 .dialog-message {

@@ -507,14 +507,16 @@ public final class MainWindow {
         return treeView;
     }
 
-    /// Wraps a selection list with a MaterialFX search field.
+    /// Wraps a selection list with a search field.
     ///
+    /// @param header header text.
     /// @param listView selection list view.
     /// @param items source items.
     /// @param matcher item matcher receiving a normalized query.
     /// @param <T> item type.
     /// @return searchable selection content.
     private static <T> Node searchableSelectionContent(
+            String header,
             ListView<T> listView,
             List<T> items,
             BiPredicate<T, String> matcher) {
@@ -533,7 +535,7 @@ public final class MainWindow {
             }
         });
 
-        VBox content = new VBox(10, selectionSearchRow(searchField), listView);
+        VBox content = new VBox(10, selectionHeaderRow(header, searchField), listView);
         content.setMinWidth(SELECTION_LIST_WIDTH);
         content.setPrefWidth(SELECTION_LIST_WIDTH);
         content.setMaxWidth(SELECTION_LIST_WIDTH);
@@ -559,27 +561,36 @@ public final class MainWindow {
         return searchField;
     }
 
-    /// Creates a row that aligns a selection search field to the right edge.
+    /// Creates a header row with the title on the left and search field on the right.
     ///
+    /// @param header header text.
     /// @param searchField search field.
-    /// @return search row.
-    private static HBox selectionSearchRow(TextField searchField) {
-        HBox row = new HBox(searchField);
-        row.setAlignment(Pos.CENTER_RIGHT);
+    /// @return header row.
+    private static HBox selectionHeaderRow(String header, TextField searchField) {
+        Label title = new Label(header);
+        title.getStyleClass().add("selection-dialog-title");
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox row = new HBox(16, title, spacer, searchField);
+        row.setAlignment(Pos.CENTER_LEFT);
         row.setMinWidth(SELECTION_LIST_WIDTH);
         row.setPrefWidth(SELECTION_LIST_WIDTH);
         row.setMaxWidth(SELECTION_LIST_WIDTH);
-        row.getStyleClass().add("selection-search-row");
+        row.getStyleClass().add("selection-dialog-header-row");
         return row;
     }
 
     /// Wraps an operating system tree with search.
     ///
+    /// @param header header text.
     /// @param treeView operating system tree view.
     /// @param images source image entries.
     /// @param currentImage currently selected image.
     /// @return operating system selection content.
     static Node operatingSystemSelectionContent(
+            String header,
             TreeView<OperatingSystemTreeNode> treeView,
             List<ImageEntry> images,
             @Nullable ImageEntry currentImage) {
@@ -598,7 +609,7 @@ public final class MainWindow {
         searchField.textProperty().addListener((_, _, _) -> refreshTree.run());
         populateOperatingSystemTree(treeView, images, "", currentImage);
 
-        VBox content = new VBox(10, selectionSearchRow(searchField), treeView);
+        VBox content = new VBox(10, selectionHeaderRow(header, searchField), treeView);
         content.setMinWidth(SELECTION_LIST_WIDTH);
         content.setPrefWidth(SELECTION_LIST_WIDTH);
         content.setMaxWidth(SELECTION_LIST_WIDTH);
@@ -846,7 +857,8 @@ public final class MainWindow {
         }
 
         ListView<ManufacturerOption> listView = selectionListView();
-        Node content = searchableSelectionContent(listView, manufacturers, MainWindow::manufacturerMatches);
+        String header = Messages.get("gui.dialog.chooseManufacturer.header");
+        Node content = searchableSelectionContent(header, listView, manufacturers, MainWindow::manufacturerMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one manufacturer list cell.
             ///
@@ -861,10 +873,7 @@ public final class MainWindow {
         });
         selectCurrentManufacturer(listView, state.manufacturerName());
 
-        if (showSelectionDialog(
-                Messages.get("gui.dialog.chooseManufacturer"),
-                Messages.get("gui.dialog.chooseManufacturer.header"),
-                content)) {
+        if (showSearchableSelectionDialog(Messages.get("gui.dialog.chooseManufacturer"), content)) {
             ManufacturerOption selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(selected.name(), null, null, null, state.target());
@@ -907,7 +916,8 @@ public final class MainWindow {
         }
 
         ListView<BoardOption> listView = selectionListView();
-        Node content = searchableSelectionContent(listView, boards, MainWindow::boardMatches);
+        String header = Messages.get("gui.dialog.chooseBoard.header", state.manufacturerName());
+        Node content = searchableSelectionContent(header, listView, boards, MainWindow::boardMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one board list cell.
             ///
@@ -921,10 +931,7 @@ public final class MainWindow {
         });
         selectCurrentBoard(listView, state.boardName());
 
-        if (showSelectionDialog(
-                Messages.get("gui.dialog.chooseBoard"),
-                Messages.get("gui.dialog.chooseBoard.header", state.manufacturerName()),
-                content)) {
+        if (showSearchableSelectionDialog(Messages.get("gui.dialog.chooseBoard"), content)) {
             BoardOption selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(state.manufacturerName(), selected.name(), null, null, state.target());
@@ -968,7 +975,8 @@ public final class MainWindow {
 
         TreeView<OperatingSystemTreeNode> treeView = selectionTreeView();
         @Unmodifiable Map<String, ImageCacheStatus> cacheStatuses = imageCacheStatuses(images);
-        Node content = operatingSystemSelectionContent(treeView, images, state.image());
+        String header = Messages.get("gui.dialog.chooseOperatingSystem.header", state.boardName());
+        Node content = operatingSystemSelectionContent(header, treeView, images, state.image());
         treeView.setCellFactory(_ -> new TreeCell<>() {
             /// Updates one operating system tree cell.
             ///
@@ -999,10 +1007,7 @@ public final class MainWindow {
             }
         });
 
-        if (showSelectionDialog(
-                Messages.get("gui.dialog.chooseOperatingSystem"),
-                Messages.get("gui.dialog.chooseOperatingSystem.header", state.boardName()),
-                content)) {
+        if (showSearchableSelectionDialog(Messages.get("gui.dialog.chooseOperatingSystem"), content)) {
             @Nullable ImageEntry selected = selectedTreeImage(treeView);
             if (selected != null) {
                 state = new WizardState(
@@ -1090,7 +1095,8 @@ public final class MainWindow {
         }
 
         ListView<FastbootDevice> listView = selectionListView();
-        Node content = searchableSelectionContent(listView, devices, MainWindow::fastbootTargetMatches);
+        String header = Messages.get("gui.dialog.chooseFastbootDevice.header");
+        Node content = searchableSelectionContent(header, listView, devices, MainWindow::fastbootTargetMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one fastboot target list cell.
             ///
@@ -1113,10 +1119,7 @@ public final class MainWindow {
         });
         selectCurrentFastbootTarget(listView, state.target());
 
-        if (showSelectionDialog(
-                Messages.get("gui.dialog.chooseFastbootDevice"),
-                Messages.get("gui.dialog.chooseFastbootDevice.header"),
-                content)) {
+        if (showSearchableSelectionDialog(Messages.get("gui.dialog.chooseFastbootDevice"), content)) {
             FastbootDevice selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(
@@ -1146,7 +1149,8 @@ public final class MainWindow {
         }
 
         ListView<BlockDevice> listView = selectionListView();
-        Node content = searchableSelectionContent(listView, devices, MainWindow::targetMatches);
+        String header = Messages.get("gui.dialog.chooseStorageDevice.header");
+        Node content = searchableSelectionContent(header, listView, devices, MainWindow::targetMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one target list cell.
             ///
@@ -1169,10 +1173,7 @@ public final class MainWindow {
         });
         selectCurrentBlockTarget(listView, state.target());
 
-        if (showSelectionDialog(
-                Messages.get("gui.dialog.chooseStorageDevice"),
-                Messages.get("gui.dialog.chooseStorageDevice.header"),
-                content)) {
+        if (showSearchableSelectionDialog(Messages.get("gui.dialog.chooseStorageDevice"), content)) {
             BlockDevice selected = listView.getSelectionModel().getSelectedItem();
             if (selected != null) {
                 state = new WizardState(
@@ -2479,6 +2480,15 @@ public final class MainWindow {
     /// @return whether the user accepted the dialog.
     private boolean showSelectionDialog(String title, String header, Node content) {
         return showConfirmationDialog(title, header, content, "gui.dialog.select", "material-selection-dialog");
+    }
+
+    /// Shows a MaterialFX selection dialog whose header is rendered inside the content area.
+    ///
+    /// @param title dialog title.
+    /// @param content dialog content.
+    /// @return whether the user accepted the dialog.
+    private boolean showSearchableSelectionDialog(String title, Node content) {
+        return showConfirmationDialog(title, "", content, "gui.dialog.select", "material-search-selection-dialog");
     }
 
     /// Shows a MaterialFX confirmation dialog with text content.
