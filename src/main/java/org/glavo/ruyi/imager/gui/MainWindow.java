@@ -548,8 +548,13 @@ public final class MainWindow {
     /// @return selection search field.
     private static MFXTextField selectionSearchField() {
         MFXTextField searchField = new MFXTextField();
-        searchField.floatingTextProperty().bind(Messages.binding("gui.search"));
         searchField.promptTextProperty().bind(Messages.binding("gui.search.placeholder"));
+        searchField.setMinWidth(SELECTION_LIST_WIDTH);
+        searchField.setPrefWidth(SELECTION_LIST_WIDTH);
+        searchField.setMaxWidth(SELECTION_LIST_WIDTH);
+        searchField.setMinHeight(42.0);
+        searchField.setPrefHeight(42.0);
+        searchField.setMaxHeight(42.0);
         searchField.getStyleClass().add("selection-search");
         return searchField;
     }

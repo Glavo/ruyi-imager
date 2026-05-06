@@ -275,7 +275,13 @@
     -fx-border-color: #d6e0ea;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
-    -fx-padding: 7 10;
+    -fx-padding: 0 14;
+    -fx-font-size: 14px;
+}
+
+.selection-search .text-field {
+    -fx-padding: 0;
+    -fx-background-color: transparent;
 }
 
 .selection-list-view .list-cell {
