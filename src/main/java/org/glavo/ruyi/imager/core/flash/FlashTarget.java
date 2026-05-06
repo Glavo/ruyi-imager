@@ -10,6 +10,8 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /// Target selected for a flash operation.
@@ -24,7 +26,7 @@ public record FlashTarget(
         @Nullable FastbootDevice fastbootDevice) {
     /// Copies target maps and validates that exactly one concrete target mode is selected.
     public FlashTarget {
-        blockDevices = Map.copyOf(blockDevices);
+        blockDevices = Collections.unmodifiableMap(new LinkedHashMap<>(blockDevices));
         int selectedModes = 0;
         if (blockDevice != null) {
             selectedModes++;

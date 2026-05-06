@@ -62,10 +62,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
@@ -1109,6 +1111,12 @@ public final class MainWindow {
             return;
         }
 
+        @Nullable ImageEntry image = state.image();
+        if (requiresPartitionTargets(image)) {
+            showPartitionStorageDialog(devices, image);
+            return;
+        }
+
         ListView<BlockDevice> listView = selectionListView();
         Node content = searchableSelectionContent(listView, devices, MainWindow::targetMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
@@ -1150,6 +1158,133 @@ public final class MainWindow {
         }
     }
 
+    /// Shows the multi-partition storage selection dialog.
+    ///
+    /// @param devices target devices.
+    /// @param image selected image.
+    private void showPartitionStorageDialog(List<BlockDevice> devices, ImageEntry image) {
+        LinkedHashMap<String, MFXComboBox<BlockDevice>> selectors = new LinkedHashMap<>();
+        GridPane grid = new GridPane();
+        grid.getStyleClass().add("partition-target-grid");
+        grid.setHgap(14);
+        grid.setVgap(10);
+
+        @Nullable FlashTarget currentTarget = state.target();
+        @Unmodifiable Map<String, BlockDevice> currentTargets =
+                currentTarget == null ? Map.of() : currentTarget.blockDevices();
+
+        int row = 0;
+        for (String partition : image.partitionMap().keySet()) {
+            Label partitionLabel = new Label(partition);
+            partitionLabel.getStyleClass().add("partition-target-name");
+
+            MFXComboBox<BlockDevice> selector = new MFXComboBox<>(FXCollections.observableArrayList(devices));
+            selector.setAllowEdit(false);
+            selector.setRowsCount(Math.min(8, devices.size()));
+            selector.setPrefWidth(460);
+            selector.getStyleClass().add("partition-target-selector");
+            selector.setConverter(new StringConverter<>() {
+                /// Converts a block device to selection text.
+                ///
+                /// @param target target device.
+                /// @return display text.
+                @Override
+                public String toString(@Nullable BlockDevice target) {
+                    return target == null ? "" : targetLabel(target);
+                }
+
+                /// Converts selection text back to a block device.
+                ///
+                /// @param text display text.
+                /// @return matching device, or null when no device matches.
+                @Override
+                public @Nullable BlockDevice fromString(@Nullable String text) {
+                    if (text == null) {
+                        return null;
+                    }
+                    for (BlockDevice device : devices) {
+                        if (targetLabel(device).equals(text)) {
+                            return device;
+                        }
+                    }
+                    return null;
+                }
+            });
+
+            @Nullable BlockDevice current = currentTargets.get(partition);
+            if (current != null) {
+                @Nullable BlockDevice matching = blockDeviceById(devices, current.id());
+                if (matching != null) {
+                    selector.setValue(matching);
+                }
+            }
+
+            selectors.put(partition, selector);
+            grid.add(partitionLabel, 0, row);
+            grid.add(selector, 1, row);
+            row++;
+        }
+
+        Label message = new Label(Messages.get("gui.dialog.choosePartitionStorageDevice.message"));
+        message.setWrapText(true);
+        message.getStyleClass().add("dialog-message");
+
+        VBox content = new VBox(14, message, grid);
+        content.getStyleClass().add("partition-target-content");
+
+        if (showSelectionDialog(
+                Messages.get("gui.dialog.choosePartitionStorageDevice"),
+                Messages.get("gui.dialog.choosePartitionStorageDevice.header"),
+                content)) {
+            @Nullable FlashTarget selectedTarget = partitionTargetSelection(selectors);
+            if (selectedTarget != null) {
+                state = new WizardState(
+                        state.manufacturerName(),
+                        state.boardName(),
+                        state.image(),
+                        state.localImage(),
+                        selectedTarget);
+                refreshState();
+            }
+        }
+    }
+
+    /// Builds a flash target from partition selector values.
+    ///
+    /// @param selectors partition selectors.
+    /// @return selected partition flash target, or null when selection is invalid.
+    private @Nullable FlashTarget partitionTargetSelection(
+            @Unmodifiable Map<String, MFXComboBox<BlockDevice>> selectors) {
+        LinkedHashMap<String, BlockDevice> targets = new LinkedHashMap<>();
+        Set<Path> targetPaths = new HashSet<>();
+        for (Map.Entry<String, MFXComboBox<BlockDevice>> entry : selectors.entrySet()) {
+            String partition = entry.getKey();
+            @Nullable BlockDevice target = entry.getValue().getValue();
+            if (target == null) {
+                showInfo(
+                        Messages.get("gui.dialog.incompleteSelection"),
+                        Messages.get("gui.dialog.partitionStorageIncomplete"));
+                return null;
+            }
+            if (!targetWritable(target)) {
+                showInfo(
+                        Messages.get("gui.dialog.blockedStorage"),
+                        Messages.get("gui.dialog.blockedPartitionStorage.message", partition, targetSafetyLabel(target)));
+                return null;
+            }
+
+            Path targetPath = target.path().toAbsolutePath().normalize();
+            if (!targetPaths.add(targetPath)) {
+                showInfo(
+                        Messages.get("gui.dialog.duplicateStorage"),
+                        Messages.get("gui.dialog.duplicateStorage.message", targetPathText(target)));
+                return null;
+            }
+            targets.put(partition, target);
+        }
+        return FlashTarget.blockDevices(targets);
+    }
+
     /// Starts flashing after final confirmation.
     private void flash() {
         if (!hasImageSource() || state.target() == null) {
@@ -1170,11 +1305,11 @@ public final class MainWindow {
                     Messages.get("gui.dialog.unsupportedImage.message"));
             return;
         }
-        @Nullable BlockDevice blockDevice = selectedTarget.blockDevice();
-        if (blockDevice != null && !targetWritable(blockDevice)) {
+        @Nullable String targetError = targetWriteError(selectedTarget);
+        if (targetError != null) {
             showInfo(
                     Messages.get("gui.dialog.blockedStorage"),
-                    Messages.get("gui.dialog.blockedStorage.message", targetSafetyLabel(blockDevice)));
+                    targetError);
             return;
         }
 
@@ -1304,6 +1439,10 @@ public final class MainWindow {
             return target.isFastbootDevice();
         }
 
+        if (requiresPartitionTargets(image)) {
+            return partitionTargetsReady(image, target);
+        }
+
         @Nullable BlockDevice blockDevice = target.blockDevice();
         return blockDevice != null && targetWritable(blockDevice);
     }
@@ -1323,13 +1462,88 @@ public final class MainWindow {
         return image != null && fastbootStrategy(image.strategy());
     }
 
+    /// Returns whether the selected catalog image requires partition-specific block targets.
+    ///
+    /// @return whether target selection should use multiple storage devices.
+    private boolean requiresPartitionTargets() {
+        return requiresPartitionTargets(state.image());
+    }
+
+    /// Returns whether an image requires partition-specific block targets.
+    ///
+    /// @param image image entry.
+    /// @return whether the image should use a partition target map.
+    private static boolean requiresPartitionTargets(@Nullable ImageEntry image) {
+        return image != null && "dd-v1".equals(image.strategy()) && image.partitionMap().size() > 1;
+    }
+
     /// Returns the localized empty target label for the current strategy.
     ///
     /// @return empty target label.
     private String targetNoneLabel() {
-        return requiresFastbootTarget()
-                ? Messages.get("gui.value.fastboot.none")
-                : Messages.get("gui.value.storage.none");
+        if (requiresFastbootTarget()) {
+            return Messages.get("gui.value.fastboot.none");
+        }
+        if (requiresPartitionTargets()) {
+            return Messages.get("gui.value.partitionStorage.none");
+        }
+        return Messages.get("gui.value.storage.none");
+    }
+
+    /// Returns whether partition target selections are complete and writable.
+    ///
+    /// @param image selected image.
+    /// @param target selected target.
+    /// @return whether every image partition has a unique writable block target.
+    private static boolean partitionTargetsReady(ImageEntry image, FlashTarget target) {
+        if (!partitionTargetKeysMatch(image, target)) {
+            return false;
+        }
+
+        Set<Path> paths = new HashSet<>();
+        for (String partition : image.partitionMap().keySet()) {
+            @Nullable BlockDevice blockDevice = target.blockDevices().get(partition);
+            if (blockDevice == null || !targetWritable(blockDevice)) {
+                return false;
+            }
+            if (!paths.add(blockDevice.path().toAbsolutePath().normalize())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Returns whether selected partition target keys match image partition keys.
+    ///
+    /// @param image selected image.
+    /// @param target selected target.
+    /// @return whether the target map contains exactly the required partitions.
+    private static boolean partitionTargetKeysMatch(@Nullable ImageEntry image, FlashTarget target) {
+        return image != null
+                && target.blockDevice() == null
+                && target.fastbootDevice() == null
+                && target.blockDevices().keySet().equals(image.partitionMap().keySet());
+    }
+
+    /// Returns a writable target error for a flash target.
+    ///
+    /// @param target selected target.
+    /// @return localized error text, or null when the target is writable.
+    private static @Nullable String targetWriteError(FlashTarget target) {
+        @Nullable BlockDevice blockDevice = target.blockDevice();
+        if (blockDevice != null && !targetWritable(blockDevice)) {
+            return Messages.get("gui.dialog.blockedStorage.message", targetSafetyLabel(blockDevice));
+        }
+
+        for (Map.Entry<String, BlockDevice> entry : target.blockDevices().entrySet()) {
+            if (!targetWritable(entry.getValue())) {
+                return Messages.get(
+                        "gui.dialog.blockedPartitionStorage.message",
+                        entry.getKey(),
+                        targetSafetyLabel(entry.getValue()));
+            }
+        }
+        return null;
     }
 
     /// Keeps a target only when it matches the selected image source.
@@ -1346,12 +1560,15 @@ public final class MainWindow {
             return null;
         }
         if (localImage != null) {
-            return target.isBlockDevice() ? target : null;
+            return target.blockDevice() == null ? null : target;
         }
         if (image != null && fastbootStrategy(image.strategy())) {
             return target.isFastbootDevice() ? target : null;
         }
-        return target.isBlockDevice() ? target : null;
+        if (requiresPartitionTargets(image)) {
+            return partitionTargetKeysMatch(image, target) ? target : null;
+        }
+        return target.blockDevice() == null ? null : target;
     }
 
     /// Builds the final destructive-operation confirmation content.
@@ -1755,6 +1972,20 @@ public final class MainWindow {
         listView.getSelectionModel().selectFirst();
     }
 
+    /// Finds one block device by id in a device list.
+    ///
+    /// @param devices device list.
+    /// @param id target device id.
+    /// @return matching block device, or null when not found.
+    private static @Nullable BlockDevice blockDeviceById(List<BlockDevice> devices, String id) {
+        for (BlockDevice device : devices) {
+            if (device.id().equals(id)) {
+                return device;
+            }
+        }
+        return null;
+    }
+
     /// Returns whether a manufacturer option matches a search query.
     ///
     /// @param manufacturer manufacturer option.
@@ -2000,7 +2231,7 @@ public final class MainWindow {
             return false;
         }
         if ("dd-v1".equals(image.strategy())) {
-            return image.partitionMap().size() == 1;
+            return !image.partitionMap().isEmpty();
         }
         return fastbootStrategy(image.strategy()) && !image.partitionMap().isEmpty();
     }
@@ -2022,6 +2253,9 @@ public final class MainWindow {
             if (fastbootStrategy(image.strategy())) {
                 return Messages.get("gui.image.support.fastbootFlashable");
             }
+            if (image.partitionMap().size() > 1) {
+                return Messages.get("gui.image.support.partitionFlashable");
+            }
             return Messages.get("gui.image.support.flashable");
         }
         if (image.support() == StrategySupport.UNKNOWN) {
@@ -2036,7 +2270,7 @@ public final class MainWindow {
         if (!"dd-v1".equals(image.strategy())) {
             return Messages.get("gui.image.support.writerUnsupported");
         }
-        return Messages.get("gui.image.support.multiTargetUnsupported");
+        return Messages.get("gui.image.support.noPartitions");
     }
 
     /// Formats an image cache state.
@@ -2079,12 +2313,28 @@ public final class MainWindow {
             return targetLabel(blockDevice);
         }
 
+        if (!target.blockDevices().isEmpty()) {
+            return partitionTargetLabel(target.blockDevices());
+        }
+
         @Nullable FastbootDevice fastbootDevice = target.fastbootDevice();
         if (fastbootDevice != null) {
             return fastbootTargetLabel(fastbootDevice);
         }
 
         return "";
+    }
+
+    /// Formats partition target mappings for summary display.
+    ///
+    /// @param targets partition targets.
+    /// @return display text.
+    private static String partitionTargetLabel(@Unmodifiable Map<String, BlockDevice> targets) {
+        ArrayList<String> entries = new ArrayList<>(targets.size());
+        for (Map.Entry<String, BlockDevice> entry : targets.entrySet()) {
+            entries.add(Messages.get("gui.target.partitionEntry", entry.getKey(), targetLabel(entry.getValue())));
+        }
+        return String.join(System.lineSeparator(), entries);
     }
 
     /// Formats a block target for list and summary display.
