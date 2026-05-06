@@ -3,7 +3,7 @@
 
 package org.glavo.ruyi.imager.core.image;
 
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,7 +38,7 @@ record RuyiSemVersion(long major, long minor, long patch, @Nullable String prere
 
         String[] parts = core.split("\\.", -1);
         if (parts.length != 3) {
-            throw new IllegalArgumentException(Messages.get("core.image.invalidSemVer", value));
+            throw new IllegalArgumentException(SdkMessages.get("core.image.invalidSemVer", value));
         }
 
         return new RuyiSemVersion(parseNumber(parts[0], value), parseNumber(parts[1], value), parseNumber(parts[2], value), prerelease);
@@ -201,12 +201,12 @@ record RuyiSemVersion(long major, long minor, long patch, @Nullable String prere
     /// @return parsed number.
     private static long parseNumber(String value, String version) {
         if (value.isEmpty()) {
-            throw new IllegalArgumentException(Messages.get("core.image.invalidSemVer", version));
+            throw new IllegalArgumentException(SdkMessages.get("core.image.invalidSemVer", version));
         }
         try {
             return Long.parseLong(value);
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException(Messages.get("core.image.invalidSemVer", version), e);
+            throw new IllegalArgumentException(SdkMessages.get("core.image.invalidSemVer", version), e);
         }
     }
 

@@ -6,7 +6,7 @@ package org.glavo.ruyi.imager.core.fastboot;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -89,14 +89,14 @@ public final class ProcessFastbootService implements FastbootService {
         CommandResult result = runner.run(List.of(executable, "devices"), DEVICES_TIMEOUT);
         if (result.timedOut()) {
             LOGGER.warning("fastboot devices timed out.");
-            throw new IOException(Messages.get("core.fastboot.timeout", commandText(List.of(executable, "devices"))));
+            throw new IOException(SdkMessages.get("core.fastboot.timeout", commandText(List.of(executable, "devices"))));
         }
         if (result.exitCode() != 0) {
             LOGGER.warning(() -> "fastboot devices failed. exitCode="
                     + result.exitCode()
                     + ", output="
                     + LogRedactor.redactOutput(result.output(), MAX_OUTPUT_CHARS));
-            throw new IOException(Messages.get(
+            throw new IOException(SdkMessages.get(
                     "core.fastboot.commandFailed",
                     result.exitCode(),
                     commandText(List.of(executable, "devices")),
@@ -122,7 +122,7 @@ public final class ProcessFastbootService implements FastbootService {
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
         if (partitions.isEmpty()) {
-            return OperationResult.failure(Messages.get("core.fastboot.noPartitions"));
+            return OperationResult.failure(SdkMessages.get("core.fastboot.noPartitions"));
         }
 
         if ("fastboot-v1".equals(strategy)) {
@@ -132,7 +132,7 @@ public final class ProcessFastbootService implements FastbootService {
             return flashLpi4aUboot(partitions, device, reporter);
         }
 
-        return OperationResult.failure(Messages.get("core.fastboot.unsupportedStrategy", strategy));
+        return OperationResult.failure(SdkMessages.get("core.fastboot.unsupportedStrategy", strategy));
     }
 
     /// Parses `fastboot devices` output.
@@ -171,7 +171,7 @@ public final class ProcessFastbootService implements FastbootService {
         for (int i = 0; i < ordered.size(); i++) {
             Map.Entry<String, Path> entry = ordered.get(i);
             String partition = entry.getKey();
-            String message = Messages.get("core.fastboot.flashingPartition", partition);
+            String message = SdkMessages.get("core.fastboot.flashingPartition", partition);
             reporter.report(progress(message, i, totalSteps));
             LOGGER.info(() -> "Flashing fastboot partition. serial="
                     + device.serial()
@@ -185,7 +185,7 @@ public final class ProcessFastbootService implements FastbootService {
             }
             reporter.report(progress(message, i + 1, totalSteps));
         }
-        return OperationResult.success(Messages.get("core.fastboot.success"));
+        return OperationResult.success(SdkMessages.get("core.fastboot.success"));
     }
 
     /// Flashes an LPi4A U-Boot image using the documented RAM handoff sequence.
@@ -201,30 +201,30 @@ public final class ProcessFastbootService implements FastbootService {
             ProgressReporter reporter) throws IOException {
         @Nullable Path uboot = partitions.get("uboot");
         if (uboot == null) {
-            return OperationResult.failure(Messages.get("core.fastboot.missingPartition", "uboot"));
+            return OperationResult.failure(SdkMessages.get("core.fastboot.missingPartition", "uboot"));
         }
 
         int totalSteps = 4;
-        reporter.report(progress(Messages.get("core.fastboot.loadingLpi4aUboot"), 0, totalSteps));
+        reporter.report(progress(SdkMessages.get("core.fastboot.loadingLpi4aUboot"), 0, totalSteps));
         OperationResult ramResult = runFastboot(device, List.of("flash", "ram", uboot.toString()));
         if (!ramResult.success()) {
             return ramResult;
         }
-        reporter.report(progress(Messages.get("core.fastboot.loadingLpi4aUboot"), 1, totalSteps));
+        reporter.report(progress(SdkMessages.get("core.fastboot.loadingLpi4aUboot"), 1, totalSteps));
 
-        reporter.report(progress(Messages.get("core.fastboot.rebooting"), 1, totalSteps));
+        reporter.report(progress(SdkMessages.get("core.fastboot.rebooting"), 1, totalSteps));
         OperationResult rebootResult = runFastboot(device, List.of("reboot"));
         if (!rebootResult.success()) {
             return rebootResult;
         }
-        reporter.report(progress(Messages.get("core.fastboot.rebooting"), 2, totalSteps));
+        reporter.report(progress(SdkMessages.get("core.fastboot.rebooting"), 2, totalSteps));
 
         OperationResult reconnectResult = waitForReconnect(device, reporter, 2, totalSteps);
         if (!reconnectResult.success()) {
             return reconnectResult;
         }
 
-        String flashMessage = Messages.get("core.fastboot.flashingPartition", "uboot");
+        String flashMessage = SdkMessages.get("core.fastboot.flashingPartition", "uboot");
         reporter.report(progress(flashMessage, 3, totalSteps));
         OperationResult ubootResult = runFastboot(device, List.of("flash", "uboot", uboot.toString()));
         if (!ubootResult.success()) {
@@ -232,7 +232,7 @@ public final class ProcessFastbootService implements FastbootService {
         }
         reporter.report(progress(flashMessage, 4, totalSteps));
 
-        return OperationResult.success(Messages.get("core.fastboot.success"));
+        return OperationResult.success(SdkMessages.get("core.fastboot.success"));
     }
 
     /// Waits for a device to reconnect after a fastboot reboot.
@@ -249,7 +249,7 @@ public final class ProcessFastbootService implements FastbootService {
             int completedSteps,
             int totalSteps) throws IOException {
         long deadlineNanos = System.nanoTime() + RECONNECT_TIMEOUT.toNanos();
-        String message = Messages.get("core.fastboot.waitingReconnect", device.serial());
+        String message = SdkMessages.get("core.fastboot.waitingReconnect", device.serial());
         while (System.nanoTime() < deadlineNanos) {
             reporter.report(progress(message, completedSteps, totalSteps));
             LOGGER.fine(() -> "Polling fastboot reconnect. serial=" + device.serial());
@@ -257,12 +257,12 @@ public final class ProcessFastbootService implements FastbootService {
             if (!result.timedOut() && result.exitCode() == 0 && containsDevice(parseDevices(result.output()), device.serial())) {
                 LOGGER.info(() -> "Fastboot device reconnected. serial=" + device.serial());
                 reporter.report(progress(message, completedSteps + 1, totalSteps));
-                return OperationResult.success(Messages.get("core.fastboot.reconnected", device.serial()));
+                return OperationResult.success(SdkMessages.get("core.fastboot.reconnected", device.serial()));
             }
             sleepReconnectPoll();
         }
         LOGGER.warning(() -> "Timed out waiting for fastboot reconnect. serial=" + device.serial());
-        return OperationResult.failure(Messages.get("core.fastboot.reconnectTimedOut", device.serial()));
+        return OperationResult.failure(SdkMessages.get("core.fastboot.reconnectTimedOut", device.serial()));
     }
 
     /// Returns whether a parsed fastboot device list contains one serial.
@@ -287,7 +287,7 @@ public final class ProcessFastbootService implements FastbootService {
             Thread.sleep(RECONNECT_POLL_INTERVAL.toMillis());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IOException(Messages.get("core.fastboot.reconnectInterrupted"), e);
+            throw new IOException(SdkMessages.get("core.fastboot.reconnectInterrupted"), e);
         }
     }
 
@@ -309,7 +309,7 @@ public final class ProcessFastbootService implements FastbootService {
         String commandText = commandText(command);
         if (result.timedOut()) {
             LOGGER.warning(() -> "fastboot command timed out. command=" + LogRedactor.redactCommand(command));
-            return OperationResult.failure(Messages.get("core.fastboot.timeout", commandText));
+            return OperationResult.failure(SdkMessages.get("core.fastboot.timeout", commandText));
         }
         if (result.exitCode() != 0) {
             LOGGER.warning(() -> "fastboot command failed. command="
@@ -318,14 +318,14 @@ public final class ProcessFastbootService implements FastbootService {
                     + result.exitCode()
                     + ", output="
                     + LogRedactor.redactOutput(result.output(), MAX_OUTPUT_CHARS));
-            return OperationResult.failure(Messages.get(
+            return OperationResult.failure(SdkMessages.get(
                     "core.fastboot.commandFailed",
                     result.exitCode(),
                     commandText,
                     outputSummary(result.output())));
         }
         LOGGER.info(() -> "fastboot command completed. command=" + LogRedactor.redactCommand(command));
-        return OperationResult.success(Messages.get("core.fastboot.commandSucceeded", commandText));
+        return OperationResult.success(SdkMessages.get("core.fastboot.commandSucceeded", commandText));
     }
 
     /// Runs a process and captures its combined output.
@@ -344,7 +344,7 @@ public final class ProcessFastbootService implements FastbootService {
             process = builder.start();
         } catch (IOException e) {
             LOGGER.warning(() -> "Failed to start process. command=" + LogRedactor.redactCommand(command));
-            throw new IOException(Messages.get("core.fastboot.missingExecutable", command.getFirst()), e);
+            throw new IOException(SdkMessages.get("core.fastboot.missingExecutable", command.getFirst()), e);
         }
 
         StringBuilder output = new StringBuilder();
@@ -361,7 +361,7 @@ public final class ProcessFastbootService implements FastbootService {
             Thread.currentThread().interrupt();
             destroyProcess(process, reader);
             LOGGER.warning(() -> "Interrupted while running process. command=" + LogRedactor.redactCommand(command));
-            throw new IOException(Messages.get("core.fastboot.interrupted", commandText(command)), e);
+            throw new IOException(SdkMessages.get("core.fastboot.interrupted", commandText(command)), e);
         }
 
         if (!finished) {
@@ -424,7 +424,7 @@ public final class ProcessFastbootService implements FastbootService {
             reader.join(1000L);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IOException(Messages.get("core.fastboot.outputInterrupted"), e);
+            throw new IOException(SdkMessages.get("core.fastboot.outputInterrupted"), e);
         }
     }
 
@@ -474,7 +474,7 @@ public final class ProcessFastbootService implements FastbootService {
     private static String outputSummary(String output) {
         String trimmed = output.trim();
         if (trimmed.isEmpty()) {
-            return Messages.get("core.fastboot.noOutput");
+            return SdkMessages.get("core.fastboot.noOutput");
         }
         if (trimmed.length() <= MAX_OUTPUT_CHARS) {
             return LogRedactor.redactText(trimmed);

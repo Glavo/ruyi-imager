@@ -3,7 +3,7 @@
 
 package org.glavo.ruyi.imager.core.device;
 
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -179,13 +179,13 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
             LOGGER.warning(() -> "diskutil command interrupted. command=" + LogRedactor.redactCommand(command));
-            throw new IOException(Messages.get("core.device.enumerationInterrupted", "macOS"), e);
+            throw new IOException(SdkMessages.get("core.device.enumerationInterrupted", "macOS"), e);
         }
 
         if (!completed) {
             process.destroyForcibly();
             LOGGER.warning(() -> "diskutil command timed out. command=" + LogRedactor.redactCommand(command));
-            throw new IOException(Messages.get("core.device.enumerationTimedOut", "macOS"));
+            throw new IOException(SdkMessages.get("core.device.enumerationTimedOut", "macOS"));
         }
 
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
@@ -193,7 +193,7 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
         int exitCode = process.exitValue();
         if (exitCode != 0) {
             String message = error.isBlank()
-                    ? Messages.get("core.device.commandExit", "diskutil", exitCode)
+                    ? SdkMessages.get("core.device.commandExit", "diskutil", exitCode)
                     : error.strip();
             LOGGER.warning(() -> "diskutil command failed. command="
                     + LogRedactor.redactCommand(command)
@@ -201,7 +201,7 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
                     + exitCode
                     + ", error="
                     + LogRedactor.redactOutput(error, 1000));
-            throw new IOException(Messages.get("core.device.enumerationFailed", "macOS", message));
+            throw new IOException(SdkMessages.get("core.device.enumerationFailed", "macOS", message));
         }
         return output;
     }
@@ -302,7 +302,7 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
         @Nullable Object root = readPlist(plist);
         @Nullable @Unmodifiable Map<String, Object> dictionary = objectMap(root);
         if (dictionary == null) {
-            throw new IOException(Messages.get("core.device.enumerationFailed", "macOS", "Invalid plist root."));
+            throw new IOException(SdkMessages.get("core.device.enumerationFailed", "macOS", "Invalid plist root."));
         }
         return dictionary;
     }
@@ -329,7 +329,7 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
             @Nullable Element child = firstElementChild(root);
             return child == null ? null : readPlistElement(child);
         } catch (ParserConfigurationException | SAXException exception) {
-            throw new IOException(Messages.get("core.device.enumerationFailed", "macOS", exception.getMessage()), exception);
+            throw new IOException(SdkMessages.get("core.device.enumerationFailed", "macOS", exception.getMessage()), exception);
         }
     }
 

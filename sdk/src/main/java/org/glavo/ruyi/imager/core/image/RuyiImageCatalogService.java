@@ -10,7 +10,7 @@ import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryEntry;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryMetadata;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -170,7 +170,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     public Path downloadImage(ImageEntry image, ProgressReporter reporter) throws IOException {
         if (image.distfiles().isEmpty()) {
             LOGGER.warning(() -> "Image has no distfiles. atom=" + image.atom());
-            throw new IOException(Messages.get("core.download.imageNoDistfiles", image.atom()));
+            throw new IOException(SdkMessages.get("core.download.imageNoDistfiles", image.atom()));
         }
 
         Path downloadDirectory = downloadDirectory(image);
@@ -194,7 +194,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 .resolve(image.name())
                 .resolve(image.version());
         Path result = materializer.materialize(image, List.copyOf(downloadedDistfiles), artifactDirectory, reporter);
-        reporter.report(ProgressEvent.indeterminate("download", Messages.get("core.download.imageComplete", image.atom())));
+        reporter.report(ProgressEvent.indeterminate("download", SdkMessages.get("core.download.imageComplete", image.atom())));
         LOGGER.info(() -> "Image download completed. atom=" + image.atom() + ", artifact=" + result);
         return result;
     }
@@ -988,7 +988,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         TomlParseResult result = Toml.parse(path);
         if (result.hasErrors()) {
             LOGGER.warning(() -> "TOML parse failed. path=" + path + ", errors=" + result.errors().size());
-            StringBuilder builder = new StringBuilder(Messages.get("core.toml.parseFailed", path));
+            StringBuilder builder = new StringBuilder(SdkMessages.get("core.toml.parseFailed", path));
             for (TomlParseError error : result.errors()) {
                 builder.append(System.lineSeparator()).append(error);
             }

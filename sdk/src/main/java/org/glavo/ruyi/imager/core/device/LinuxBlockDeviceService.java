@@ -5,7 +5,7 @@ package org.glavo.ruyi.imager.core.device;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -55,25 +55,25 @@ public final class LinuxBlockDeviceService implements BlockDeviceService {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
             LOGGER.warning("Linux block-device enumeration interrupted.");
-            throw new IOException(Messages.get("core.device.enumerationInterrupted", "Linux"), e);
+            throw new IOException(SdkMessages.get("core.device.enumerationInterrupted", "Linux"), e);
         }
 
         if (!completed) {
             process.destroyForcibly();
             LOGGER.warning("Linux block-device enumeration timed out.");
-            throw new IOException(Messages.get("core.device.enumerationTimedOut", "Linux"));
+            throw new IOException(SdkMessages.get("core.device.enumerationTimedOut", "Linux"));
         }
 
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
         int exitCode = process.exitValue();
         if (exitCode != 0) {
-            String message = error.isBlank() ? Messages.get("core.device.commandExit", "lsblk", exitCode) : error.strip();
+            String message = error.isBlank() ? SdkMessages.get("core.device.commandExit", "lsblk", exitCode) : error.strip();
             LOGGER.warning(() -> "Linux block-device enumeration failed. exitCode="
                     + exitCode
                     + ", error="
                     + LogRedactor.redactOutput(error, 1000));
-            throw new IOException(Messages.get("core.device.enumerationFailed", "Linux", message));
+            throw new IOException(SdkMessages.get("core.device.enumerationFailed", "Linux", message));
         }
 
         @Unmodifiable List<BlockDevice> devices = parseDevices(output);

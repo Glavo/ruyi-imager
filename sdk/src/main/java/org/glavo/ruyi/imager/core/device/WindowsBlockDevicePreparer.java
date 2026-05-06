@@ -6,7 +6,7 @@ package org.glavo.ruyi.imager.core.device;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.flash.BlockDevicePreparer;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -117,7 +117,7 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
 
         reporter.report(new ProgressEvent(
                 "prepare",
-                Messages.get("core.flash.preparingTarget", target.displayName()),
+                SdkMessages.get("core.flash.preparingTarget", target.displayName()),
                 0L,
                 1L));
 
@@ -128,16 +128,16 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.warning(() -> "Windows disk preparation interrupted. diskNumber=" + diskNumber);
-            throw new IOException(Messages.get("core.device.windowsPrepareInterrupted"), e);
+            throw new IOException(SdkMessages.get("core.device.windowsPrepareInterrupted"), e);
         }
 
         if (result.timedOut()) {
             LOGGER.warning(() -> "Windows disk preparation timed out. diskNumber=" + diskNumber);
-            throw new IOException(Messages.get("core.device.windowsPrepareTimedOut"));
+            throw new IOException(SdkMessages.get("core.device.windowsPrepareTimedOut"));
         }
         if (result.exitCode() != 0) {
             String message = result.error().isBlank()
-                    ? Messages.get("core.device.powershellExit", result.exitCode())
+                    ? SdkMessages.get("core.device.powershellExit", result.exitCode())
                     : result.error().strip();
             LOGGER.warning(() -> "Windows disk preparation failed. diskNumber="
                     + diskNumber
@@ -147,13 +147,13 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
                     + LogRedactor.redactOutput(result.output(), 1000)
                     + ", error="
                     + LogRedactor.redactOutput(result.error(), 1000));
-            throw new IOException(Messages.get("core.device.windowsPrepareFailed", diskNumber, message));
+            throw new IOException(SdkMessages.get("core.device.windowsPrepareFailed", diskNumber, message));
         }
 
         LOGGER.info(() -> "Windows disk prepared. diskNumber=" + diskNumber);
         reporter.report(new ProgressEvent(
                 "prepare",
-                Messages.get("core.flash.preparedTarget", target.displayName()),
+                SdkMessages.get("core.flash.preparedTarget", target.displayName()),
                 1L,
                 1L));
         return unmounted(target);

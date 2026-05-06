@@ -5,7 +5,7 @@ package org.glavo.ruyi.imager.core.image;
 
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -27,6 +27,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -75,7 +76,7 @@ public final class RuyiDistfileDownloader {
             LOGGER.info(() -> "Using cached distfile. name=" + distfile.name() + ", path=" + target);
             reporter.report(new ProgressEvent(
                     "download",
-                    Messages.get("core.download.cached", distfile.name()),
+                    SdkMessages.get("core.download.cached", distfile.name()),
                     bytesOrNull(target),
                     distfile.sizeBytes()));
             return target;
@@ -89,7 +90,7 @@ public final class RuyiDistfileDownloader {
         List<URI> sourceUris = distfile.sourceUris();
         if (sourceUris.isEmpty()) {
             LOGGER.warning(() -> "Distfile has no source URLs. name=" + distfile.name());
-            throw new IOException(Messages.get("core.download.noUrls", distfile.name()));
+            throw new IOException(SdkMessages.get("core.download.noUrls", distfile.name()));
         }
 
         Path partial = targetDirectory.resolve(distfile.name() + ".part");
@@ -109,11 +110,11 @@ public final class RuyiDistfileDownloader {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 LOGGER.log(Level.WARNING, "Distfile download interrupted. name=" + distfile.name(), e);
-                throw new IOException(Messages.get("core.download.interrupted", distfile.name()), e);
+                throw new IOException(SdkMessages.get("core.download.interrupted", distfile.name()), e);
             }
         }
 
-        throw new IOException(Messages.get("core.download.failed", distfile.name()), failure);
+        throw new IOException(SdkMessages.get("core.download.failed", distfile.name()), failure);
     }
 
     /// Downloads one distfile from one source URI.
@@ -132,7 +133,7 @@ public final class RuyiDistfileDownloader {
         @Nullable String scheme = sourceUri.getScheme();
         if (!"http".equals(scheme) && !"https".equals(scheme)) {
             LOGGER.warning(() -> "Unsupported distfile URI scheme. uri=" + LogRedactor.redactUri(sourceUri));
-            throw new IOException(Messages.get("core.download.unsupportedScheme", sourceUri));
+            throw new IOException(SdkMessages.get("core.download.unsupportedScheme", sourceUri));
         }
 
         long existingBytes = Files.isRegularFile(partial) ? Files.size(partial) : 0L;
@@ -165,7 +166,7 @@ public final class RuyiDistfileDownloader {
                 + LogRedactor.redactUri(sourceUri)
                 + ", resumeBytes="
                 + resumeBytes);
-        reporter.report(new ProgressEvent("download", Messages.get("core.download.downloading", distfile.name()), existingBytes, expectedSize));
+        reporter.report(new ProgressEvent("download", SdkMessages.get("core.download.downloading", distfile.name()), existingBytes, expectedSize));
         HttpResponse<InputStream> response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
         int statusCode = response.statusCode();
         LOGGER.info(() -> "Distfile source responded. name="
@@ -187,7 +188,7 @@ public final class RuyiDistfileDownloader {
                     + LogRedactor.redactUri(sourceUri)
                     + ", status="
                     + statusCode);
-            throw new IOException(Messages.get("core.download.unexpectedStatus", statusCode, sourceUri));
+            throw new IOException(SdkMessages.get("core.download.unexpectedStatus", statusCode, sourceUri));
         }
         if (existingBytes > 0L && statusCode == 200) {
             LOGGER.info(() -> "Source ignored range request; restarting partial download. name=" + distfile.name());
@@ -227,7 +228,7 @@ public final class RuyiDistfileDownloader {
                 currentBytes += read;
                 reporter.report(new ProgressEvent(
                         "download",
-                        Messages.get("core.download.downloading", distfile.name()),
+                        SdkMessages.get("core.download.downloading", distfile.name()),
                         currentBytes,
                         distfile.sizeBytes()));
             }
@@ -246,7 +247,7 @@ public final class RuyiDistfileDownloader {
                     + distfile.name()
                     + ", partial="
                     + partial);
-            throw new IOException(Messages.get("core.download.verifyFailed", distfile.name()));
+            throw new IOException(SdkMessages.get("core.download.verifyFailed", distfile.name()));
         }
 
         try {
@@ -290,14 +291,14 @@ public final class RuyiDistfileDownloader {
     private static String manualDownloadMessage(RuyiDistfile distfile, Path target) {
         @Nullable RuyiFetchRestriction restriction = distfile.fetchRestriction();
         if (restriction == null) {
-            return Messages.get("core.download.manual", distfile.name());
+            return SdkMessages.get("core.download.manual", distfile.name());
         }
 
-        String instructions = restriction.render(target, Messages.locale());
+        String instructions = restriction.render(target, Locale.getDefault());
         if (instructions.isBlank()) {
-            return Messages.get("core.download.manual", distfile.name());
+            return SdkMessages.get("core.download.manual", distfile.name());
         }
-        return Messages.get("core.download.manualWithInstructions", distfile.name(), instructions);
+        return SdkMessages.get("core.download.manualWithInstructions", distfile.name(), instructions);
     }
 
     /// Computes a message digest for a file.
@@ -311,7 +312,7 @@ public final class RuyiDistfileDownloader {
         try {
             digest = MessageDigest.getInstance(algorithm);
         } catch (NoSuchAlgorithmException e) {
-            throw new IOException(Messages.get("core.download.missingDigest", algorithm), e);
+            throw new IOException(SdkMessages.get("core.download.missingDigest", algorithm), e);
         }
 
         try (InputStream input = new DigestInputStream(Files.newInputStream(path), digest)) {

@@ -10,7 +10,7 @@ import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -138,7 +138,7 @@ public final class RuyiRepositoryStore {
         }
 
         LOGGER.info("Repository update completed.");
-        return OperationResult.success(Messages.get("core.repo.updated", entries.size()));
+        return OperationResult.success(SdkMessages.get("core.repo.updated", entries.size()));
     }
 
     /// Reads repository metadata from the checkout.
@@ -253,9 +253,9 @@ public final class RuyiRepositoryStore {
                 + ", remote="
                 + (remote == null ? "<local>" : LogRedactor.redactText(remote)));
         if (remote == null || remote.isBlank()) {
-            reporter.report(ProgressEvent.indeterminate("repo", Messages.get("core.repo.usingLocal", entry.id())));
+            reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.usingLocal", entry.id())));
             if (!Files.isRegularFile(root.resolve("config.toml"))) {
-                throw new IOException(Messages.get("core.repo.localMissingConfig", root));
+                throw new IOException(SdkMessages.get("core.repo.localMissingConfig", root));
             }
             return;
         }
@@ -265,9 +265,9 @@ public final class RuyiRepositoryStore {
         } else if (Files.isDirectory(root.resolve(".git"))) {
             pullRepository(entry, root, remote, reporter);
         } else if (Files.isRegularFile(root.resolve("config.toml"))) {
-            reporter.report(ProgressEvent.indeterminate("repo", Messages.get("core.repo.usingUnmanagedLocal", entry.id())));
+            reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.usingUnmanagedLocal", entry.id())));
         } else {
-            throw new IOException(Messages.get("core.repo.cacheNotGit", root));
+            throw new IOException(SdkMessages.get("core.repo.cacheNotGit", root));
         }
 
         readMetadata(entry);
@@ -285,7 +285,7 @@ public final class RuyiRepositoryStore {
             Path root,
             String remote,
             ProgressReporter reporter) throws IOException {
-        reporter.report(ProgressEvent.indeterminate("repo", Messages.get("core.repo.cloning", entry.id())));
+        reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.cloning", entry.id())));
         LOGGER.info(() -> "Cloning repository. id="
                 + entry.id()
                 + ", remote="
@@ -303,10 +303,10 @@ public final class RuyiRepositoryStore {
                 .setDirectory(root.toFile())
                 .setBranch(entry.branch())
                 .call()) {
-            reporter.report(ProgressEvent.indeterminate("repo", Messages.get("core.repo.cloned", entry.id())));
+            reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.cloned", entry.id())));
         } catch (GitAPIException e) {
             LOGGER.log(Level.WARNING, "Repository clone failed. id=" + entry.id(), e);
-            throw new IOException(Messages.get("core.repo.cloneFailed", entry.id(), e.getMessage()), e);
+            throw new IOException(SdkMessages.get("core.repo.cloneFailed", entry.id(), e.getMessage()), e);
         }
     }
 
@@ -322,7 +322,7 @@ public final class RuyiRepositoryStore {
             Path root,
             String remote,
             ProgressReporter reporter) throws IOException {
-        reporter.report(ProgressEvent.indeterminate("repo", Messages.get("core.repo.updating", entry.id())));
+        reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.updating", entry.id())));
         LOGGER.info(() -> "Pulling repository. id="
                 + entry.id()
                 + ", remote="
@@ -341,12 +341,12 @@ public final class RuyiRepositoryStore {
                     .setRemoteBranchName(entry.branch())
                     .call()
                     .isSuccessful()) {
-                throw new IOException(Messages.get("core.repo.pullFailed", entry.id()));
+                throw new IOException(SdkMessages.get("core.repo.pullFailed", entry.id()));
             }
-            reporter.report(ProgressEvent.indeterminate("repo", Messages.get("core.repo.updatedOne", entry.id())));
+            reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.updatedOne", entry.id())));
         } catch (GitAPIException e) {
             LOGGER.log(Level.WARNING, "Repository update failed. id=" + entry.id(), e);
-            throw new IOException(Messages.get("core.repo.updateFailed", entry.id(), e.getMessage()), e);
+            throw new IOException(SdkMessages.get("core.repo.updateFailed", entry.id(), e.getMessage()), e);
         }
     }
 
@@ -410,7 +410,7 @@ public final class RuyiRepositoryStore {
     private static TomlParseResult parseToml(Path path) throws IOException {
         TomlParseResult result = Toml.parse(path);
         if (result.hasErrors()) {
-            StringBuilder builder = new StringBuilder(Messages.get("core.toml.parseFailed", path));
+            StringBuilder builder = new StringBuilder(SdkMessages.get("core.toml.parseFailed", path));
             for (TomlParseError error : result.errors()) {
                 builder.append(System.lineSeparator()).append(error);
             }

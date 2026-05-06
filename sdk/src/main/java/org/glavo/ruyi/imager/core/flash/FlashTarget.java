@@ -5,7 +5,7 @@ package org.glavo.ruyi.imager.core.flash;
 
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -38,7 +38,7 @@ public record FlashTarget(
             selectedModes++;
         }
         if (selectedModes != 1) {
-            throw new IllegalArgumentException(Messages.get("core.flash.exactlyOneTarget"));
+            throw new IllegalArgumentException(SdkMessages.get("core.flash.exactlyOneTarget"));
         }
     }
 

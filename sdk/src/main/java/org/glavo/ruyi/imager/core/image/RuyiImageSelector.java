@@ -3,7 +3,7 @@
 
 package org.glavo.ruyi.imager.core.image;
 
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -169,7 +169,7 @@ public final class RuyiImageSelector {
         /// @return parsed name atom.
         private static Name parseName(String value) {
             if (!ATOM_NAME.matcher(value).matches()) {
-                throw new IllegalArgumentException(Messages.get("core.image.invalidAtom", value));
+                throw new IllegalArgumentException(SdkMessages.get("core.image.invalidAtom", value));
             }
             return new Name(value);
         }

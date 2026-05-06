@@ -9,7 +9,7 @@ import kala.compress.compressors.CompressorException;
 import kala.compress.compressors.CompressorStreamFactory;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -100,19 +100,19 @@ public final class RuyiImageMaterializer {
                     + image.distfiles().size()
                     + ", actual="
                     + downloadedDistfiles.size());
-            throw new IOException(Messages.get("core.materialize.countMismatch"));
+            throw new IOException(SdkMessages.get("core.materialize.countMismatch"));
         }
 
         for (int i = 0; i < image.distfiles().size(); i++) {
             RuyiDistfile distfile = image.distfiles().get(i);
             Path source = downloadedDistfiles.get(i);
-            reporter.report(ProgressEvent.indeterminate("materialize", Messages.get("core.materialize.materializing", distfile.name())));
+            reporter.report(ProgressEvent.indeterminate("materialize", SdkMessages.get("core.materialize.materializing", distfile.name())));
             materializeDistfile(distfile, source, artifactDirectory);
         }
 
         List<Path> partitions = resolvePartitionPaths(image.partitionMap(), artifactDirectory);
         if (partitions.isEmpty()) {
-            throw new IOException(Messages.get("core.materialize.noPartitionMap", image.atom()));
+            throw new IOException(SdkMessages.get("core.materialize.noPartitionMap", image.atom()));
         }
 
         for (Path partition : partitions) {
@@ -121,7 +121,7 @@ public final class RuyiImageMaterializer {
                         + image.atom()
                         + ", partition="
                         + partition);
-                throw new IOException(Messages.get("core.materialize.partitionMissing", partition));
+                throw new IOException(SdkMessages.get("core.materialize.partitionMissing", partition));
             }
         }
 
@@ -350,7 +350,7 @@ public final class RuyiImageMaterializer {
                 exception.addSuppressed(suppressed);
             }
             throw new IOException(
-                    Messages.get("core.materialize.compressorFailed", compressorName, source),
+                    SdkMessages.get("core.materialize.compressorFailed", compressorName, source),
                     exception);
         }
     }
@@ -493,7 +493,7 @@ public final class RuyiImageMaterializer {
     private static @Unmodifiable List<String> checkedPrefixes(RuyiDistfile distfile) throws IOException {
         for (String prefix : distfile.prefixesToUnpack()) {
             if (prefix.startsWith("-")) {
-                throw new IOException(Messages.get("core.materialize.invalidPrefix", distfile.name(), prefix));
+                throw new IOException(SdkMessages.get("core.materialize.invalidPrefix", distfile.name(), prefix));
             }
         }
         return distfile.prefixesToUnpack();
@@ -726,7 +726,7 @@ public final class RuyiImageMaterializer {
     /// @param source source path.
     /// @return invalid deb exception.
     private static IOException invalidDeb(Path source) {
-        return new IOException(Messages.get("core.materialize.invalidDeb", source.toAbsolutePath().normalize()));
+        return new IOException(SdkMessages.get("core.materialize.invalidDeb", source.toAbsolutePath().normalize()));
     }
 
     /// Creates an unsupported unpack method exception with manual recovery paths.
@@ -741,7 +741,7 @@ public final class RuyiImageMaterializer {
             RuyiDistfile distfile,
             Path source,
             Path artifactDirectory) {
-        return new IOException(Messages.get(
+        return new IOException(SdkMessages.get(
                 "core.materialize.unsupportedMethod",
                 method,
                 distfile.name(),
@@ -760,7 +760,7 @@ public final class RuyiImageMaterializer {
     private static Path resolveArchiveTarget(Path normalizedRoot, String entryName, String archiveKind) throws IOException {
         Path target = normalizedRoot.resolve(entryName).normalize();
         if (!target.startsWith(normalizedRoot)) {
-            throw new IOException(Messages.get("core.materialize.archiveEscape", archiveKind, entryName));
+            throw new IOException(SdkMessages.get("core.materialize.archiveEscape", archiveKind, entryName));
         }
         return target;
     }
@@ -806,7 +806,7 @@ public final class RuyiImageMaterializer {
         for (String relativePath : partitionMap.values()) {
             Path path = normalizedRoot.resolve(relativePath).normalize();
             if (!path.startsWith(normalizedRoot)) {
-                throw new IOException(Messages.get("core.materialize.partitionEscape", relativePath));
+                throw new IOException(SdkMessages.get("core.materialize.partitionEscape", relativePath));
             }
             result.add(path);
         }

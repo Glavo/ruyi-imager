@@ -12,7 +12,7 @@ import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.fastboot.ProcessFastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
-import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -111,7 +111,7 @@ public final class LocalFlashService implements FlashService {
         @Nullable ImageEntry image = request.image();
         if (image == null) {
             LOGGER.warning("Flash request has no image source.");
-            return OperationResult.failure(Messages.get("core.flash.noSource"));
+            return OperationResult.failure(SdkMessages.get("core.flash.noSource"));
         }
 
         if ("dd-v1".equals(image.strategy())) {
@@ -130,7 +130,7 @@ public final class LocalFlashService implements FlashService {
         }
 
         LOGGER.warning(() -> "Unsupported flash strategy. atom=" + image.atom() + ", strategy=" + image.strategy());
-        return OperationResult.failure(Messages.get("core.flash.unsupportedStrategy", image.strategy()));
+        return OperationResult.failure(SdkMessages.get("core.flash.unsupportedStrategy", image.strategy()));
     }
 
     /// Writes one raw image to a block device target.
@@ -149,7 +149,7 @@ public final class LocalFlashService implements FlashService {
         @Nullable BlockDevice blockDevice = target.blockDevice();
         if (blockDevice == null) {
             LOGGER.warning("Block image flash requested without a block target.");
-            return OperationResult.failure(Messages.get("core.flash.blockTargetRequired"));
+            return OperationResult.failure(SdkMessages.get("core.flash.blockTargetRequired"));
         }
 
         @Nullable String validationError = validateBlockImage(source, blockDevice, true);
@@ -181,8 +181,8 @@ public final class LocalFlashService implements FlashService {
                 source,
                 preparedBlockDevice,
                 verify,
-                Messages.get("core.flash.writing"),
-                Messages.get("core.flash.verifying"),
+                SdkMessages.get("core.flash.writing"),
+                SdkMessages.get("core.flash.verifying"),
                 reporter);
     }
 
@@ -202,14 +202,14 @@ public final class LocalFlashService implements FlashService {
         @Unmodifiable Map<String, BlockDevice> blockTargets = target.blockDevices();
         if (blockTargets.isEmpty()) {
             LOGGER.warning(() -> "Partition flash requested without targets. partitions=" + partitionNames(partitions));
-            return OperationResult.failure(Messages.get(
+            return OperationResult.failure(SdkMessages.get(
                     "core.flash.partitionTargetsRequired",
                     partitionNames(partitions)));
         }
 
         for (String partition : blockTargets.keySet()) {
             if (!partitions.containsKey(partition)) {
-                return OperationResult.failure(Messages.get("core.flash.unknownPartitionTarget", partition));
+                return OperationResult.failure(SdkMessages.get("core.flash.unknownPartitionTarget", partition));
             }
         }
 
@@ -220,12 +220,12 @@ public final class LocalFlashService implements FlashService {
             @Nullable BlockDevice blockDevice = blockTargets.get(partition);
             if (blockDevice == null) {
                 LOGGER.warning(() -> "Missing partition target. partition=" + partition);
-                return OperationResult.failure(Messages.get("core.flash.missingPartitionTarget", partition));
+                return OperationResult.failure(SdkMessages.get("core.flash.missingPartitionTarget", partition));
             }
 
             Path normalizedTargetPath = blockDevice.path().toAbsolutePath().normalize();
             if (!targetPaths.add(normalizedTargetPath)) {
-                return OperationResult.failure(Messages.get("core.flash.duplicatePartitionTarget", normalizedTargetPath));
+                return OperationResult.failure(SdkMessages.get("core.flash.duplicatePartitionTarget", normalizedTargetPath));
             }
 
             @Nullable String validationError = validateBlockImage(entry.getValue(), blockDevice, true);
@@ -237,7 +237,7 @@ public final class LocalFlashService implements FlashService {
                         + blockDevice.path()
                         + ", message="
                         + message);
-                return OperationResult.failure(Messages.get(
+                return OperationResult.failure(SdkMessages.get(
                         "core.flash.partitionTargetInvalid",
                         partition,
                         validationError));
@@ -253,7 +253,7 @@ public final class LocalFlashService implements FlashService {
                         + preparedBlockDevice.path()
                         + ", message="
                         + message);
-                return OperationResult.failure(Messages.get(
+                return OperationResult.failure(SdkMessages.get(
                         "core.flash.partitionTargetInvalid",
                         partition,
                         validationError));
@@ -269,15 +269,15 @@ public final class LocalFlashService implements FlashService {
                     entry.getValue(),
                     blockDevice,
                     verify,
-                    Messages.get("core.flash.writingPartition", partition),
-                    Messages.get("core.flash.verifyingPartition", partition),
+                    SdkMessages.get("core.flash.writingPartition", partition),
+                    SdkMessages.get("core.flash.verifyingPartition", partition),
                     reporter);
             if (!result.success()) {
                 return result;
             }
         }
 
-        return OperationResult.success(Messages.get("core.flash.success"));
+        return OperationResult.success(SdkMessages.get("core.flash.success"));
     }
 
     /// Validates one source image and target block device before writing.
@@ -295,14 +295,14 @@ public final class LocalFlashService implements FlashService {
             return safetyError;
         }
         if (!Files.isRegularFile(source)) {
-            return Messages.get("core.flash.localImageMissing", source);
+            return SdkMessages.get("core.flash.localImageMissing", source);
         }
         long sourceSize = Files.size(source);
         if (blockDevice.sizeBytes() > 0L && sourceSize > blockDevice.sizeBytes()) {
-            return Messages.get("core.flash.imageTooLarge");
+            return SdkMessages.get("core.flash.imageTooLarge");
         }
         if (Files.isSameFile(source, blockDevice.path())) {
-            return Messages.get("core.flash.selfWrite");
+            return SdkMessages.get("core.flash.selfWrite");
         }
         return null;
     }
@@ -356,12 +356,12 @@ public final class LocalFlashService implements FlashService {
             reporter.report(new ProgressEvent("verify", verifyMessage, 0L, sourceSize));
             if (!blockImageWriter.verify(source, blockDevice.path(), sourceSize, verifyMessage, reporter)) {
                 LOGGER.warning(() -> "Block image verification failed. target=" + blockDevice.path());
-                return OperationResult.failure(Messages.get("core.flash.verifyFailed"));
+                return OperationResult.failure(SdkMessages.get("core.flash.verifyFailed"));
             }
             LOGGER.info(() -> "Block image verification completed. target=" + blockDevice.path());
         }
 
-        return OperationResult.success(Messages.get("core.flash.success"));
+        return OperationResult.success(SdkMessages.get("core.flash.success"));
     }
 
     /// Formats partition names for diagnostics.
@@ -386,7 +386,7 @@ public final class LocalFlashService implements FlashService {
         @Nullable FastbootDevice fastbootDevice = target.fastbootDevice();
         if (fastbootDevice == null) {
             LOGGER.warning(() -> "Fastboot flash requested without fastboot target. atom=" + image.atom());
-            return OperationResult.failure(Messages.get("core.fastboot.targetRequired"));
+            return OperationResult.failure(SdkMessages.get("core.fastboot.targetRequired"));
         }
 
         Path materialized = images.downloadImage(image, reporter);
@@ -433,16 +433,16 @@ public final class LocalFlashService implements FlashService {
     /// @return failure message, or null when target is acceptable.
     private static @Nullable String validateTarget(BlockDevice target, boolean allowMounted) {
         if (target.system()) {
-            return Messages.get("core.flash.refuseSystem");
+            return SdkMessages.get("core.flash.refuseSystem");
         }
         if (target.mounted() && !allowMounted) {
-            return Messages.get("core.flash.refuseMounted");
+            return SdkMessages.get("core.flash.refuseMounted");
         }
         if (target.readOnly()) {
-            return Messages.get("core.flash.refuseReadOnly");
+            return SdkMessages.get("core.flash.refuseReadOnly");
         }
         if (!Files.exists(target.path())) {
-            return Messages.get("core.flash.targetMissing", target.path());
+            return SdkMessages.get("core.flash.targetMissing", target.path());
         }
         return null;
     }
@@ -455,7 +455,7 @@ public final class LocalFlashService implements FlashService {
     /// @throws IOException when partition paths cannot be resolved safely.
     private static @Unmodifiable Map<String, Path> resolvePartitionPaths(ImageEntry image, Path materialized) throws IOException {
         if (image.partitionMap().isEmpty()) {
-            throw new IOException(Messages.get("core.materialize.noPartitionMap", image.atom()));
+            throw new IOException(SdkMessages.get("core.materialize.noPartitionMap", image.atom()));
         }
 
         if (image.partitionMap().size() == 1 && Files.isRegularFile(materialized)) {
@@ -464,7 +464,7 @@ public final class LocalFlashService implements FlashService {
         }
 
         if (!Files.isDirectory(materialized)) {
-            throw new IOException(Messages.get("core.materialize.partitionMissing", materialized));
+            throw new IOException(SdkMessages.get("core.materialize.partitionMissing", materialized));
         }
 
         Path normalizedRoot = materialized.toAbsolutePath().normalize();
@@ -472,10 +472,10 @@ public final class LocalFlashService implements FlashService {
         for (Map.Entry<String, String> entry : image.partitionMap().entrySet()) {
             Path path = normalizedRoot.resolve(entry.getValue()).normalize();
             if (!path.startsWith(normalizedRoot)) {
-                throw new IOException(Messages.get("core.materialize.partitionEscape", entry.getValue()));
+                throw new IOException(SdkMessages.get("core.materialize.partitionEscape", entry.getValue()));
             }
             if (!Files.isRegularFile(path)) {
-                throw new IOException(Messages.get("core.materialize.partitionMissing", path));
+                throw new IOException(SdkMessages.get("core.materialize.partitionMissing", path));
             }
             result.put(entry.getKey(), path);
         }
