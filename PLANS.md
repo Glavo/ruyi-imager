@@ -4,28 +4,23 @@
 
 ### Goal
 
-- 开发一个 Java 25 应用，通过共享 core service 同时支持 CLI 和 JavaFX GUI 刷写镜像。
-- GUI 采用类似 Armbian Imager 的信息架构：目录镜像按 Manufacturer -> Board -> Operating System 选择，本地镜像作为并列二选一入口，然后选择 storage 或 fastboot 目标。
+- 构建一个 Java 25 应用，通过共享 core service 同时支持 CLI 和 JavaFX GUI 刷写镜像。
+- GUI 采用类似 Armbian Imager 的流程：目录镜像按 Manufacturer -> Board -> Operating System 选择，本地镜像作为并列二选一入口，然后选择 storage 或 fastboot 目标。
 - 镜像元数据、下载、校验和物化逻辑从 Ruyi 语义移植到 Java；不嵌入 Starlark，不依赖外部 `ruyi` 命令。
 - 保留破坏性写入安全门；默认只执行当前应用明确支持的刷写策略。
 
 ### Implemented
 
-- 工程已是 Java 25 Gradle `application`；无参数或 `gui` 启动 JavaFX，其他参数进入 CLI。
-- CLI 已支持 `repo update`、`image list/download`、`device list`、`device list --fastboot`，以及通过 `--atom` 或 `--local-image` 刷写目标设备；JSON/NDJSON 输出已接入主要命令；多分区 `dd-v1` 镜像可通过重复 `--partition-device partition=device-id` 指定目标映射。
-- Core service 已建立：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FastbootService`、`FlashService`，由 `AppServices` 组装供 CLI/GUI 共用。
-- Ruyi repo/store 已支持默认 repo、用户配置覆盖、overlay repo、本地 repo、JGit clone/pull、mirror/dist URL 解析。
-- Image catalog 已支持扫描 `packages/` 或旧 `manifests/`，解析 provisionable manifest、strategy、partition map、distfiles、checksums、mirror URL、slug，并优先按 Ruyi device entity 匹配开发板/variant、按 device id 推导开发板制造商，支持 atom/版本/slug/SemVer 选择。
-- Distfile 下载器已支持 HTTP/HTTPS、`.part` 续传、原子落盘、大小和 SHA-256/SHA-512 校验、缓存复用，以及 `restrict = ["fetch"]` 的手动下载提示。
-- Artifact 物化已支持 raw、gzip、bzip2、lz4、xz、zstd、zip、tar、tar.gz、tar.bz2、tar.lz4、tar.xz、tar.zst；tar 读取和压缩流读取已使用 `Glavo/kala-compress`；unsupported unpack method 会报告支持列表、下载文件和产物目录，并禁止显式未知 unpack 方法静默按 raw 复制。
-- 本地刷写已支持 `dd-v1` 和 `fastboot-v1` / `fastboot-v1(lpi4a-uboot)`；dd 使用本地块设备写入，支持单目标整盘镜像和多分区 target mapping，并会在多分区写入前预校验所有目标；fastboot 使用受控外部 `fastboot` 命令执行，支持分区级进度、LPi4A reboot 后自动重连等待，以及超时/中断时的进程清理。
-- Windows、Linux 和 macOS 只读块设备枚举已接入，并会保留已挂载卷的挂载点用于 CLI/GUI 展示；三套平台 parser fixture 已覆盖，真实硬件仍需 smoke test。
-- GUI 已实现 MaterialFX 风格主窗口、调整后的默认窗口尺寸、无阴影步骤控件和选择列表、移除底部提示、运行时中英文切换、语言偏好持久化、目录镜像/本地镜像二选一流程且左右标题居中、“或”分隔符垂直居中、本地镜像卡片为等高纵向布局、渐进式步骤启用、树形操作系统分类选择、dd/fastboot 目标切换、多分区 `dd-v1` 目标映射流程、策略/缓存/目标风险状态标记、结构化最终确认弹窗。
-- i18n 基础设施已接入 `ResourceBundle`；`Messages` 提供 locale property 和 `StringBinding` helper，当前资源包含 English 和简体中文。
-- CLI 已增加本地 Ruyi repo fixture 集成测试，覆盖 `repo update --json`、`image list --json`、缓存 distfile 的 `image download --json` 物化流程，以及 unsupported strategy 的 JSON 错误路径。
-- GUI 选择规则已从 JavaFX 窗口拆出为可单测的 service 层逻辑，覆盖 catalog strategy 可刷写判断、local/dd/fastboot 目标兼容性、多分区目标完整性/唯一性/安全性。
+- 工程入口：Java 25 Gradle `application`，无参数或 `gui` 启动 JavaFX，其他参数进入 CLI。
+- Core service：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FastbootService`、`FlashService` 已由 `AppServices` 统一组装，供 CLI/GUI 共享。
+- Ruyi metadata：支持默认 repo、用户配置覆盖、overlay repo、本地 repo、JGit clone/pull、mirror/dist URL 解析；catalog 支持 `packages/` 和旧 `manifests/`，并解析 provisionable manifest、strategy、partition map、distfiles、checksums、slug、device entity、SemVer/atom 选择。
+- 下载和物化：支持 HTTP/HTTPS、`.part` 续传、缓存复用、大小和 SHA-256/SHA-512 校验、`restrict = ["fetch"]` 手动下载提示；artifact 物化支持 raw、gzip、bzip2、lz4、xz、zstd、zip、tar 和常见 tar 压缩组合，tar 和压缩流使用 `Glavo/kala-compress`。
+- 刷写：支持 `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)`；dd 支持单目标整盘和多分区 target mapping，写入前预校验目标；fastboot 支持分区级进度、LPi4A reboot 后重连等待、超时/中断清理。
+- 设备枚举：Windows、Linux、macOS 只读块设备枚举已接入，保留挂载点用于 CLI/GUI 展示；三套平台 parser fixture 已覆盖。
+- CLI：支持 `repo update`、`image list/download`、`device list`、`device list --fastboot`、`flash --atom`、`flash --local-image`、多分区 `--partition-device`，主要命令支持 JSON/NDJSON；本地 Ruyi repo fixture 集成测试覆盖 repo update、image list/download 和 unsupported strategy。
+- GUI：MaterialFX 主窗口、运行时中英文切换、语言偏好持久化、调整后的默认窗口尺寸、目录镜像/本地镜像二选一、渐进式步骤启用、树形操作系统分类选择、storage/fastboot 目标切换、多分区 `dd-v1` 目标映射、策略/缓存/目标风险标记、最终确认弹窗；选择规则已拆出为可单测逻辑。
 
-### Next Work
+### Remaining
 
 - 设备后端：
   - 在真实 Linux/macOS 设备上做只读枚举 smoke test。
@@ -36,7 +31,7 @@
 
 ### Verification
 
-- 常规验证命令：
+- 常规验证：
   - `./gradlew -g .gradle-user-home test`
   - `./gradlew -g .gradle-user-home run --args='image list --json'`
   - `./gradlew -g .gradle-user-home run --args='device list --json'`
