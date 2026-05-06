@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-/// Fastboot service backed by the platform `fastboot` executable.
+/// Fastboot service backed by a bundled or platform `fastboot` executable.
 @NotNullByDefault
 public final class ProcessFastbootService implements FastbootService {
     /// Timeout used for fastboot device enumeration.
@@ -53,9 +53,9 @@ public final class ProcessFastbootService implements FastbootService {
     /// Command runner used for fastboot process execution.
     private final CommandRunner runner;
 
-    /// Creates a service using `fastboot` from `PATH`.
+    /// Creates a service using bundled fastboot when available, otherwise `fastboot` from `PATH`.
     public ProcessFastbootService() {
-        this("fastboot");
+        this(FastbootExecutableLocator.resolve());
     }
 
     /// Creates a service using an explicit fastboot executable.

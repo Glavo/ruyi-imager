@@ -1,3 +1,5 @@
+import org.gradle.api.file.RelativePath
+import java.net.URI
 import java.time.Duration
 
 plugins {
@@ -9,6 +11,87 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
+}
+
+data class FastbootBundle(
+    val taskSuffix: String,
+    val platformDirectory: String,
+    val url: String,
+    val archiveEntries: List<String>,
+    val executableName: String,
+)
+
+val fastbootBundles = listOf(
+    FastbootBundle(
+        taskSuffix = "WindowsX8664",
+        platformDirectory = "windows-x86_64",
+        url = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
+        archiveEntries = listOf(
+            "platform-tools/fastboot.exe",
+            "platform-tools/AdbWinApi.dll",
+            "platform-tools/AdbWinUsbApi.dll",
+        ),
+        executableName = "fastboot.exe",
+    ),
+    FastbootBundle(
+        taskSuffix = "MacOSX8664",
+        platformDirectory = "macos-x86_64",
+        url = "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
+        archiveEntries = listOf("platform-tools/fastboot"),
+        executableName = "fastboot",
+    ),
+    FastbootBundle(
+        taskSuffix = "LinuxX8664",
+        platformDirectory = "linux-x86_64",
+        url = "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
+        archiveEntries = listOf("platform-tools/fastboot"),
+        executableName = "fastboot",
+    ),
+)
+
+val bundledFastbootDirectory = layout.buildDirectory.dir("bundled-fastboot")
+val extractFastbootTasks = fastbootBundles.map { bundle ->
+    val archive = layout.buildDirectory.file("downloads/platform-tools-${bundle.platformDirectory}.zip")
+    val outputFiles = bundle.archiveEntries.map { archiveEntry ->
+        val fileName = archiveEntry.substringAfterLast('/')
+        bundledFastbootDirectory.map { it.file("${bundle.platformDirectory}/$fileName") }
+    }
+    val executable = bundledFastbootDirectory.map { it.file("${bundle.platformDirectory}/${bundle.executableName}") }
+
+    val downloadTask = tasks.register("download${bundle.taskSuffix}Fastboot") {
+        outputs.file(archive)
+        doLast {
+            val target = archive.get().asFile
+            target.parentFile.mkdirs()
+            URI(bundle.url).toURL().openStream().use { input ->
+                target.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        }
+    }
+
+    tasks.register<Copy>("extract${bundle.taskSuffix}Fastboot") {
+        dependsOn(downloadTask)
+        from({ zipTree(archive.get().asFile) }) {
+            include(bundle.archiveEntries)
+            eachFile {
+                relativePath = RelativePath(true, bundle.platformDirectory, name)
+            }
+            includeEmptyDirs = false
+        }
+        into(bundledFastbootDirectory)
+        outputs.files(outputFiles)
+        doLast {
+            if (bundle.executableName == "fastboot") {
+                executable.get().asFile.setExecutable(true, false)
+            }
+        }
+    }
+}
+
+tasks.register("prepareBundledFastboot") {
+    dependsOn(extractFastbootTasks)
 }
 
 dependencies {
@@ -68,6 +151,28 @@ java {
 application {
     mainClass = "org.glavo.ruyi.imager.Main"
     applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+}
+
+distributions {
+    main {
+        contents {
+            into("tools/fastboot") {
+                from(bundledFastbootDirectory)
+            }
+        }
+    }
+}
+
+tasks.named("installDist") {
+    dependsOn("prepareBundledFastboot")
+}
+
+tasks.named("distZip") {
+    dependsOn("prepareBundledFastboot")
+}
+
+tasks.named("distTar") {
+    dependsOn("prepareBundledFastboot")
 }
 
 tasks.test {
