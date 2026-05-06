@@ -181,6 +181,9 @@
     -fx-border-radius: 8;
     -fx-padding: 4;
     -fx-effect: null;
+    -mfx-track-color: rgb(230, 230, 230);
+    -mfx-thumb-color: rgb(137, 137, 137);
+    -mfx-thumb-hover-color: rgb(89, 88, 91);
 }
 
 .selection-content {
@@ -189,6 +192,83 @@
 
 .selection-list-view .mfx-scroll-bar:vertical {
     -fx-padding: 5 0.5 5 0.5;
+}
+
+.selection-tree-view > .virtual-flow > .corner {
+    -fx-background-color: transparent;
+}
+
+.selection-tree-view > .virtual-flow > .scroll-bar,
+.selection-tree-view > .virtual-flow > .scroll-bar .decrement-arrow,
+.selection-tree-view > .virtual-flow > .scroll-bar .increment-arrow,
+.selection-tree-view > .virtual-flow > .scroll-bar .decrement-button,
+.selection-tree-view > .virtual-flow > .scroll-bar .increment-button {
+    -fx-pref-width: 0;
+    -fx-pref-height: 0;
+}
+
+.selection-tree-view .scroll-bar:horizontal .increment-button,
+.selection-tree-view .scroll-bar:horizontal .decrement-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-padding: 0 0 10 0;
+}
+
+.selection-tree-view .scroll-bar:vertical .increment-button,
+.selection-tree-view .scroll-bar:vertical .decrement-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-padding: 0 10 0 0;
+}
+
+.selection-tree-view .scroll-bar .increment-arrow,
+.selection-tree-view .scroll-bar .decrement-arrow {
+    -fx-shape: " ";
+    -fx-padding: 0.15em 0;
+}
+
+.selection-tree-view .scroll-bar:horizontal .increment-arrow,
+.selection-tree-view .scroll-bar:horizontal .decrement-arrow,
+.selection-tree-view .scroll-bar:vertical .increment-arrow,
+.selection-tree-view .scroll-bar:vertical .decrement-arrow {
+    -fx-shape: " ";
+    -fx-padding: 0 0.05em;
+}
+
+.selection-tree-view .scroll-bar:horizontal .track,
+.selection-tree-view .scroll-bar:vertical .track {
+    -fx-background-color: -mfx-track-color;
+    -fx-border-color: transparent;
+    -fx-background-radius: 2em;
+    -fx-border-radius: 2em;
+}
+
+.selection-tree-view .scroll-bar:vertical {
+    -fx-background-color: transparent;
+    -fx-pref-width: 12;
+    -fx-pref-height: 12;
+    -fx-padding: 5 0.5 5 0.5;
+}
+
+.selection-tree-view .scroll-bar:horizontal {
+    -fx-background-color: transparent;
+    -fx-pref-width: 12;
+    -fx-pref-height: 12;
+    -fx-padding: 0.5 5 0.5 5;
+}
+
+.selection-tree-view .scroll-bar:horizontal .thumb,
+.selection-tree-view .scroll-bar:vertical .thumb {
+    -fx-background-color: -mfx-thumb-color;
+    -fx-background-insets: 2, 0, 0;
+    -fx-background-radius: 2em;
+}
+
+.selection-tree-view .scroll-bar:horizontal .thumb:hover,
+.selection-tree-view .scroll-bar:vertical .thumb:hover {
+    -fx-background-color: -mfx-thumb-hover-color;
+    -fx-background-insets: 1.5, 0, 0;
+    -fx-background-radius: 2em;
 }
 
 .selection-search {
