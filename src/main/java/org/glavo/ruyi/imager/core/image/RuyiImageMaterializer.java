@@ -53,9 +53,6 @@ public final class RuyiImageMaterializer {
             "tar.zst",
             "tar.auto");
 
-    /// Human-readable supported unpack method list.
-    private static final String SUPPORTED_METHOD_LABEL = String.join(", ", SUPPORTED_METHODS);
-
     /// Unpack methods that are recognized but not implemented in Java yet.
     private static final @Unmodifiable Set<String> UNSUPPORTED_METHODS = Set.of("deb");
 
@@ -441,7 +438,7 @@ public final class RuyiImageMaterializer {
                 "core.materialize.unsupportedMethod",
                 method,
                 distfile.name(),
-                SUPPORTED_METHOD_LABEL,
+                String.join(", ", SUPPORTED_METHODS),
                 source.toAbsolutePath().normalize(),
                 artifactDirectory.toAbsolutePath().normalize()));
     }
