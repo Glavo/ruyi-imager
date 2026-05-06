@@ -29,6 +29,7 @@ import java.util.zip.ZipOutputStream;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for Ruyi image artifact materialization.
 @NotNullByDefault
@@ -251,13 +252,46 @@ public final class RuyiImageMaterializerTest {
         Files.createDirectories(source.getParent());
         Files.write(source, new byte[]{1, 2, 3});
 
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
         ImageEntry image = image("image.deb", null, "image.raw");
 
-        assertThrows(IOException.class, () -> new RuyiImageMaterializer().materialize(
+        IOException exception = assertThrows(IOException.class, () -> new RuyiImageMaterializer().materialize(
                 image,
                 List.of(source),
-                temporaryDirectory.resolve("artifacts"),
+                artifactDirectory,
                 NO_PROGRESS));
+        String message = exception.getMessage();
+        assertTrue(message.contains("deb"), message);
+        assertTrue(message.contains("image.deb"), message);
+        assertTrue(message.contains("raw"), message);
+        assertTrue(message.contains("tar.zst"), message);
+        assertTrue(message.contains(source.toAbsolutePath().normalize().toString()), message);
+        assertTrue(message.contains(artifactDirectory.toAbsolutePath().normalize().toString()), message);
+    }
+
+    /// Verifies unknown declared unpack methods are not silently copied as raw files.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsUnknownDeclaredUnpackMethod(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.bin");
+        Files.createDirectories(source.getParent());
+        Files.write(source, new byte[]{1, 2, 3});
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.bin", "custom", "image.bin");
+
+        IOException exception = assertThrows(IOException.class, () -> new RuyiImageMaterializer().materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        String message = exception.getMessage();
+        assertTrue(message.contains("custom"), message);
+        assertTrue(message.contains("image.bin"), message);
+        assertTrue(message.contains(source.toAbsolutePath().normalize().toString()), message);
+        assertTrue(message.contains(artifactDirectory.toAbsolutePath().normalize().toString()), message);
     }
 
     /// Creates a minimal image entry.

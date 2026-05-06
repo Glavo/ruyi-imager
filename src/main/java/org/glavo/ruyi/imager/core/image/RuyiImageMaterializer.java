@@ -36,6 +36,26 @@ public final class RuyiImageMaterializer {
     private static final CompressorStreamFactory COMPRESSOR_STREAMS =
             CompressorStreamFactory.DEFAULT.withInstalledProviders();
 
+    /// Supported unpack methods shown in unsupported-method diagnostics.
+    private static final @Unmodifiable List<String> SUPPORTED_METHODS = List.of(
+            "raw",
+            "gz",
+            "bz2",
+            "lz4",
+            "xz",
+            "zst",
+            "zip",
+            "tar",
+            "tar.gz",
+            "tar.bz2",
+            "tar.lz4",
+            "tar.xz",
+            "tar.zst",
+            "tar.auto");
+
+    /// Human-readable supported unpack method list.
+    private static final String SUPPORTED_METHOD_LABEL = String.join(", ", SUPPORTED_METHODS);
+
     /// Unpack methods that are recognized but not implemented in Java yet.
     private static final @Unmodifiable Set<String> UNSUPPORTED_METHODS = Set.of("deb");
 
@@ -115,17 +135,29 @@ public final class RuyiImageMaterializer {
             return;
         }
         if (method.startsWith("tar.")) {
-            try (InputStream input = compressedInputStream(source, compressorNameForMethod(method.substring("tar.".length())))) {
+            @Nullable String compressorName = compressorNameForMethod(method.substring("tar.".length()));
+            if (compressorName == null) {
+                throw unsupportedMethod(method, distfile, source, artifactDirectory);
+            }
+            try (InputStream input = compressedInputStream(source, compressorName)) {
                 extractTar(input, artifactDirectory, distfile.stripComponents());
             }
             return;
         }
         if (isSingleStreamCompression(method)) {
-            decompressCompressed(source, artifactDirectory.resolve(removeLastExtension(distfile.name())), method);
+            decompressCompressed(
+                    distfile,
+                    source,
+                    artifactDirectory.resolve(removeLastExtension(distfile.name())),
+                    artifactDirectory,
+                    method);
             return;
         }
         if (UNSUPPORTED_METHODS.contains(method)) {
-            throw new IOException(Messages.get("core.materialize.unsupportedMethod", method, distfile.name()));
+            throw unsupportedMethod(method, distfile, source, artifactDirectory);
+        }
+        if (isExplicitUnpackMethod(distfile.unpack())) {
+            throw unsupportedMethod(method, distfile, source, artifactDirectory);
         }
 
         copyRaw(source, artifactDirectory.resolve(distfile.name()));
@@ -137,7 +169,7 @@ public final class RuyiImageMaterializer {
     /// @return effective unpack method.
     private static String resolveUnpackMethod(RuyiDistfile distfile) {
         @Nullable String declared = distfile.unpack();
-        if (declared != null && !declared.isBlank() && !"auto".equals(declared)) {
+        if (isExplicitUnpackMethod(declared)) {
             return declared;
         }
 
@@ -172,6 +204,14 @@ public final class RuyiImageMaterializer {
         return "raw";
     }
 
+    /// Returns whether an unpack method was explicitly declared by package metadata.
+    ///
+    /// @param method unpack method.
+    /// @return whether the method is explicit and should not fall back to raw copying.
+    private static boolean isExplicitUnpackMethod(@Nullable String method) {
+        return method != null && !method.isBlank() && !"auto".equals(method);
+    }
+
     /// Copies a raw file into the artifact directory.
     ///
     /// @param source source path.
@@ -203,16 +243,28 @@ public final class RuyiImageMaterializer {
 
     /// Decompresses a bare single-stream compressed distfile.
     ///
+    /// @param distfile distfile metadata.
     /// @param source source path.
     /// @param target target path.
+    /// @param artifactDirectory output artifact directory.
     /// @param method compression method.
     /// @throws IOException when decompression fails.
-    private static void decompressCompressed(Path source, Path target, String method) throws IOException {
+    private static void decompressCompressed(
+            RuyiDistfile distfile,
+            Path source,
+            Path target,
+            Path artifactDirectory,
+            String method) throws IOException {
         @Nullable Path parent = target.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        try (InputStream input = compressedInputStream(source, compressorNameForMethod(method));
+
+        @Nullable String compressorName = compressorNameForMethod(method);
+        if (compressorName == null) {
+            throw unsupportedMethod(method, distfile, source, artifactDirectory);
+        }
+        try (InputStream input = compressedInputStream(source, compressorName);
              OutputStream output = Files.newOutputStream(target)) {
             input.transferTo(output);
         }
@@ -235,7 +287,7 @@ public final class RuyiImageMaterializer {
                 exception.addSuppressed(suppressed);
             }
             throw new IOException(
-                    Messages.get("core.materialize.unsupportedMethod", compressorName, source.getFileName()),
+                    Messages.get("core.materialize.compressorFailed", compressorName, source),
                     exception);
         }
     }
@@ -251,15 +303,14 @@ public final class RuyiImageMaterializer {
     /// Maps an unpack method suffix to a Kala Compress compressor name.
     ///
     /// @param method unpack method suffix.
-    /// @return Kala Compress compressor name.
-    /// @throws IOException when the method is unknown.
-    private static String compressorNameForMethod(String method) throws IOException {
+    /// @return Kala Compress compressor name, or null when the method is unknown.
+    private static @Nullable String compressorNameForMethod(String method) {
         return switch (method) {
             case "bz2" -> CompressorStreamFactory.BZIP2;
             case "lz4" -> CompressorStreamFactory.LZ4_FRAMED;
             case "xz" -> CompressorStreamFactory.XZ;
             case "zst" -> CompressorStreamFactory.ZSTANDARD;
-            default -> throw new IOException(Messages.get("core.materialize.unsupportedMethod", method, method));
+            default -> null;
         };
     }
 
@@ -354,7 +405,11 @@ public final class RuyiImageMaterializer {
 
         if (name.matches(".*\\.tar\\.(bz2|lz4|xz|zst)$")) {
             String method = name.substring(name.lastIndexOf('.') + 1);
-            try (InputStream input = compressedInputStream(source, compressorNameForMethod(method))) {
+            @Nullable String compressorName = compressorNameForMethod(method);
+            if (compressorName == null) {
+                throw unsupportedMethod("tar.auto", distfile, source, artifactDirectory);
+            }
+            try (InputStream input = compressedInputStream(source, compressorName)) {
                 extractTar(input, artifactDirectory, distfile.stripComponents());
             }
             return;
@@ -367,7 +422,28 @@ public final class RuyiImageMaterializer {
             return;
         }
 
-        throw new IOException(Messages.get("core.materialize.unsupportedMethod", "tar.auto", distfile.name()));
+        throw unsupportedMethod("tar.auto", distfile, source, artifactDirectory);
+    }
+
+    /// Creates an unsupported unpack method exception with manual recovery paths.
+    ///
+    /// @param method unsupported unpack method.
+    /// @param distfile distfile metadata.
+    /// @param source downloaded distfile path.
+    /// @param artifactDirectory output artifact directory.
+    /// @return unsupported unpack method exception.
+    private static IOException unsupportedMethod(
+            String method,
+            RuyiDistfile distfile,
+            Path source,
+            Path artifactDirectory) {
+        return new IOException(Messages.get(
+                "core.materialize.unsupportedMethod",
+                method,
+                distfile.name(),
+                SUPPORTED_METHOD_LABEL,
+                source.toAbsolutePath().normalize(),
+                artifactDirectory.toAbsolutePath().normalize()));
     }
 
     /// Resolves an archive target safely under the artifact directory.
