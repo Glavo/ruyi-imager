@@ -42,7 +42,7 @@ public final class RuyiImager extends Application {
         }
 
         MainWindow window = new MainWindow(currentServices);
-        Scene scene = new Scene(window.root(), 1180, 640);
+        Scene scene = new Scene(window.root(), 1180, 760);
         URL stylesheet = RuyiImager.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
         if (stylesheet != null) {
             scene.getStylesheets().add(stylesheet.toExternalForm());
@@ -50,7 +50,7 @@ public final class RuyiImager extends Application {
 
         primaryStage.titleProperty().bind(Messages.binding("app.title"));
         primaryStage.setMinWidth(840);
-        primaryStage.setMinHeight(560);
+        primaryStage.setMinHeight(620);
         primaryStage.setScene(scene);
         primaryStage.show();
     }
