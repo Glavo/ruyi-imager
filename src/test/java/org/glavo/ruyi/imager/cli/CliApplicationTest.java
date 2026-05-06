@@ -22,6 +22,8 @@ import org.glavo.ruyi.imager.core.image.RuyiImageCatalogService;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryService;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.logging.RuyiLogLevel;
+import org.glavo.ruyi.imager.logging.RuyiLogging;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
@@ -125,6 +127,7 @@ public final class CliApplicationTest {
         JsonNode root = MAPPER.readTree(result.stdout());
         assertEquals("error", root.path("type").asText());
         assertEquals("Refusing to write without --yes.", root.path("message").asText());
+        assertTrue(root.path("logFile").isTextual());
     }
 
     /// Verifies that CLI JSON error messages use the configured Simplified Chinese locale.
@@ -150,6 +153,37 @@ public final class CliApplicationTest {
         JsonNode root = MAPPER.readTree(result.stdout());
         assertEquals("error", root.path("type").asText());
         assertEquals(messageForLocale("zh-CN", "cli.error.refusingWithoutYes"), root.path("message").asText());
+    }
+
+    /// Verifies that CLI JSON errors include the configured log file without polluting standard error.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or JSON cannot be parsed.
+    @Test
+    public void jsonErrorIncludesConfiguredLogFileWithoutStderrLogs(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path logFile = temporaryDirectory.resolve("custom.log");
+        Files.write(image, new byte[]{1, 2, 3, 4});
+
+        CliResult result = runCli(
+                services(temporaryDirectory, new ThrowingBlockDeviceService()),
+                "flash",
+                "--log-file",
+                logFile.toString(),
+                "--verbose",
+                "--local-image",
+                image.toString(),
+                "--device",
+                "test-device",
+                "--json");
+
+        assertNotEquals(0, result.exitCode());
+        assertEquals("", result.stderr());
+        JsonNode root = MAPPER.readTree(result.stdout());
+        assertEquals("error", root.path("type").asText());
+        assertEquals(logFile.toAbsolutePath().normalize().toString(), root.path("logFile").asText());
+        assertEquals(RuyiLogLevel.DEBUG, RuyiLogging.currentLevel());
+        assertTrue(Files.isRegularFile(logFile));
     }
 
     /// Flashes a local image into a simulated target through the public CLI.

@@ -50,6 +50,8 @@ import org.glavo.ruyi.imager.core.image.ImageCacheStatus;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.logging.LoggingProgressReporter;
+import org.glavo.ruyi.imager.logging.RuyiLogging;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -70,6 +72,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.catalogImageFlashable;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.compatibleTarget;
@@ -82,6 +86,9 @@ import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetWritable;
 /// Main JavaFX window for the guided imager workflow.
 @NotNullByDefault
 public final class MainWindow {
+    /// Logger for GUI workflow events.
+    private static final Logger LOGGER = Logger.getLogger(MainWindow.class.getName());
+
     /// Language choices exposed in the GUI.
     private static final @Unmodifiable List<LanguageOption> LANGUAGE_OPTIONS = List.of(
             new LanguageOption("gui.language.english", Locale.ENGLISH),
@@ -200,6 +207,7 @@ public final class MainWindow {
         });
         statusLabel.setText(Messages.get("gui.status.ready"));
         refreshState();
+        LOGGER.info("Main window initialized.");
     }
 
     /// Returns the root node for scene installation.
@@ -734,7 +742,8 @@ public final class MainWindow {
             if (locale != null) {
                 Messages.setLocale(locale);
             }
-        } catch (IOException _) {
+        } catch (IOException exception) {
+            LOGGER.log(Level.FINE, "Failed to read GUI preferences.", exception);
             // The UI can still run with the default locale.
         }
     }
@@ -745,7 +754,9 @@ public final class MainWindow {
     private void savePreferredLocale(Locale locale) {
         try {
             preferences.writeLocale(locale);
+            LOGGER.info(() -> "Saved GUI locale preference. locale=" + locale);
         } catch (IOException exception) {
+            LOGGER.log(Level.WARNING, "Failed to write GUI preferences.", exception);
             showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
         }
     }
@@ -767,14 +778,14 @@ public final class MainWindow {
             @Override
             protected OperationResult call() throws Exception {
                 updateMessage(Messages.get("gui.progress.updatingMetadata"));
-                return services.repository().update(event -> {
+                return services.repository().update(LoggingProgressReporter.wrap(event -> {
                     updateMessage(event.message());
                     @Nullable Long currentBytes = event.currentBytes();
                     @Nullable Long totalBytes = event.totalBytes();
                     if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
                         updateProgress(currentBytes, totalBytes);
                     }
-                });
+                }, LOGGER));
             }
         };
 
@@ -1327,16 +1338,17 @@ public final class MainWindow {
             /// @return flash result.
             @Override
             protected OperationResult call() throws Exception {
+                LOGGER.info("Starting GUI flash operation.");
                 return services.flash().flash(
                         new FlashRequest(selectedImage, selectedLocalImage, selectedTarget, true),
-                        event -> {
+                        LoggingProgressReporter.wrap(event -> {
                             updateMessage(event.message());
                             @Nullable Long currentBytes = event.currentBytes();
                             @Nullable Long totalBytes = event.totalBytes();
                             if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
                                 updateProgress(currentBytes, totalBytes);
                             }
-                        });
+                        }, LOGGER));
             }
         };
 
@@ -1355,6 +1367,7 @@ public final class MainWindow {
     /// @param failureTitle title used when the task fails.
     /// @param onSuccess action executed on the JavaFX application thread when the task succeeds.
     private <T> void startBackgroundTask(Task<T> task, String failureTitle, Consumer<T> onSuccess) {
+        LOGGER.fine(() -> "Starting GUI background task. failureTitle=" + failureTitle);
         busy = true;
         refreshState();
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
@@ -1366,14 +1379,21 @@ public final class MainWindow {
             finishBackgroundTask();
             @Nullable T result = task.getValue();
             if (result != null) {
+                LOGGER.fine("GUI background task succeeded.");
                 onSuccess.accept(result);
             } else {
+                LOGGER.warning("GUI background task returned null.");
                 showError(failureTitle, Messages.get("gui.dialog.emptyResult"));
             }
         });
         task.setOnFailed(_ -> {
             finishBackgroundTask();
             Throwable failure = task.getException();
+            if (failure == null) {
+                LOGGER.severe("GUI background task failed without an exception.");
+            } else {
+                LOGGER.log(Level.SEVERE, "GUI background task failed.", failure);
+            }
             showError(failureTitle, failure == null ? "Unknown failure." : failure.getMessage());
         });
 
@@ -2400,9 +2420,14 @@ public final class MainWindow {
     /// @param title dialog title.
     /// @param message dialog message.
     private void showError(String title, @Nullable String message) {
+        String text = message == null ? Messages.get("gui.dialog.unknownFailure") : message;
+        @Nullable String logFile = RuyiLogging.currentLogFileText();
+        if (logFile != null) {
+            text = text + System.lineSeparator() + System.lineSeparator() + Messages.get("gui.dialog.logFile", logFile);
+        }
         showMessageDialog(
                 title,
-                message == null ? Messages.get("gui.dialog.unknownFailure") : message,
+                text,
                 "material-error-dialog");
     }
 

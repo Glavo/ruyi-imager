@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.core.device;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -19,10 +20,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
 /// Windows block-device enumerator backed by read-only CIM queries.
 @NotNullByDefault
 public final class WindowsBlockDeviceService implements BlockDeviceService {
+    /// Logger for Windows device enumeration.
+    private static final Logger LOGGER = Logger.getLogger(WindowsBlockDeviceService.class.getName());
+
     /// JSON mapper used for PowerShell output.
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -104,6 +109,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
     /// @throws IOException when PowerShell or JSON parsing fails.
     @Override
     public @Unmodifiable List<BlockDevice> listDevices() throws IOException {
+        LOGGER.info("Enumerating Windows block devices with PowerShell CIM.");
         Process process = new ProcessBuilder(
                 "powershell.exe",
                 "-NoProfile",
@@ -119,11 +125,13 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
+            LOGGER.warning("Windows block-device enumeration interrupted.");
             throw new IOException(Messages.get("core.device.windowsInterrupted"), e);
         }
 
         if (!completed) {
             process.destroyForcibly();
+            LOGGER.warning("Windows block-device enumeration timed out.");
             throw new IOException(Messages.get("core.device.windowsTimedOut"));
         }
 
@@ -132,10 +140,16 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         int exitCode = process.exitValue();
         if (exitCode != 0) {
             String message = error.isBlank() ? Messages.get("core.device.powershellExit", exitCode) : error.strip();
+            LOGGER.warning(() -> "Windows block-device enumeration failed. exitCode="
+                    + exitCode
+                    + ", error="
+                    + LogRedactor.redactOutput(error, 1000));
             throw new IOException(Messages.get("core.device.windowsEnumerationFailed", message));
         }
 
-        return parseDevices(output);
+        @Unmodifiable List<BlockDevice> devices = parseDevices(output);
+        LOGGER.info(() -> "Windows block devices enumerated. count=" + devices.size());
+        return devices;
     }
 
     /// Parses JSON emitted by the Windows enumeration script.

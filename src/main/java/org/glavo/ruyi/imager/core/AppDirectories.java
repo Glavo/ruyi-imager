@@ -7,6 +7,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
+import java.util.logging.Logger;
 
 /// Filesystem locations used by Ruyi Imager.
 ///
@@ -14,6 +15,9 @@ import java.nio.file.Path;
 /// @param cacheDirectory directory for downloaded metadata and images.
 @NotNullByDefault
 public record AppDirectories(Path configDirectory, Path cacheDirectory) {
+    /// Logger for application directory resolution.
+    private static final Logger LOGGER = Logger.getLogger(AppDirectories.class.getName());
+
     /// Creates default application directories for the current platform.
     ///
     /// @return default application directories.
@@ -21,15 +25,21 @@ public record AppDirectories(Path configDirectory, Path cacheDirectory) {
         Path home = Path.of(System.getProperty("user.home"));
         @Nullable String osName = System.getProperty("os.name");
         boolean windows = osName != null && osName.toLowerCase().contains("win");
+        AppDirectories directories;
         if (windows) {
-            return new AppDirectories(
+            directories = new AppDirectories(
                     windowsBase("APPDATA", home.resolve("AppData").resolve("Roaming")).resolve("RuyiImager"),
                     windowsBase("LOCALAPPDATA", home.resolve("AppData").resolve("Local")).resolve("RuyiImager"));
+        } else {
+            directories = new AppDirectories(
+                    xdgBase("XDG_CONFIG_HOME", home.resolve(".config")).resolve("ruyi-imager"),
+                    xdgBase("XDG_CACHE_HOME", home.resolve(".cache")).resolve("ruyi-imager"));
         }
-
-        return new AppDirectories(
-                xdgBase("XDG_CONFIG_HOME", home.resolve(".config")).resolve("ruyi-imager"),
-                xdgBase("XDG_CACHE_HOME", home.resolve(".cache")).resolve("ruyi-imager"));
+        LOGGER.info(() -> "Resolved application directories. config="
+                + directories.configDirectory()
+                + ", cache="
+                + directories.cacheDirectory());
+        return directories;
     }
 
     /// Resolves a Windows known-folder environment variable.

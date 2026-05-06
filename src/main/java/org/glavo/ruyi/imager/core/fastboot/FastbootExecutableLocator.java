@@ -10,10 +10,14 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.logging.Logger;
 
 /// Locates the fastboot executable bundled with application distributions.
 @NotNullByDefault
 public final class FastbootExecutableLocator {
+    /// Logger for fastboot executable resolution.
+    private static final Logger LOGGER = Logger.getLogger(FastbootExecutableLocator.class.getName());
+
     /// System property used to override fastboot executable resolution.
     public static final String EXECUTABLE_PROPERTY = "ruyi.imager.fastboot.executable";
 
@@ -36,6 +40,7 @@ public final class FastbootExecutableLocator {
     public static String resolve() {
         @Nullable String override = configuredExecutable();
         if (override != null) {
+            LOGGER.info(() -> "Using configured fastboot executable. executable=" + override);
             return override;
         }
 
@@ -46,10 +51,12 @@ public final class FastbootExecutableLocator {
                     System.getProperty("os.name", ""),
                     System.getProperty("os.arch", ""));
             if (bundled != null) {
+                LOGGER.info(() -> "Using bundled fastboot executable. executable=" + bundled);
                 return bundled.toString();
             }
         }
 
+        LOGGER.info("Using fastboot executable from PATH.");
         return PATH_EXECUTABLE;
     }
 

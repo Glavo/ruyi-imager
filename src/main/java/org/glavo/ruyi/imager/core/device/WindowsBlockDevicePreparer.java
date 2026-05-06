@@ -7,6 +7,7 @@ import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.flash.BlockDevicePreparer;
 import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -18,10 +19,14 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.logging.Logger;
 
 /// Windows block-device preparer that dismounts target disk volumes before writing.
 @NotNullByDefault
 public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
+    /// Logger for Windows block-device preparation.
+    private static final Logger LOGGER = Logger.getLogger(WindowsBlockDevicePreparer.class.getName());
+
     /// Maximum time allowed for preparing one Windows disk.
     private static final Duration PREPARE_TIMEOUT = Duration.ofSeconds(30);
 
@@ -95,15 +100,18 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
     @Override
     public BlockDevice prepare(BlockDevice target, ProgressReporter reporter) throws IOException {
         if (!target.mounted()) {
+            LOGGER.fine(() -> "Windows target is already unmounted. target=" + target.path());
             return target;
         }
 
         if (!target.removable()) {
+            LOGGER.info(() -> "Windows mounted target is not removable; leaving mounted. target=" + target.path());
             return target;
         }
 
         @Nullable Integer diskNumber = diskNumber(target);
         if (diskNumber == null) {
+            LOGGER.info(() -> "Windows target disk number could not be resolved. target=" + target.path());
             return target;
         }
 
@@ -115,22 +123,34 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
 
         CommandResult result;
         try {
+            LOGGER.info(() -> "Preparing Windows disk for writing. diskNumber=" + diskNumber);
             result = runner.run(command(diskNumber), PREPARE_TIMEOUT);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            LOGGER.warning(() -> "Windows disk preparation interrupted. diskNumber=" + diskNumber);
             throw new IOException(Messages.get("core.device.windowsPrepareInterrupted"), e);
         }
 
         if (result.timedOut()) {
+            LOGGER.warning(() -> "Windows disk preparation timed out. diskNumber=" + diskNumber);
             throw new IOException(Messages.get("core.device.windowsPrepareTimedOut"));
         }
         if (result.exitCode() != 0) {
             String message = result.error().isBlank()
                     ? Messages.get("core.device.powershellExit", result.exitCode())
                     : result.error().strip();
+            LOGGER.warning(() -> "Windows disk preparation failed. diskNumber="
+                    + diskNumber
+                    + ", exitCode="
+                    + result.exitCode()
+                    + ", output="
+                    + LogRedactor.redactOutput(result.output(), 1000)
+                    + ", error="
+                    + LogRedactor.redactOutput(result.error(), 1000));
             throw new IOException(Messages.get("core.device.windowsPrepareFailed", diskNumber, message));
         }
 
+        LOGGER.info(() -> "Windows disk prepared. diskNumber=" + diskNumber);
         reporter.report(new ProgressEvent(
                 "prepare",
                 Messages.get("core.flash.preparedTarget", target.displayName()),

@@ -19,6 +19,7 @@ import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.jetbrains.annotations.NotNullByDefault;
 
 import java.util.Locale;
+import java.util.logging.Logger;
 
 /// Shared service graph used by the CLI and JavaFX front end.
 ///
@@ -36,10 +37,14 @@ public record AppServices(
         BlockDeviceService devices,
         FastbootService fastboot,
         FlashService flash) {
+    /// Logger for service graph construction.
+    private static final Logger LOGGER = Logger.getLogger(AppServices.class.getName());
+
     /// Creates the default production service graph.
     ///
     /// @return default services.
     public static AppServices createDefault() {
+        LOGGER.info("Creating default application services.");
         AppDirectories directories = AppDirectories.defaults();
         RuyiRepositoryStore repositoryStore = new RuyiRepositoryStore(directories);
         RepositoryService repository = new RuyiRepositoryService(repositoryStore);
@@ -47,6 +52,7 @@ public record AppServices(
         BlockDeviceService devices = new PlatformBlockDeviceService();
         FastbootService fastboot = new ProcessFastbootService();
         FlashService flash = new LocalFlashService(images, fastboot, createBlockDevicePreparer());
+        LOGGER.info("Default application services created.");
         return new AppServices(directories, repository, images, devices, fastboot, flash);
     }
 

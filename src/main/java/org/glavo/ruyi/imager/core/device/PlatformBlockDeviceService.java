@@ -9,10 +9,14 @@ import org.jetbrains.annotations.Unmodifiable;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
+import java.util.logging.Logger;
 
 /// Selects the platform block-device backend for the current operating system.
 @NotNullByDefault
 public final class PlatformBlockDeviceService implements BlockDeviceService {
+    /// Logger for platform backend selection.
+    private static final Logger LOGGER = Logger.getLogger(PlatformBlockDeviceService.class.getName());
+
     /// Backend used by this service instance.
     private final BlockDeviceService delegate;
 
@@ -28,6 +32,10 @@ public final class PlatformBlockDeviceService implements BlockDeviceService {
         } else {
             this.delegate = new StubBlockDeviceService();
         }
+        LOGGER.info(() -> "Selected block-device backend. osName="
+                + osName
+                + ", backend="
+                + delegate.getClass().getSimpleName());
     }
 
     /// Lists candidate target devices from the selected platform backend.

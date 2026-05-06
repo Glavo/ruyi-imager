@@ -15,6 +15,10 @@ import org.glavo.ruyi.imager.core.flash.FlashTarget;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.logging.LogRedactor;
+import org.glavo.ruyi.imager.logging.LoggingProgressReporter;
+import org.glavo.ruyi.imager.logging.RuyiLogLevel;
+import org.glavo.ruyi.imager.logging.RuyiLogging;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -23,6 +27,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
+import picocli.CommandLine.ScopeType;
 import picocli.CommandLine.Spec;
 
 import java.io.IOException;
@@ -36,6 +41,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /// Picocli command tree for scriptable Ruyi Imager operations.
 @Command(
@@ -43,6 +50,9 @@ import java.util.concurrent.Callable;
         description = "Flash Ruyi images from a CLI or GUI.")
 @NotNullByDefault
 public final class CliApplication implements Runnable {
+    /// Logger for CLI command execution.
+    private static final Logger LOGGER = Logger.getLogger(CliApplication.class.getName());
+
     /// Services used by every command.
     private final AppServices services;
 
@@ -66,6 +76,32 @@ public final class CliApplication implements Runnable {
             descriptionKey = "cli.option.version")
     private boolean versionHelp;
 
+    /// Configured log level inherited by subcommands.
+    @Option(
+            names = "--log-level",
+            scope = ScopeType.INHERIT,
+            paramLabel = "LEVEL",
+            description = "Set log level.",
+            descriptionKey = "cli.option.logLevel")
+    private @Nullable String logLevel;
+
+    /// Whether debug logging is enabled.
+    @Option(
+            names = "--verbose",
+            scope = ScopeType.INHERIT,
+            description = "Enable debug logging.",
+            descriptionKey = "cli.option.verbose")
+    private boolean verbose;
+
+    /// Configured log file inherited by subcommands.
+    @Option(
+            names = "--log-file",
+            scope = ScopeType.INHERIT,
+            paramLabel = "PATH",
+            description = "Write logs to this file.",
+            descriptionKey = "cli.option.logFile")
+    private @Nullable Path logFile;
+
     /// Creates the command root.
     ///
     /// @param services shared application services.
@@ -79,14 +115,25 @@ public final class CliApplication implements Runnable {
     /// @param args command-line arguments.
     /// @return process exit code.
     public static int run(AppServices services, String @Unmodifiable [] args) {
-        CliApplication root = new CliApplication(services);
-        CommandLine commandLine = new CommandLine(root);
-        commandLine.addSubcommand("repo", repoCommand(services));
-        commandLine.addSubcommand("image", imageCommand(services));
-        commandLine.addSubcommand("device", deviceCommand(services));
-        commandLine.addSubcommand("flash", new FlashCommand(services));
-        localizeCommands(commandLine);
-        return commandLine.execute(args);
+        RuyiLogging.configure(
+                services.directories(),
+                RuyiLogging.cliLevel(optionValue(args, "--log-level"), hasFlag(args, "--verbose")),
+                pathOptionValue(args, "--log-file"));
+        LOGGER.info(() -> "CLI command started. args=" + LogRedactor.redactCommand(List.of(args)));
+        try {
+            CliApplication root = new CliApplication(services);
+            CommandLine commandLine = new CommandLine(root);
+            commandLine.addSubcommand("repo", repoCommand(services));
+            commandLine.addSubcommand("image", imageCommand(services));
+            commandLine.addSubcommand("device", deviceCommand(services));
+            commandLine.addSubcommand("flash", new FlashCommand(services));
+            localizeCommands(commandLine);
+            int exitCode = commandLine.execute(args);
+            LOGGER.info(() -> "CLI command finished. exitCode=" + exitCode);
+            return exitCode;
+        } finally {
+            RuyiLogging.shutdown();
+        }
     }
 
     /// Prints root usage when no CLI subcommand was selected.
@@ -140,11 +187,14 @@ public final class CliApplication implements Runnable {
     /// @param json whether progress should be emitted as JSON events.
     /// @return progress reporter.
     private static ProgressReporter progressReporter(boolean json) {
+        ProgressReporter reporter;
         if (json) {
-            return event -> JsonOutput.print(eventMap("progress", event));
+            reporter = event -> JsonOutput.print(eventMap("progress", event));
+        } else {
+            reporter = event -> System.err.printf("%s: %s%n", event.stage(), event.message());
         }
 
-        return event -> System.err.printf("%s: %s%n", event.stage(), event.message());
+        return LoggingProgressReporter.wrap(reporter, LOGGER);
     }
 
     /// Creates a JSON event object.
@@ -168,15 +218,32 @@ public final class CliApplication implements Runnable {
     /// @param json whether JSON output is enabled.
     /// @return software error exit code.
     private static int fail(String message, boolean json) {
+        @Nullable String logFile = RuyiLogging.currentLogFileText();
         if (json) {
             Map<String, Object> output = new LinkedHashMap<>();
             output.put("type", "error");
             output.put("message", message);
+            if (logFile != null) {
+                output.put("logFile", logFile);
+            }
             JsonOutput.print(output);
         } else {
             System.err.println(Messages.get("cli.error.prefix", message));
+            if (logFile != null) {
+                System.err.println("Log file: " + logFile);
+            }
         }
         return CommandLine.ExitCode.SOFTWARE;
+    }
+
+    /// Logs and prints a command failure.
+    ///
+    /// @param exception failure exception.
+    /// @param json whether JSON output is enabled.
+    /// @return software error exit code.
+    private static int failException(Exception exception, boolean json) {
+        LOGGER.log(Level.SEVERE, "CLI command failed.", exception);
+        return fail(exceptionMessage(exception), json);
     }
 
     /// Returns a localized fallback for an exception without a message.
@@ -224,18 +291,71 @@ public final class CliApplication implements Runnable {
     /// @param json whether JSON output is enabled.
     /// @return process exit code.
     private static int finish(OperationResult result, boolean json) {
+        @Nullable String logFile = RuyiLogging.currentLogFileText();
+        if (!result.success()) {
+            LOGGER.warning(() -> "CLI operation failed. message=" + result.message());
+        }
         if (json) {
             Map<String, Object> output = new LinkedHashMap<>();
             output.put("type", result.success() ? "complete" : "error");
             output.put("success", result.success());
             output.put("message", result.message());
+            if (!result.success() && logFile != null) {
+                output.put("logFile", logFile);
+            }
             JsonOutput.print(output);
         } else {
             PrintStream stream = result.success() ? System.out : System.err;
             stream.println(result.message());
+            if (!result.success() && logFile != null) {
+                stream.println("Log file: " + logFile);
+            }
         }
 
         return result.success() ? CommandLine.ExitCode.OK : CommandLine.ExitCode.SOFTWARE;
+    }
+
+    /// Returns whether an argument flag is present.
+    ///
+    /// @param args command-line arguments.
+    /// @param name option name.
+    /// @return whether the flag is present.
+    private static boolean hasFlag(String @Unmodifiable [] args, String name) {
+        for (String arg : args) {
+            if (name.equals(arg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Returns an option value from CLI arguments without consuming it.
+    ///
+    /// @param args command-line arguments.
+    /// @param name option name.
+    /// @return option value, or null when absent.
+    private static @Nullable String optionValue(String @Unmodifiable [] args, String name) {
+        String prefix = name + "=";
+        for (int i = 0; i < args.length; i++) {
+            String arg = args[i];
+            if (arg.startsWith(prefix)) {
+                return arg.substring(prefix.length());
+            }
+            if (name.equals(arg) && i + 1 < args.length && !args[i + 1].startsWith("--")) {
+                return args[i + 1];
+            }
+        }
+        return null;
+    }
+
+    /// Returns a path option value from CLI arguments without consuming it.
+    ///
+    /// @param args command-line arguments.
+    /// @param name option name.
+    /// @return option path, or null when absent.
+    private static @Nullable Path pathOptionValue(String @Unmodifiable [] args, String name) {
+        @Nullable String value = optionValue(args, name);
+        return value == null || value.isBlank() ? null : Path.of(value);
     }
 
     /// Command group for repository operations.
@@ -283,7 +403,7 @@ public final class CliApplication implements Runnable {
                 OperationResult result = services.repository().update(progressReporter(json));
                 return finish(result, json);
             } catch (IOException | RuntimeException e) {
-                return fail(exceptionMessage(e), json);
+                return failException(e, json);
             }
         }
     }
@@ -349,7 +469,7 @@ public final class CliApplication implements Runnable {
                 }
                 return CommandLine.ExitCode.OK;
             } catch (IOException | RuntimeException e) {
-                return fail(exceptionMessage(e), json);
+                return failException(e, json);
             }
         }
     }
@@ -411,7 +531,7 @@ public final class CliApplication implements Runnable {
                 }
                 return CommandLine.ExitCode.OK;
             } catch (IOException | RuntimeException e) {
-                return fail(exceptionMessage(e), json);
+                return failException(e, json);
             }
         }
     }
@@ -494,7 +614,7 @@ public final class CliApplication implements Runnable {
                 }
                 return CommandLine.ExitCode.OK;
             } catch (IOException | RuntimeException e) {
-                return fail(exceptionMessage(e), json);
+                return failException(e, json);
             }
         }
 
@@ -518,7 +638,7 @@ public final class CliApplication implements Runnable {
                 }
                 return CommandLine.ExitCode.OK;
             } catch (IOException | RuntimeException e) {
-                return fail(exceptionMessage(e), json);
+                return failException(e, json);
             }
         }
     }
@@ -732,7 +852,7 @@ public final class CliApplication implements Runnable {
                         progressReporter(json));
                 return finish(result, json);
             } catch (IOException | RuntimeException e) {
-                return fail(exceptionMessage(e), json);
+                return failException(e, json);
             }
         }
 
