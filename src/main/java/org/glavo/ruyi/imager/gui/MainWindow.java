@@ -488,7 +488,7 @@ public final class MainWindow {
     ///
     /// @param <T> item type.
     /// @return selection tree view.
-    private static <T> TreeView<T> selectionTreeView() {
+    static <T> TreeView<T> selectionTreeView() {
         TreeView<T> treeView = new TreeView<>();
         treeView.getStyleClass().add("selection-tree-view");
         treeView.setEffect(null);
@@ -552,7 +552,7 @@ public final class MainWindow {
     /// @param images source image entries.
     /// @param currentImage currently selected image.
     /// @return operating system selection content.
-    private static Node operatingSystemSelectionContent(
+    static Node operatingSystemSelectionContent(
             TreeView<OperatingSystemTreeNode> treeView,
             List<ImageEntry> images,
             @Nullable ImageEntry currentImage) {
@@ -641,7 +641,7 @@ public final class MainWindow {
     ///
     /// @param treeView operating system tree view.
     /// @return selected image, first image under a selected category, or null when the tree is empty.
-    private static @Nullable ImageEntry selectedTreeImage(TreeView<OperatingSystemTreeNode> treeView) {
+    static @Nullable ImageEntry selectedTreeImage(TreeView<OperatingSystemTreeNode> treeView) {
         @Nullable TreeItem<OperatingSystemTreeNode> selectedItem =
                 treeView.getSelectionModel().getSelectedItem();
         if (selectedItem == null) {
@@ -667,16 +667,19 @@ public final class MainWindow {
 
     /// Finds the first image leaf in an operating system tree.
     ///
-    /// @param root root tree item.
+    /// @param root root tree item or category tree item.
     /// @return first image tree item, or null when the tree is empty.
     private static @Nullable TreeItem<OperatingSystemTreeNode> firstImageTreeItem(
             TreeItem<OperatingSystemTreeNode> root) {
-        for (TreeItem<OperatingSystemTreeNode> categoryItem : root.getChildren()) {
-            for (TreeItem<OperatingSystemTreeNode> imageItem : categoryItem.getChildren()) {
-                @Nullable OperatingSystemTreeNode node = imageItem.getValue();
-                if (node != null && node.image() != null) {
-                    return imageItem;
-                }
+        @Nullable OperatingSystemTreeNode node = root.getValue();
+        if (node != null && node.image() != null) {
+            return root;
+        }
+
+        for (TreeItem<OperatingSystemTreeNode> child : root.getChildren()) {
+            @Nullable TreeItem<OperatingSystemTreeNode> imageItem = firstImageTreeItem(child);
+            if (imageItem != null) {
+                return imageItem;
             }
         }
         return null;
@@ -1248,7 +1251,7 @@ public final class MainWindow {
     ///
     /// @param selectors partition selectors.
     /// @return selected partition flash target, or null when selection is invalid.
-    private @Nullable FlashTarget partitionTargetSelection(
+    @Nullable FlashTarget partitionTargetSelection(
             @Unmodifiable Map<String, MFXComboBox<BlockDevice>> selectors) {
         LinkedHashMap<String, BlockDevice> targets = new LinkedHashMap<>();
         Set<Path> targetPaths = new HashSet<>();
@@ -2630,6 +2633,6 @@ public final class MainWindow {
     /// @param image image entry for leaf nodes.
     /// @param imageCount visible image count for category nodes.
     @NotNullByDefault
-    private record OperatingSystemTreeNode(String name, @Nullable ImageEntry image, int imageCount) {
+    record OperatingSystemTreeNode(String name, @Nullable ImageEntry image, int imageCount) {
     }
 }

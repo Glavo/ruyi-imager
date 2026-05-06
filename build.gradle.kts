@@ -150,7 +150,7 @@ java {
 
 application {
     mainClass = "org.glavo.ruyi.imager.Main"
-    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED,javafx.graphics")
 }
 
 distributions {
@@ -178,7 +178,7 @@ tasks.named("distTar") {
 tasks.test {
     useJUnitPlatform()
     timeout.set(Duration.ofMinutes(10))
-    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    jvmArgs("--enable-native-access=ALL-UNNAMED,javafx.graphics")
     val testTmpDir = layout.buildDirectory.dir("tmp/test-tmp")
     systemProperty("java.io.tmpdir", testTmpDir.get().asFile.absolutePath)
     doFirst {
