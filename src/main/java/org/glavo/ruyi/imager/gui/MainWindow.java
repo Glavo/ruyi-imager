@@ -15,7 +15,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.Separator;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
@@ -217,7 +216,6 @@ public final class MainWindow {
         pane.getStyleClass().add("app-root");
         pane.setTop(createHeader());
         pane.setCenter(createWorkflowScrollPane());
-        pane.setBottom(createFooter());
         return pane;
     }
 
@@ -785,17 +783,6 @@ public final class MainWindow {
                 showError(Messages.get("gui.dialog.metadataUpdateFailed"), result.message());
             }
         });
-    }
-
-    /// Creates the footer node.
-    ///
-    /// @return footer node.
-    private VBox createFooter() {
-        Label safety = localizedLabel("gui.footer.safety");
-        safety.getStyleClass().add("footer-text");
-        VBox footer = new VBox(new Separator(), safety);
-        footer.getStyleClass().add("app-footer");
-        return footer;
     }
 
     /// Opens the manufacturer selection dialog.
