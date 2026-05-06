@@ -97,6 +97,14 @@ public final class GuiSelectionRulesTest {
                 Path.of("\\\\.\\PHYSICALDRIVE2"),
                 false,
                 true,
+                false,
+                true)));
+        assertFalse(GuiSelectionRules.targetWritable(device(
+                "windows-disk-3",
+                Path.of("\\\\.\\PHYSICALDRIVE3"),
+                false,
+                true,
+                false,
                 false)));
         assertFalse(GuiSelectionRules.targetWritable(device("readonly", Path.of("readonly.raw"), false, false, true)));
     }
@@ -151,12 +159,31 @@ public final class GuiSelectionRulesTest {
             boolean system,
             boolean mounted,
             boolean readOnly) {
+        return device(id, path, system, mounted, readOnly, true);
+    }
+
+    /// Creates a test block device.
+    ///
+    /// @param id device id.
+    /// @param path device path.
+    /// @param system whether the device is a system disk.
+    /// @param mounted whether the device is mounted.
+    /// @param readOnly whether the device is read-only.
+    /// @param removable whether the device is removable.
+    /// @return test block device.
+    private static BlockDevice device(
+            String id,
+            Path path,
+            boolean system,
+            boolean mounted,
+            boolean readOnly,
+            boolean removable) {
         return new BlockDevice(
                 id,
                 "Test Device",
                 path,
                 1024L,
-                true,
+                removable,
                 system,
                 mounted,
                 readOnly,

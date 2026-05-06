@@ -90,11 +90,11 @@ public final class FastbootExecutableLocator {
         }
 
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
-        if (normalizedOs.contains("win")) {
-            return new FastbootPlatform("windows-x86_64", "fastboot.exe", true);
-        }
         if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
             return new FastbootPlatform("macos-x86_64", "fastboot", false);
+        }
+        if (normalizedOs.contains("win")) {
+            return new FastbootPlatform("windows-x86_64", "fastboot.exe", true);
         }
         if (normalizedOs.contains("linux")) {
             return new FastbootPlatform("linux-x86_64", "fastboot", false);

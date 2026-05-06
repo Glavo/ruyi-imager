@@ -98,6 +98,10 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
             return target;
         }
 
+        if (!target.removable()) {
+            return target;
+        }
+
         @Nullable Integer diskNumber = diskNumber(target);
         if (diskNumber == null) {
             return target;

@@ -23,6 +23,7 @@ public final class FastbootExecutableLocatorTest {
     public void mapsSupportedX8664Platforms() {
         assertPlatform("windows-x86_64", "fastboot.exe", "Windows 11", "amd64");
         assertPlatform("macos-x86_64", "fastboot", "Mac OS X", "x86_64");
+        assertPlatform("macos-x86_64", "fastboot", "Darwin", "x86-64");
         assertPlatform("linux-x86_64", "fastboot", "Linux", "x64");
     }
 

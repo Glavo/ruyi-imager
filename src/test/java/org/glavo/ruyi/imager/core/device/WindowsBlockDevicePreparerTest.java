@@ -62,6 +62,19 @@ public final class WindowsBlockDevicePreparerTest {
         assertSame(target, preparer.prepare(target, NO_PROGRESS));
     }
 
+    /// Verifies that mounted non-removable disks are left unchanged.
+    ///
+    /// @throws Exception when preparation fails unexpectedly.
+    @Test
+    public void returnsOriginalTargetForNonRemovableDisk() throws Exception {
+        WindowsBlockDevicePreparer preparer = new WindowsBlockDevicePreparer((_, _) -> {
+            throw new AssertionError("Command should not run.");
+        });
+        BlockDevice target = device("windows-disk-2", Path.of("\\\\.\\PHYSICALDRIVE2"), true, false);
+
+        assertSame(target, preparer.prepare(target, NO_PROGRESS));
+    }
+
     /// Verifies that PowerShell failures are surfaced as IO errors.
     @Test
     public void reportsPowerShellFailure() {
@@ -80,12 +93,23 @@ public final class WindowsBlockDevicePreparerTest {
     /// @param mounted whether the target is mounted.
     /// @return test block-device metadata.
     private static BlockDevice device(String id, Path path, boolean mounted) {
+        return device(id, path, mounted, true);
+    }
+
+    /// Creates test block-device metadata.
+    ///
+    /// @param id target id.
+    /// @param path target path.
+    /// @param mounted whether the target is mounted.
+    /// @param removable whether the target is removable.
+    /// @return test block-device metadata.
+    private static BlockDevice device(String id, Path path, boolean mounted, boolean removable) {
         return new BlockDevice(
                 id,
                 "Test Disk",
                 path,
                 1024L,
-                true,
+                removable,
                 false,
                 mounted,
                 false,
