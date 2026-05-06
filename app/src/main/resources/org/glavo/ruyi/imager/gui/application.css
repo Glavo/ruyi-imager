@@ -1,6 +1,14 @@
+@font-face {
+    font-family: "Alibaba PuHuiTi 3.0 65 Medium";
+    src: url("../fonts/AlibabaPuHuiTi-3-65-Medium.ttf");
+}
+
+.root {
+    -fx-font-family: "Alibaba PuHuiTi 3.0 65 Medium";
+}
+
 .app-root {
     -fx-background-color: #f6f8fb;
-    -fx-font-family: "Segoe UI", "Inter", "Arial", sans-serif;
 }
 
 .app-header {
@@ -404,6 +412,13 @@
     -fx-background-color: #ffffff;
     -fx-background-radius: 8;
     -fx-padding: 20;
+    -fx-font-family: "Alibaba PuHuiTi 3.0 65 Medium";
+}
+
+.material-dialog .header-label,
+.material-dialog .content,
+.material-dialog .actions-pane .mfx-button {
+    -fx-font-family: "Alibaba PuHuiTi 3.0 65 Medium";
 }
 
 .material-search-selection-dialog .header-label {

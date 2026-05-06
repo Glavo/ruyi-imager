@@ -47,6 +47,9 @@ val alibabaPuhuitiFontUrl =
     "https://registry.npmmirror.com/@fontpkg/alibaba-puhuiti-3-0/-/alibaba-puhuiti-3-0-0.0.0.tgz"
 val alibabaPuhuitiFontArchive =
     rootProject.layout.buildDirectory.file("downloads/fonts/alibaba-puhuiti-3-0-0.0.0.tgz")
+val generatedResourcesDirectory = layout.buildDirectory.dir("generated/resources/main")
+val alibabaPuhuitiMediumFont =
+    generatedResourcesDirectory.map { it.file("org/glavo/ruyi/imager/fonts/AlibabaPuHuiTi-3-65-Medium.ttf") }
 
 tasks.register("downloadAlibabaPuhuitiFont") {
     group = "assets"
@@ -61,6 +64,21 @@ tasks.register("downloadAlibabaPuhuitiFont") {
             }
         }
     }
+}
+
+val extractAlibabaPuhuitiMediumFont = tasks.register<Copy>("extractAlibabaPuhuitiMediumFont") {
+    group = "assets"
+    description = "Extracts the Alibaba PuHuiTi 3.0 Medium TTF font for application resources."
+    dependsOn("downloadAlibabaPuhuitiFont")
+    from({ tarTree(resources.gzip(alibabaPuhuitiFontArchive)) }) {
+        include("package/AlibabaPuHuiTi-3-65-Medium.ttf")
+        eachFile {
+            relativePath = RelativePath(true, "org", "glavo", "ruyi", "imager", "fonts", name)
+        }
+        includeEmptyDirs = false
+    }
+    into(generatedResourcesDirectory)
+    outputs.file(alibabaPuhuitiMediumFont)
 }
 
 val extractFastbootTasks = fastbootBundles.map { bundle ->
@@ -126,6 +144,12 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+sourceSets {
+    main {
+        resources.srcDir(generatedResourcesDirectory)
+    }
+}
+
 application {
     mainClass = "org.glavo.ruyi.imager.Main"
     applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED,javafx.graphics")
@@ -155,6 +179,10 @@ tasks.named("distTar") {
 
 tasks.test {
     jvmArgs("--enable-native-access=ALL-UNNAMED,javafx.graphics")
+}
+
+tasks.processResources {
+    dependsOn(extractAlibabaPuhuitiMediumFont)
 }
 
 /// Returns the JavaFX dependency notation for the current build platform.

@@ -6,6 +6,8 @@ package org.glavo.ruyi.imager;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
+import javafx.scene.text.Font;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 import io.github.palexdev.materialfx.theming.JavaFXThemes;
 import io.github.palexdev.materialfx.theming.MaterialFXStylesheets;
@@ -18,6 +20,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.net.URL;
+import java.util.Locale;
 import java.util.logging.Logger;
 
 /// JavaFX application for the Ruyi Imager guided flashing workflow.
@@ -25,6 +28,10 @@ import java.util.logging.Logger;
 public final class RuyiImager extends Application {
     /// Logger for JavaFX application lifecycle events.
     private static final Logger LOGGER = Logger.getLogger(RuyiImager.class.getName());
+
+    /// Default GUI font bundled with the application.
+    private static final String DEFAULT_FONT_RESOURCE =
+            "/org/glavo/ruyi/imager/fonts/AlibabaPuHuiTi-3-65-Medium.ttf";
 
     /// Core services shared by the GUI and CLI.
     private @Nullable AppServices services;
@@ -42,6 +49,7 @@ public final class RuyiImager extends Application {
     /// @param primaryStage primary application stage.
     @Override
     public void start(Stage primaryStage) {
+        loadDefaultFont();
         installMaterialTheme();
         LOGGER.info("Showing main window.");
 
@@ -82,5 +90,27 @@ public final class RuyiImager extends Application {
                 .setResolveAssets(true)
                 .build()
                 .setGlobal();
+    }
+
+    /// Loads the bundled default GUI font.
+    private static void loadDefaultFont() {
+        if (System.getProperty("prism.lcdtext") == null
+                && System.getProperty("os.name").toLowerCase(Locale.ROOT).startsWith("windows")
+                && Screen.getPrimary().getOutputScaleX() > 1) {
+            System.getProperties().put("prism.lcdtext", "false");
+        }
+
+        @Nullable URL fontResource = RuyiImager.class.getResource(DEFAULT_FONT_RESOURCE);
+        if (fontResource == null) {
+            LOGGER.warning("Default GUI font resource is missing.");
+            return;
+        }
+
+        @Nullable Font font = Font.loadFont(fontResource.toExternalForm(), 13.0);
+        if (font == null) {
+            LOGGER.warning("Default GUI font could not be loaded.");
+        } else {
+            LOGGER.info(() -> "Loaded default GUI font. family=" + font.getFamily() + ", name=" + font.getName());
+        }
     }
 }
