@@ -76,6 +76,7 @@ import static org.glavo.ruyi.imager.gui.GuiSelectionRules.compatibleTarget;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.fastbootStrategy;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetKeysMatch;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetsReady;
+import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetPreparablyMounted;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetWritable;
 
 /// Main JavaFX window for the guided imager workflow.
@@ -2088,7 +2089,8 @@ public final class MainWindow {
         details.getStyleClass().add("selection-detail");
 
         boolean writable = targetWritable(target);
-        String statusText = writable ? Messages.get("gui.target.ready") : targetSafetyLabel(target);
+        String safetyText = targetSafetyLabel(target);
+        String statusText = safetyText.isEmpty() ? Messages.get("gui.target.ready") : safetyText;
         Label status = statusPill(statusText, writable ? "status-supported" : "status-blocked");
         HBox statusRow = new HBox(status);
         statusRow.getStyleClass().add("selection-pill-row");
@@ -2342,9 +2344,13 @@ public final class MainWindow {
         }
         if (target.mounted()) {
             if (target.mountPoints().isEmpty()) {
-                flags.add(Messages.get("gui.target.mounted"));
+                flags.add(Messages.get(targetPreparablyMounted(target)
+                        ? "gui.target.mountedWillDismount"
+                        : "gui.target.mounted"));
             } else {
-                flags.add(Messages.get("gui.target.mountedWithPoints", mountPointsLabel(target)));
+                flags.add(Messages.get(targetPreparablyMounted(target)
+                        ? "gui.target.mountedWithPointsWillDismount"
+                        : "gui.target.mountedWithPoints", mountPointsLabel(target)));
             }
         }
         if (target.readOnly()) {
@@ -2360,6 +2366,9 @@ public final class MainWindow {
                 builder.append(", ");
             }
             builder.append(flags.get(i));
+        }
+        if (targetWritable(target)) {
+            return builder.toString();
         }
         return Messages.get("gui.target.blocked", builder);
     }

@@ -15,7 +15,7 @@
 - Core service：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FastbootService`、`FlashService` 已由 `AppServices` 统一组装，供 CLI/GUI 共享。
 - Ruyi metadata：支持默认 repo、用户配置覆盖、overlay repo、本地 repo、JGit clone/pull、mirror/dist URL 解析；catalog 支持 `packages/` 和旧 `manifests/`，并解析 provisionable manifest、strategy、partition map、distfiles、checksums、slug、device entity、SemVer/atom 选择。
 - 下载和物化：支持 HTTP/HTTPS、`.part` 续传、缓存复用、大小和 SHA-256/SHA-512 校验、`restrict = ["fetch"]` 手动下载提示；artifact 物化支持 raw、gzip、bzip2、lz4、xz、zstd、zip、tar 和常见 tar 压缩组合，tar 和压缩流使用 `Glavo/kala-compress`。
-- 刷写：支持 `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)`；dd 支持单目标整盘和多分区 target mapping，写入前预校验目标；fastboot 支持分区级进度、LPi4A reboot 后重连等待、超时/中断清理。
+- 刷写：支持 `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)`；dd 支持单目标整盘和多分区 target mapping，写入前预校验目标；Windows 挂载目标可在写入前通过 PowerShell 卸载卷和访问路径；fastboot 支持分区级进度、LPi4A reboot 后重连等待、超时/中断清理。
 - Bundled fastboot：发行包会下载并携带 Android SDK Platform Tools 中的 Windows/macOS/Linux x86-64 fastboot；运行时优先使用发行目录内的 bundled fastboot，缺失或不支持的平台退回 PATH。
 - 设备枚举：Windows、Linux、macOS 只读块设备枚举已接入，保留挂载点用于 CLI/GUI 展示；三套平台 parser fixture 已覆盖。
 - CLI：支持 `repo update`、`image list/download`、`device list`、`device list --fastboot`、`flash --atom`、`flash --local-image`、多分区 `--partition-device`，主要命令支持 JSON/NDJSON；本地 Ruyi repo fixture 集成测试覆盖 repo update、image list/download 和 unsupported strategy。
@@ -25,7 +25,7 @@
 
 - 设备后端：
   - 在真实 Linux/macOS 设备上做只读枚举 smoke test。
-  - 完善 Windows 写盘前的挂载/卷占用处理策略；当前只拒绝已挂载目标，不做自动卸载。
+  - 在可擦写 Windows removable 设备上做挂载目标写入准备 smoke test，确认卸载卷和移除访问路径行为。
   - 评估是否需要原生/FFM 后端替代直接 `FileChannel` 写物理设备。
 - GUI：
   - 对树形操作系统选择器和多分区存储选择器做一次实际 JavaFX 交互 smoke test。

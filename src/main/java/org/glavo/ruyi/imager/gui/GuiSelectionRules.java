@@ -116,6 +116,14 @@ final class GuiSelectionRules {
     /// @param target target device.
     /// @return whether the target is not blocked by safety flags.
     static boolean targetWritable(BlockDevice target) {
-        return !target.system() && !target.mounted() && !target.readOnly();
+        return !target.system() && !target.readOnly() && (!target.mounted() || targetPreparablyMounted(target));
+    }
+
+    /// Returns whether a mounted target can be prepared by the current writer.
+    ///
+    /// @param target target device.
+    /// @return whether the mounted target can be prepared automatically.
+    static boolean targetPreparablyMounted(BlockDevice target) {
+        return target.mounted() && target.id().startsWith("windows-disk-");
     }
 }

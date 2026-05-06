@@ -92,6 +92,12 @@ public final class GuiSelectionRulesTest {
         assertTrue(GuiSelectionRules.targetWritable(device("ready", Path.of("ready.raw"), false, false, false)));
         assertFalse(GuiSelectionRules.targetWritable(device("system", Path.of("system.raw"), true, false, false)));
         assertFalse(GuiSelectionRules.targetWritable(device("mounted", Path.of("mounted.raw"), false, true, false)));
+        assertTrue(GuiSelectionRules.targetWritable(device(
+                "windows-disk-2",
+                Path.of("\\\\.\\PHYSICALDRIVE2"),
+                false,
+                true,
+                false)));
         assertFalse(GuiSelectionRules.targetWritable(device("readonly", Path.of("readonly.raw"), false, false, true)));
     }
 

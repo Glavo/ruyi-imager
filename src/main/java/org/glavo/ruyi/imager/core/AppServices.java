@@ -5,8 +5,10 @@ package org.glavo.ruyi.imager.core;
 
 import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.device.PlatformBlockDeviceService;
+import org.glavo.ruyi.imager.core.device.WindowsBlockDevicePreparer;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.fastboot.ProcessFastbootService;
+import org.glavo.ruyi.imager.core.flash.BlockDevicePreparer;
 import org.glavo.ruyi.imager.core.flash.FlashService;
 import org.glavo.ruyi.imager.core.flash.LocalFlashService;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
@@ -15,6 +17,8 @@ import org.glavo.ruyi.imager.core.repo.RepositoryService;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryService;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.jetbrains.annotations.NotNullByDefault;
+
+import java.util.Locale;
 
 /// Shared service graph used by the CLI and JavaFX front end.
 ///
@@ -42,7 +46,24 @@ public record AppServices(
         ImageCatalogService images = new RuyiImageCatalogService(directories, repositoryStore);
         BlockDeviceService devices = new PlatformBlockDeviceService();
         FastbootService fastboot = new ProcessFastbootService();
-        FlashService flash = new LocalFlashService(images, fastboot);
+        FlashService flash = new LocalFlashService(images, fastboot, createBlockDevicePreparer());
         return new AppServices(directories, repository, images, devices, fastboot, flash);
+    }
+
+    /// Creates the platform block-device preparer.
+    ///
+    /// @return block-device preparer for the current operating system.
+    private static BlockDevicePreparer createBlockDevicePreparer() {
+        if (isWindows()) {
+            return new WindowsBlockDevicePreparer();
+        }
+        return BlockDevicePreparer.none();
+    }
+
+    /// Returns whether the current operating system is Windows.
+    ///
+    /// @return whether the current operating system is Windows.
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
     }
 }

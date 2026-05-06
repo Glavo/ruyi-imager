@@ -234,6 +234,54 @@ public final class LocalFlashServiceTest {
         assertFalse(result.success());
     }
 
+    /// Prepares a mounted target before writing when the preparer clears the mount state.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void preparesMountedTargetBeforeWriting(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] imageBytes = imageBytes(16);
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, imageBytes);
+        Files.write(target, new byte[32]);
+        FixedBlockDevicePreparer preparer = new FixedBlockDevicePreparer(true);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                preparer).flash(
+                new FlashRequest(null, image, target(target, 32, false, true, false), true),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(1, preparer.calls);
+        assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
+    }
+
+    /// Refuses a mounted target when preparation leaves it mounted.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesMountedTargetWhenPreparationLeavesMounted(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1});
+        Files.write(target, new byte[8]);
+        FixedBlockDevicePreparer preparer = new FixedBlockDevicePreparer(false);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                preparer).flash(
+                new FlashRequest(null, image, target(target, 8, false, true, false), false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+        assertEquals(1, preparer.calls);
+    }
+
     /// Refuses an image that is larger than the target.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -290,6 +338,25 @@ public final class LocalFlashServiceTest {
             boolean mounted,
             boolean readOnly) {
         return new BlockDevice("test", "Test Target", path, sizeBytes, true, system, mounted, readOnly, "Test", "file");
+    }
+
+    /// Returns test target metadata with mount state cleared.
+    ///
+    /// @param target original target metadata.
+    /// @return unmounted target metadata.
+    private static BlockDevice unmounted(BlockDevice target) {
+        return new BlockDevice(
+                target.id(),
+                target.displayName(),
+                target.path(),
+                target.sizeBytes(),
+                target.removable(),
+                target.system(),
+                false,
+                target.readOnly(),
+                target.model(),
+                target.busType(),
+                target.mountPoints());
     }
 
     /// Creates a test image entry.
@@ -360,6 +427,34 @@ public final class LocalFlashServiceTest {
             this.partitions = Map.copyOf(partitions);
             this.device = device;
             return OperationResult.success("Fastboot complete.");
+        }
+    }
+
+    /// Test preparer that can optionally clear mount state.
+    @NotNullByDefault
+    private static final class FixedBlockDevicePreparer implements BlockDevicePreparer {
+        /// Whether this preparer should return an unmounted target.
+        private final boolean clearMounted;
+
+        /// Number of prepare calls.
+        private int calls;
+
+        /// Creates a fixed block-device preparer.
+        ///
+        /// @param clearMounted whether this preparer should return an unmounted target.
+        private FixedBlockDevicePreparer(boolean clearMounted) {
+            this.clearMounted = clearMounted;
+        }
+
+        /// Prepares one target for the test.
+        ///
+        /// @param target target block device.
+        /// @param reporter progress reporter.
+        /// @return original or unmounted target metadata.
+        @Override
+        public BlockDevice prepare(BlockDevice target, ProgressReporter reporter) {
+            calls++;
+            return clearMounted ? unmounted(target) : target;
         }
     }
 

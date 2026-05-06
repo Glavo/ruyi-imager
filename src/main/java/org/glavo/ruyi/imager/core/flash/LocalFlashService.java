@@ -41,6 +41,9 @@ public final class LocalFlashService implements FlashService {
     /// Fastboot backend used for fastboot provision strategies.
     private final FastbootService fastboot;
 
+    /// Block-device preparation hook used before destructive writes.
+    private final BlockDevicePreparer blockDevicePreparer;
+
     /// Creates the local flash service.
     ///
     /// @param images image catalog service.
@@ -53,8 +56,21 @@ public final class LocalFlashService implements FlashService {
     /// @param images image catalog service.
     /// @param fastboot fastboot backend.
     public LocalFlashService(ImageCatalogService images, FastbootService fastboot) {
+        this(images, fastboot, BlockDevicePreparer.none());
+    }
+
+    /// Creates the local flash service.
+    ///
+    /// @param images image catalog service.
+    /// @param fastboot fastboot backend.
+    /// @param blockDevicePreparer block-device preparation hook.
+    public LocalFlashService(
+            ImageCatalogService images,
+            FastbootService fastboot,
+            BlockDevicePreparer blockDevicePreparer) {
         this.images = images;
         this.fastboot = fastboot;
+        this.blockDevicePreparer = blockDevicePreparer;
     }
 
     /// Executes an image flash request.
@@ -99,7 +115,7 @@ public final class LocalFlashService implements FlashService {
     /// @param reporter progress reporter.
     /// @return operation result.
     /// @throws IOException when files cannot be read or written.
-    private static OperationResult flashBlockImage(
+    private OperationResult flashBlockImage(
             Path source,
             FlashTarget target,
             boolean verify,
@@ -109,14 +125,20 @@ public final class LocalFlashService implements FlashService {
             return OperationResult.failure(Messages.get("core.flash.blockTargetRequired"));
         }
 
-        @Nullable String validationError = validateBlockImage(source, blockDevice);
+        @Nullable String validationError = validateBlockImage(source, blockDevice, true);
+        if (validationError != null) {
+            return OperationResult.failure(validationError);
+        }
+        BlockDevice preparedBlockDevice = prepareBlockTarget(blockDevice, reporter);
+
+        validationError = validateBlockImage(source, preparedBlockDevice, false);
         if (validationError != null) {
             return OperationResult.failure(validationError);
         }
 
         return writeValidatedBlockImage(
                 source,
-                blockDevice,
+                preparedBlockDevice,
                 verify,
                 Messages.get("core.flash.writing"),
                 Messages.get("core.flash.verifying"),
@@ -131,7 +153,7 @@ public final class LocalFlashService implements FlashService {
     /// @param reporter progress reporter.
     /// @return operation result.
     /// @throws IOException when files cannot be read or written.
-    private static OperationResult flashBlockPartitions(
+    private OperationResult flashBlockPartitions(
             @Unmodifiable Map<String, Path> partitions,
             FlashTarget target,
             boolean verify,
@@ -150,6 +172,7 @@ public final class LocalFlashService implements FlashService {
         }
 
         Set<Path> targetPaths = new HashSet<>();
+        LinkedHashMap<String, BlockDevice> preparedTargets = new LinkedHashMap<>();
         for (Map.Entry<String, Path> entry : partitions.entrySet()) {
             String partition = entry.getKey();
             @Nullable BlockDevice blockDevice = blockTargets.get(partition);
@@ -162,18 +185,29 @@ public final class LocalFlashService implements FlashService {
                 return OperationResult.failure(Messages.get("core.flash.duplicatePartitionTarget", normalizedTargetPath));
             }
 
-            @Nullable String validationError = validateBlockImage(entry.getValue(), blockDevice);
+            @Nullable String validationError = validateBlockImage(entry.getValue(), blockDevice, true);
             if (validationError != null) {
                 return OperationResult.failure(Messages.get(
                         "core.flash.partitionTargetInvalid",
                         partition,
                         validationError));
             }
+
+            BlockDevice preparedBlockDevice = prepareBlockTarget(blockDevice, reporter);
+            validationError = validateBlockImage(entry.getValue(), preparedBlockDevice, false);
+            if (validationError != null) {
+                return OperationResult.failure(Messages.get(
+                        "core.flash.partitionTargetInvalid",
+                        partition,
+                        validationError));
+            }
+
+            preparedTargets.put(partition, preparedBlockDevice);
         }
 
         for (Map.Entry<String, Path> entry : partitions.entrySet()) {
             String partition = entry.getKey();
-            BlockDevice blockDevice = blockTargets.get(partition);
+            BlockDevice blockDevice = preparedTargets.get(partition);
             OperationResult result = writeValidatedBlockImage(
                     entry.getValue(),
                     blockDevice,
@@ -195,8 +229,11 @@ public final class LocalFlashService implements FlashService {
     /// @param blockDevice target block device.
     /// @return failure message, or null when source and target are acceptable.
     /// @throws IOException when source or target metadata cannot be read.
-    private static @Nullable String validateBlockImage(Path source, BlockDevice blockDevice) throws IOException {
-        @Nullable String safetyError = validateTarget(blockDevice);
+    private static @Nullable String validateBlockImage(
+            Path source,
+            BlockDevice blockDevice,
+            boolean allowMounted) throws IOException {
+        @Nullable String safetyError = validateTarget(blockDevice, allowMounted);
         if (safetyError != null) {
             return safetyError;
         }
@@ -211,6 +248,19 @@ public final class LocalFlashService implements FlashService {
             return Messages.get("core.flash.selfWrite");
         }
         return null;
+    }
+
+    /// Prepares a block target when it is currently mounted.
+    ///
+    /// @param blockDevice target block device.
+    /// @param reporter progress reporter.
+    /// @return prepared target metadata.
+    /// @throws IOException when the target cannot be prepared.
+    private BlockDevice prepareBlockTarget(BlockDevice blockDevice, ProgressReporter reporter) throws IOException {
+        if (!blockDevice.mounted()) {
+            return blockDevice;
+        }
+        return blockDevicePreparer.prepare(blockDevice, reporter);
     }
 
     /// Writes one already validated raw image to a block device target.
@@ -277,12 +327,13 @@ public final class LocalFlashService implements FlashService {
     /// Validates target safety flags.
     ///
     /// @param target target block device.
+    /// @param allowMounted whether mounted targets may pass this validation pass.
     /// @return failure message, or null when target is acceptable.
-    private static @Nullable String validateTarget(BlockDevice target) {
+    private static @Nullable String validateTarget(BlockDevice target, boolean allowMounted) {
         if (target.system()) {
             return Messages.get("core.flash.refuseSystem");
         }
-        if (target.mounted()) {
+        if (target.mounted() && !allowMounted) {
             return Messages.get("core.flash.refuseMounted");
         }
         if (target.readOnly()) {
