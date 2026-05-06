@@ -12,7 +12,9 @@ import java.nio.file.Path;
 import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for GUI preference persistence.
 @NotNullByDefault
@@ -38,6 +40,47 @@ public final class GuiPreferencesTest {
 
         preferences.writeLocale(Locale.SIMPLIFIED_CHINESE);
 
+        assertEquals(Locale.SIMPLIFIED_CHINESE, preferences.readLocale());
+    }
+
+    /// Verifies that missing preferences do not mark the startup warning as accepted.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the preferences file cannot be inspected.
+    @Test
+    public void returnsFalseWhenStartupSafetyWarningPreferenceIsMissing(@TempDir Path temporaryDirectory) throws Exception {
+        GuiPreferences preferences = preferences(temporaryDirectory);
+
+        assertFalse(preferences.readStartupSafetyWarningAccepted());
+    }
+
+    /// Verifies that the startup warning acknowledgement is persisted without clearing the locale.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the preferences file cannot be written or read.
+    @Test
+    public void persistsStartupSafetyWarningAccepted(@TempDir Path temporaryDirectory) throws Exception {
+        GuiPreferences preferences = preferences(temporaryDirectory);
+
+        preferences.writeLocale(Locale.ENGLISH);
+        preferences.writeStartupSafetyWarningAccepted();
+
+        assertTrue(preferences.readStartupSafetyWarningAccepted());
+        assertEquals(Locale.ENGLISH, preferences.readLocale());
+    }
+
+    /// Verifies that changing locale does not clear the startup warning acknowledgement.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the preferences file cannot be written or read.
+    @Test
+    public void preservesStartupSafetyWarningAcceptedWhenLocaleChanges(@TempDir Path temporaryDirectory) throws Exception {
+        GuiPreferences preferences = preferences(temporaryDirectory);
+
+        preferences.writeStartupSafetyWarningAccepted();
+        preferences.writeLocale(Locale.SIMPLIFIED_CHINESE);
+
+        assertTrue(preferences.readStartupSafetyWarningAccepted());
         assertEquals(Locale.SIMPLIFIED_CHINESE, preferences.readLocale());
     }
 

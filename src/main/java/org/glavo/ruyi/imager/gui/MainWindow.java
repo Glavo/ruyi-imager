@@ -217,6 +217,41 @@ public final class MainWindow {
         return root;
     }
 
+    /// Shows the first-run safety warning when it has not been accepted yet.
+    public void showStartupSafetyWarningIfNeeded() {
+        boolean accepted;
+        try {
+            accepted = preferences.readStartupSafetyWarningAccepted();
+        } catch (IOException exception) {
+            LOGGER.log(Level.WARNING, "Failed to read GUI startup safety warning preference.", exception);
+            accepted = false;
+        }
+
+        if (accepted) {
+            return;
+        }
+
+        LOGGER.info("Showing startup safety warning.");
+        boolean confirmed = showMaterialDialog(
+                Messages.get("gui.dialog.startupSafetyWarning"),
+                Messages.get("gui.dialog.startupSafetyWarning"),
+                messageContent(Messages.get("gui.dialog.startupSafetyWarning.message")),
+                "gui.dialog.ok",
+                "material-warning-dialog",
+                false);
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            preferences.writeStartupSafetyWarningAccepted();
+            LOGGER.info("Saved GUI startup safety warning acknowledgement.");
+        } catch (IOException exception) {
+            LOGGER.log(Level.WARNING, "Failed to write GUI startup safety warning preference.", exception);
+            showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
+        }
+    }
+
     /// Creates the main layout.
     ///
     /// @return root layout.

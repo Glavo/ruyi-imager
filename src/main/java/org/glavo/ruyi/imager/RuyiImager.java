@@ -4,6 +4,7 @@
 package org.glavo.ruyi.imager;
 
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 import io.github.palexdev.materialfx.theming.JavaFXThemes;
@@ -62,6 +63,7 @@ public final class RuyiImager extends Application {
         primaryStage.setMinHeight(560);
         primaryStage.setScene(scene);
         primaryStage.show();
+        Platform.runLater(window::showStartupSafetyWarningIfNeeded);
     }
 
     /// Stops the JavaFX application and closes logging resources.

@@ -25,6 +25,9 @@ final class GuiPreferences {
     /// Locale preference key.
     private static final String LOCALE_KEY = "locale";
 
+    /// Startup safety warning preference key.
+    private static final String STARTUP_SAFETY_WARNING_ACCEPTED_KEY = "startupSafetyWarningAccepted";
+
     /// Preferences file path.
     private final Path path;
 
@@ -40,15 +43,7 @@ final class GuiPreferences {
     /// @return persisted locale, or null when no preference is stored.
     /// @throws IOException when the preferences file cannot be read.
     public @Nullable Locale readLocale() throws IOException {
-        if (!Files.isRegularFile(path)) {
-            return null;
-        }
-
-        Properties properties = new Properties();
-        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            properties.load(reader);
-        }
-
+        Properties properties = readProperties();
         @Nullable String languageTag = properties.getProperty(LOCALE_KEY);
         if (languageTag == null || languageTag.isBlank()) {
             return null;
@@ -63,12 +58,54 @@ final class GuiPreferences {
     /// @param locale locale to persist.
     /// @throws IOException when the preferences file cannot be written.
     public void writeLocale(Locale locale) throws IOException {
+        Properties properties = readProperties();
+        properties.setProperty(LOCALE_KEY, locale.toLanguageTag());
+        writeProperties(properties);
+    }
+
+    /// Reads whether the startup safety warning has been accepted.
+    ///
+    /// @return whether the startup safety warning has been accepted.
+    /// @throws IOException when the preferences file cannot be read.
+    public boolean readStartupSafetyWarningAccepted() throws IOException {
+        Properties properties = readProperties();
+        return Boolean.parseBoolean(properties.getProperty(STARTUP_SAFETY_WARNING_ACCEPTED_KEY));
+    }
+
+    /// Marks the startup safety warning as accepted.
+    ///
+    /// @throws IOException when the preferences file cannot be written.
+    public void writeStartupSafetyWarningAccepted() throws IOException {
+        Properties properties = readProperties();
+        properties.setProperty(STARTUP_SAFETY_WARNING_ACCEPTED_KEY, Boolean.TRUE.toString());
+        writeProperties(properties);
+    }
+
+    /// Reads all stored GUI preferences.
+    ///
+    /// @return stored preferences, or an empty set when no file exists.
+    /// @throws IOException when the preferences file cannot be read.
+    private Properties readProperties() throws IOException {
+        Properties properties = new Properties();
+        if (!Files.isRegularFile(path)) {
+            return properties;
+        }
+
+        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            properties.load(reader);
+        }
+        return properties;
+    }
+
+    /// Writes all GUI preferences.
+    ///
+    /// @param properties preferences to write.
+    /// @throws IOException when the preferences file cannot be written.
+    private void writeProperties(Properties properties) throws IOException {
         @Nullable Path parent = path.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        Properties properties = new Properties();
-        properties.setProperty(LOCALE_KEY, locale.toLanguageTag());
         try (Writer writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
             properties.store(writer, "Ruyi Imager GUI preferences");
         }

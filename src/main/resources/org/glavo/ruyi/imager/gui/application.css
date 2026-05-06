@@ -493,6 +493,10 @@
     -fx-background-color: #d33f49;
 }
 
+.material-warning-dialog .dialog-primary-button {
+    -fx-background-color: #a86a00;
+}
+
 .dialog-secondary-button {
     -fx-background-color: #ffffff;
     -fx-text-fill: #394756;
