@@ -72,6 +72,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 
+import static org.glavo.ruyi.imager.gui.GuiSelectionRules.catalogImageFlashable;
+import static org.glavo.ruyi.imager.gui.GuiSelectionRules.compatibleTarget;
+import static org.glavo.ruyi.imager.gui.GuiSelectionRules.fastbootStrategy;
+import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetKeysMatch;
+import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetsReady;
+import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetWritable;
+
 /// Main JavaFX window for the guided imager workflow.
 @NotNullByDefault
 public final class MainWindow {
@@ -1112,7 +1119,7 @@ public final class MainWindow {
         }
 
         @Nullable ImageEntry image = state.image();
-        if (requiresPartitionTargets(image)) {
+        if (GuiSelectionRules.requiresPartitionTargets(image)) {
             showPartitionStorageDialog(devices, image);
             return;
         }
@@ -1439,7 +1446,7 @@ public final class MainWindow {
             return target.isFastbootDevice();
         }
 
-        if (requiresPartitionTargets(image)) {
+        if (GuiSelectionRules.requiresPartitionTargets(image)) {
             return partitionTargetsReady(image, target);
         }
 
@@ -1466,15 +1473,7 @@ public final class MainWindow {
     ///
     /// @return whether target selection should use multiple storage devices.
     private boolean requiresPartitionTargets() {
-        return requiresPartitionTargets(state.image());
-    }
-
-    /// Returns whether an image requires partition-specific block targets.
-    ///
-    /// @param image image entry.
-    /// @return whether the image should use a partition target map.
-    private static boolean requiresPartitionTargets(@Nullable ImageEntry image) {
-        return image != null && "dd-v1".equals(image.strategy()) && image.partitionMap().size() > 1;
+        return GuiSelectionRules.requiresPartitionTargets(state.image());
     }
 
     /// Returns the localized empty target label for the current strategy.
@@ -1488,41 +1487,6 @@ public final class MainWindow {
             return Messages.get("gui.value.partitionStorage.none");
         }
         return Messages.get("gui.value.storage.none");
-    }
-
-    /// Returns whether partition target selections are complete and writable.
-    ///
-    /// @param image selected image.
-    /// @param target selected target.
-    /// @return whether every image partition has a unique writable block target.
-    private static boolean partitionTargetsReady(ImageEntry image, FlashTarget target) {
-        if (!partitionTargetKeysMatch(image, target)) {
-            return false;
-        }
-
-        Set<Path> paths = new HashSet<>();
-        for (String partition : image.partitionMap().keySet()) {
-            @Nullable BlockDevice blockDevice = target.blockDevices().get(partition);
-            if (blockDevice == null || !targetWritable(blockDevice)) {
-                return false;
-            }
-            if (!paths.add(blockDevice.path().toAbsolutePath().normalize())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /// Returns whether selected partition target keys match image partition keys.
-    ///
-    /// @param image selected image.
-    /// @param target selected target.
-    /// @return whether the target map contains exactly the required partitions.
-    private static boolean partitionTargetKeysMatch(@Nullable ImageEntry image, FlashTarget target) {
-        return image != null
-                && target.blockDevice() == null
-                && target.fastbootDevice() == null
-                && target.blockDevices().keySet().equals(image.partitionMap().keySet());
     }
 
     /// Returns a writable target error for a flash target.
@@ -1544,31 +1508,6 @@ public final class MainWindow {
             }
         }
         return null;
-    }
-
-    /// Keeps a target only when it matches the selected image source.
-    ///
-    /// @param target current target.
-    /// @param image selected catalog image.
-    /// @param localImage selected local image.
-    /// @return compatible target, or null when target type no longer matches.
-    private static @Nullable FlashTarget compatibleTarget(
-            @Nullable FlashTarget target,
-            @Nullable ImageEntry image,
-            @Nullable Path localImage) {
-        if (target == null) {
-            return null;
-        }
-        if (localImage != null) {
-            return target.blockDevice() == null ? null : target;
-        }
-        if (image != null && fastbootStrategy(image.strategy())) {
-            return target.isFastbootDevice() ? target : null;
-        }
-        if (requiresPartitionTargets(image)) {
-            return partitionTargetKeysMatch(image, target) ? target : null;
-        }
-        return target.blockDevice() == null ? null : target;
     }
 
     /// Builds the final destructive-operation confirmation content.
@@ -2222,28 +2161,6 @@ public final class MainWindow {
                 imageCacheStatusLabel(cacheStatus));
     }
 
-    /// Returns whether the current GUI writer can flash a catalog image.
-    ///
-    /// @param image image entry.
-    /// @return whether the image is flashable through the current local writer.
-    private static boolean catalogImageFlashable(ImageEntry image) {
-        if (image.support() != StrategySupport.SUPPORTED) {
-            return false;
-        }
-        if ("dd-v1".equals(image.strategy())) {
-            return !image.partitionMap().isEmpty();
-        }
-        return fastbootStrategy(image.strategy()) && !image.partitionMap().isEmpty();
-    }
-
-    /// Returns whether a strategy uses fastboot.
-    ///
-    /// @param strategy strategy name.
-    /// @return whether this is a fastboot strategy.
-    private static boolean fastbootStrategy(String strategy) {
-        return "fastboot-v1".equals(strategy) || "fastboot-v1(lpi4a-uboot)".equals(strategy);
-    }
-
     /// Formats the current flash support state for an image.
     ///
     /// @param image image entry.
@@ -2368,14 +2285,6 @@ public final class MainWindow {
     /// @return display text.
     private static String fastbootTargetLabel(FastbootDevice target) {
         return Messages.get("gui.fastboot.summary", target.serial(), target.state());
-    }
-
-    /// Returns whether a target can be written by the GUI.
-    ///
-    /// @param target target device.
-    /// @return whether the target is not blocked by safety flags.
-    private static boolean targetWritable(BlockDevice target) {
-        return !target.system() && !target.mounted() && !target.readOnly();
     }
 
     /// Formats a target size.

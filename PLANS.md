@@ -19,9 +19,11 @@
 - Distfile 下载器已支持 HTTP/HTTPS、`.part` 续传、原子落盘、大小和 SHA-256/SHA-512 校验、缓存复用，以及 `restrict = ["fetch"]` 的手动下载提示。
 - Artifact 物化已支持 raw、gzip、bzip2、lz4、xz、zstd、zip、tar、tar.gz、tar.bz2、tar.lz4、tar.xz、tar.zst；tar 读取和压缩流读取已使用 `Glavo/kala-compress`；unsupported unpack method 会报告支持列表、下载文件和产物目录，并禁止显式未知 unpack 方法静默按 raw 复制。
 - 本地刷写已支持 `dd-v1` 和 `fastboot-v1` / `fastboot-v1(lpi4a-uboot)`；dd 使用本地块设备写入，支持单目标整盘镜像和多分区 target mapping，并会在多分区写入前预校验所有目标；fastboot 使用受控外部 `fastboot` 命令执行，支持分区级进度、LPi4A reboot 后自动重连等待，以及超时/中断时的进程清理。
-- Windows、Linux 和 macOS 只读块设备枚举已接入，并会保留已挂载卷的挂载点用于 CLI/GUI 展示；Linux/macOS parser fixture 已覆盖，真实硬件仍需 smoke test。
+- Windows、Linux 和 macOS 只读块设备枚举已接入，并会保留已挂载卷的挂载点用于 CLI/GUI 展示；三套平台 parser fixture 已覆盖，真实硬件仍需 smoke test。
 - GUI 已实现 MaterialFX 风格主窗口、更宽默认窗口、无阴影步骤控件和选择列表、运行时中英文切换、语言偏好持久化、目录镜像/本地镜像二选一流程且左右标题居中、“或”分隔符垂直居中、本地镜像卡片为等高纵向布局、渐进式步骤启用、树形操作系统分类选择、dd/fastboot 目标切换、多分区 `dd-v1` 目标映射流程、策略/缓存/目标风险状态标记、结构化最终确认弹窗。
 - i18n 基础设施已接入 `ResourceBundle`；`Messages` 提供 locale property 和 `StringBinding` helper，当前资源包含 English 和简体中文。
+- CLI 已增加本地 Ruyi repo fixture 集成测试，覆盖 `repo update --json`、`image list --json`、缓存 distfile 的 `image download --json` 物化流程，以及 unsupported strategy 的 JSON 错误路径。
+- GUI 选择规则已从 JavaFX 窗口拆出为可单测的 service 层逻辑，覆盖 catalog strategy 可刷写判断、local/dd/fastboot 目标兼容性、多分区目标完整性/唯一性/安全性。
 
 ### Next Work
 
@@ -31,10 +33,6 @@
   - 评估是否需要原生/FFM 后端替代直接 `FileChannel` 写物理设备。
 - GUI：
   - 对树形操作系统选择器和多分区存储选择器做一次实际 JavaFX 交互 smoke test。
-- 测试：
-  - 增加 CLI fixture repo 集成测试，覆盖 `repo update`、`image list/download --json` 和 unsupported strategy。
-  - 增加 GUI ViewModel/service 层测试或 JavaFX smoke test。
-  - 增加真实平台枚举 parser fixture，避免依赖本机硬件。
 
 ### Verification
 

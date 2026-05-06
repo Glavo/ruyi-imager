@@ -18,6 +18,9 @@ import org.glavo.ruyi.imager.core.flash.LocalFlashService;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
+import org.glavo.ruyi.imager.core.image.RuyiImageCatalogService;
+import org.glavo.ruyi.imager.core.repo.RuyiRepositoryService;
+import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
@@ -30,7 +33,9 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -265,6 +270,145 @@ public final class CliApplicationTest {
         assertEquals(boot, fastboot.partitions.get("boot"));
     }
 
+    /// Updates a local Ruyi repository fixture through the public CLI.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or JSON cannot be parsed.
+    @Test
+    public void repoUpdateJsonUsesFixtureRepository(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] imageBytes = imageBytes(32);
+        RuyiFixture fixture = createRuyiFixture(
+                temporaryDirectory,
+                "revyos-sipeed-lpi4a",
+                "RevyOS image for Sipeed LicheePi 4A",
+                "revyos-lpi4a",
+                "image.raw",
+                "dd-v1",
+                imageBytes,
+                new FixedBlockDeviceService(List.of()));
+
+        CliResult result = runCli(fixture.services(), "repo", "update", "--json");
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        String[] lines = result.stdout().strip().split("\\R");
+        JsonNode progress = MAPPER.readTree(lines[0]);
+        JsonNode complete = MAPPER.readTree(lines[lines.length - 1]);
+        assertEquals("progress", progress.path("type").asText());
+        assertEquals("repo", progress.path("stage").asText());
+        assertEquals("complete", complete.path("type").asText());
+        assertTrue(complete.path("success").asBoolean());
+        assertEquals("Updated 1 Ruyi metadata repositories.", complete.path("message").asText());
+    }
+
+    /// Lists image metadata parsed from a local Ruyi repository fixture through the public CLI.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or JSON cannot be parsed.
+    @Test
+    public void imageListJsonUsesFixtureRepository(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] imageBytes = imageBytes(48);
+        RuyiFixture fixture = createRuyiFixture(
+                temporaryDirectory,
+                "revyos-sipeed-lpi4a",
+                "RevyOS image for Sipeed LicheePi 4A",
+                "revyos-lpi4a",
+                "image.raw",
+                "dd-v1",
+                imageBytes,
+                new FixedBlockDeviceService(List.of()));
+
+        CliResult result = runCli(fixture.services(), "image", "list", "--json");
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        JsonNode root = MAPPER.readTree(result.stdout());
+        JsonNode image = root.path("images").path(0);
+        assertEquals("image-list", root.path("type").asText());
+        assertEquals(fixture.atom(), image.path("atom").asText());
+        assertEquals("RevyOS image for Sipeed LicheePi 4A", image.path("displayName").asText());
+        assertEquals("Sipeed", image.path("manufacturer").asText());
+        assertEquals("sipeed-lpi4a", image.path("board").asText());
+        assertEquals("generic", image.path("variant").asText());
+        assertEquals("dd-v1", image.path("strategy").asText());
+        assertEquals("SUPPORTED", image.path("support").asText());
+        assertEquals("image.raw", image.path("partitionMap").path("disk").asText());
+    }
+
+    /// Downloads a cached fixture distfile and materializes it through the public CLI.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written, materialized, or parsed.
+    @Test
+    public void imageDownloadJsonUsesCachedFixtureDistfile(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] imageBytes = imageBytes(64);
+        RuyiFixture fixture = createRuyiFixture(
+                temporaryDirectory,
+                "revyos-sipeed-lpi4a",
+                "RevyOS image for Sipeed LicheePi 4A",
+                "revyos-lpi4a",
+                "image.raw",
+                "dd-v1",
+                imageBytes,
+                new FixedBlockDeviceService(List.of()));
+        cacheFixtureDistfile(fixture, imageBytes);
+
+        CliResult result = runCli(fixture.services(), "image", "download", fixture.atom(), "--json");
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        String[] lines = result.stdout().strip().split("\\R");
+        JsonNode firstEvent = MAPPER.readTree(lines[0]);
+        JsonNode complete = MAPPER.readTree(lines[lines.length - 1]);
+        Path artifact = fixture.cacheDirectory()
+                .resolve("artifacts")
+                .resolve("ruyisdk")
+                .resolve("board-image")
+                .resolve(fixture.packageName())
+                .resolve(fixture.version())
+                .resolve(fixture.distfileName());
+        assertEquals("progress", firstEvent.path("type").asText());
+        assertEquals("download", firstEvent.path("stage").asText());
+        assertEquals("complete", complete.path("type").asText());
+        assertTrue(complete.path("success").asBoolean());
+        assertEquals(artifact.toString(), complete.path("path").asText());
+        assertArrayEquals(imageBytes, Files.readAllBytes(artifact));
+    }
+
+    /// Reports unsupported provision strategies through the public CLI without writing to the target.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or JSON cannot be parsed.
+    @Test
+    public void flashUnsupportedFixtureStrategyReportsError(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] imageBytes = imageBytes(16);
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(target, new byte[128]);
+        BlockDevice device = blockDevice("test-device", target, 128L, false, false, false);
+        RuyiFixture fixture = createRuyiFixture(
+                temporaryDirectory,
+                "unsupported-sipeed-lpi4a",
+                "Unsupported image for Sipeed LicheePi 4A",
+                "unsupported-lpi4a",
+                "unsupported.raw",
+                "vendor-custom-v1",
+                imageBytes,
+                new FixedBlockDeviceService(List.of(device)));
+
+        CliResult result = runCli(
+                fixture.services(),
+                "flash",
+                "--atom",
+                fixture.atom(),
+                "--device",
+                "test-device",
+                "--yes",
+                "--json");
+
+        assertNotEquals(0, result.exitCode());
+        JsonNode root = MAPPER.readTree(result.stdout());
+        assertEquals("error", root.path("type").asText());
+        assertEquals("Unsupported provision strategy: vendor-custom-v1", root.path("message").asText());
+        assertArrayEquals(new byte[128], Files.readAllBytes(target));
+    }
+
     /// Creates shared test services.
     ///
     /// @param baseDirectory base directory for app state.
@@ -304,6 +448,216 @@ public final class CliApplicationTest {
                 devices,
                 fastboot,
                 new LocalFlashService(images, fastboot));
+    }
+
+    /// Creates AppServices backed by a real local Ruyi repository fixture.
+    ///
+    /// @param configDirectory fixture config directory.
+    /// @param cacheDirectory fixture cache directory.
+    /// @param devices device service.
+    /// @param fastboot fastboot service.
+    /// @return app services.
+    private static AppServices ruyiServices(
+            Path configDirectory,
+            Path cacheDirectory,
+            BlockDeviceService devices,
+            FastbootService fastboot) {
+        AppDirectories directories = new AppDirectories(configDirectory, cacheDirectory);
+        RuyiRepositoryStore repositoryStore = new RuyiRepositoryStore(directories);
+        ImageCatalogService images = new RuyiImageCatalogService(directories, repositoryStore);
+        return new AppServices(
+                directories,
+                new RuyiRepositoryService(repositoryStore),
+                images,
+                devices,
+                fastboot,
+                new LocalFlashService(images, fastboot));
+    }
+
+    /// Creates a local Ruyi repository fixture and matching services.
+    ///
+    /// @param baseDirectory base temporary directory.
+    /// @param packageName Ruyi package name.
+    /// @param description package description.
+    /// @param slug package slug.
+    /// @param distfileName distfile name.
+    /// @param strategy provision strategy.
+    /// @param distfileBytes distfile bytes used for integrity metadata.
+    /// @param devices device service.
+    /// @return fixture descriptor.
+    /// @throws Exception when fixture files cannot be written.
+    private static RuyiFixture createRuyiFixture(
+            Path baseDirectory,
+            String packageName,
+            String description,
+            String slug,
+            String distfileName,
+            String strategy,
+            byte[] distfileBytes,
+            BlockDeviceService devices) throws Exception {
+        Path configDirectory = baseDirectory.resolve("config");
+        Path cacheDirectory = baseDirectory.resolve("cache");
+        Path repoDirectory = baseDirectory.resolve("repo");
+        String version = "1.0.0";
+        writeFixtureConfig(configDirectory, repoDirectory);
+        writeRepositoryConfig(repoDirectory);
+        writeDeviceEntity(repoDirectory, "sipeed-lpi4a");
+        writeImageManifest(
+                repoDirectory,
+                packageName,
+                version,
+                description,
+                slug,
+                distfileName,
+                strategy,
+                distfileBytes);
+        return new RuyiFixture(
+                ruyiServices(configDirectory, cacheDirectory, devices, new EmptyFastbootService()),
+                cacheDirectory,
+                packageName,
+                version,
+                distfileName,
+                "board-image/" + packageName + "(" + version + ")");
+    }
+
+    /// Writes the application config fixture.
+    ///
+    /// @param configDirectory config directory.
+    /// @param repoDirectory local repository directory.
+    /// @throws IOException when the config cannot be written.
+    private static void writeFixtureConfig(Path configDirectory, Path repoDirectory) throws IOException {
+        Files.createDirectories(configDirectory);
+        Files.writeString(configDirectory.resolve("config.toml"), """
+                [repo]
+                local = "%s"
+                """.formatted(pathString(repoDirectory)));
+    }
+
+    /// Writes a minimal Ruyi repository config.
+    ///
+    /// @param repoDirectory repository directory.
+    /// @throws IOException when the config cannot be written.
+    private static void writeRepositoryConfig(Path repoDirectory) throws IOException {
+        Files.createDirectories(repoDirectory);
+        Files.writeString(repoDirectory.resolve("config.toml"), """
+                ruyi-repo = "v1"
+
+                [[mirrors]]
+                id = "ruyi-dist"
+                urls = ["https://dist.example/dist/"]
+                """);
+    }
+
+    /// Writes one device entity fixture.
+    ///
+    /// @param repoDirectory repository directory.
+    /// @param deviceId Ruyi device id.
+    /// @throws IOException when the entity cannot be written.
+    private static void writeDeviceEntity(Path repoDirectory, String deviceId) throws IOException {
+        Path deviceDirectory = repoDirectory.resolve("entities").resolve("device");
+        Files.createDirectories(deviceDirectory);
+        Files.writeString(
+                deviceDirectory.resolve(deviceId + ".toml"),
+                """
+                        ruyi-entity = "v0"
+
+                        [device]
+                        id = "%s"
+                        display_name = "%s"
+                        """.formatted(deviceId, deviceId));
+    }
+
+    /// Writes one provisionable image manifest fixture.
+    ///
+    /// @param repoDirectory repository directory.
+    /// @param packageName package name.
+    /// @param version package version.
+    /// @param description package description.
+    /// @param slug package slug.
+    /// @param distfileName distfile name.
+    /// @param strategy provision strategy.
+    /// @param distfileBytes distfile bytes used for integrity metadata.
+    /// @throws Exception when the manifest cannot be written.
+    private static void writeImageManifest(
+            Path repoDirectory,
+            String packageName,
+            String version,
+            String description,
+            String slug,
+            String distfileName,
+            String strategy,
+            byte[] distfileBytes) throws Exception {
+        Path packageDirectory = repoDirectory.resolve("packages").resolve("board-image").resolve(packageName);
+        Files.createDirectories(packageDirectory);
+        Files.writeString(
+                packageDirectory.resolve(version + ".toml"),
+                """
+                        format = "v1"
+                        kind = ["blob", "provisionable"]
+
+                        [metadata]
+                        desc = "%s"
+                        slug = "%s"
+                        vendor = { name = "PLCT", eula = "" }
+
+                        [[distfiles]]
+                        name = "%s"
+                        size = %d
+
+                        [distfiles.checksums]
+                        sha256 = "%s"
+
+                        [blob]
+                        distfiles = ["%s"]
+
+                        [provisionable]
+                        strategy = "%s"
+
+                        [provisionable.partition_map]
+                        disk = "%s"
+                        """.formatted(
+                        description,
+                        slug,
+                        distfileName,
+                        distfileBytes.length,
+                        sha256(distfileBytes),
+                        distfileName,
+                        strategy,
+                        distfileName));
+    }
+
+    /// Caches one fixture distfile in the Ruyi download cache.
+    ///
+    /// @param fixture fixture descriptor.
+    /// @param distfileBytes distfile content.
+    /// @throws IOException when the cache file cannot be written.
+    private static void cacheFixtureDistfile(RuyiFixture fixture, byte[] distfileBytes) throws IOException {
+        Path downloadDirectory = fixture.cacheDirectory()
+                .resolve("downloads")
+                .resolve("ruyisdk")
+                .resolve("board-image")
+                .resolve(fixture.packageName())
+                .resolve(fixture.version());
+        Files.createDirectories(downloadDirectory);
+        Files.write(downloadDirectory.resolve(fixture.distfileName()), distfileBytes);
+    }
+
+    /// Converts a path to a TOML-friendly string.
+    ///
+    /// @param path path to convert.
+    /// @return path string.
+    private static String pathString(Path path) {
+        return path.toString().replace('\\', '/');
+    }
+
+    /// Computes a SHA-256 digest.
+    ///
+    /// @param bytes input bytes.
+    /// @return lowercase hexadecimal digest.
+    /// @throws Exception when SHA-256 is unavailable.
+    private static String sha256(byte[] bytes) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        return HexFormat.of().formatHex(digest.digest(bytes));
     }
 
     /// Creates a test block device.
@@ -457,6 +811,24 @@ public final class CliApplicationTest {
                 partitionMap,
                 List.of(),
                 StrategySupport.SUPPORTED);
+    }
+
+    /// Local Ruyi repository fixture for CLI integration tests.
+    ///
+    /// @param services app services bound to the fixture.
+    /// @param cacheDirectory fixture cache directory.
+    /// @param packageName Ruyi package name.
+    /// @param version package version.
+    /// @param distfileName fixture distfile name.
+    /// @param atom exact Ruyi atom.
+    @NotNullByDefault
+    private record RuyiFixture(
+            AppServices services,
+            Path cacheDirectory,
+            String packageName,
+            String version,
+            String distfileName,
+            String atom) {
     }
 
     /// Captured CLI result.
