@@ -19,7 +19,8 @@ import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.jetbrains.annotations.NotNullByDefault;
 
 import java.util.Locale;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Shared service graph used by the CLI and JavaFX front end.
 ///
@@ -38,7 +39,7 @@ public record AppServices(
         FastbootService fastboot,
         FlashService flash) {
     /// Logger for service graph construction.
-    private static final Logger LOGGER = Logger.getLogger(AppServices.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(AppServices.class);
 
     /// Creates the default production service graph.
     ///

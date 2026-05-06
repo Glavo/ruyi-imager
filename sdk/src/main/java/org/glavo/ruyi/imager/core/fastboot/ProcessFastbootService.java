@@ -23,13 +23,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Fastboot service backed by a bundled or platform `fastboot` executable.
 @NotNullByDefault
 public final class ProcessFastbootService implements FastbootService {
     /// Logger for fastboot process operations.
-    private static final Logger LOGGER = Logger.getLogger(ProcessFastbootService.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProcessFastbootService.class);
 
     /// Timeout used for fastboot device enumeration.
     private static final Duration DEVICES_TIMEOUT = Duration.ofSeconds(15);
@@ -85,14 +86,14 @@ public final class ProcessFastbootService implements FastbootService {
     /// @throws IOException when fastboot cannot be executed.
     @Override
     public @Unmodifiable List<FastbootDevice> listDevices() throws IOException {
-        LOGGER.info(() -> "Listing fastboot devices. executable=" + executable);
+        LOGGER.atInfo().log(() -> "Listing fastboot devices. executable=" + executable);
         CommandResult result = runner.run(List.of(executable, "devices"), DEVICES_TIMEOUT);
         if (result.timedOut()) {
-            LOGGER.warning("fastboot devices timed out.");
+            LOGGER.warn("fastboot devices timed out.");
             throw new IOException(SdkMessages.get("core.fastboot.timeout", commandText(List.of(executable, "devices"))));
         }
         if (result.exitCode() != 0) {
-            LOGGER.warning(() -> "fastboot devices failed. exitCode="
+            LOGGER.atWarn().log(() -> "fastboot devices failed. exitCode="
                     + result.exitCode()
                     + ", output="
                     + LogRedactor.redactOutput(result.output(), MAX_OUTPUT_CHARS));
@@ -103,7 +104,7 @@ public final class ProcessFastbootService implements FastbootService {
                     outputSummary(result.output())));
         }
         @Unmodifiable List<FastbootDevice> devices = parseDevices(result.output());
-        LOGGER.info(() -> "fastboot devices listed. count=" + devices.size());
+        LOGGER.atInfo().log(() -> "fastboot devices listed. count=" + devices.size());
         return devices;
     }
 
@@ -173,7 +174,7 @@ public final class ProcessFastbootService implements FastbootService {
             String partition = entry.getKey();
             String message = SdkMessages.get("core.fastboot.flashingPartition", partition);
             reporter.report(progress(message, i, totalSteps));
-            LOGGER.info(() -> "Flashing fastboot partition. serial="
+            LOGGER.atInfo().log(() -> "Flashing fastboot partition. serial="
                     + device.serial()
                     + ", partition="
                     + partition
@@ -252,16 +253,16 @@ public final class ProcessFastbootService implements FastbootService {
         String message = SdkMessages.get("core.fastboot.waitingReconnect", device.serial());
         while (System.nanoTime() < deadlineNanos) {
             reporter.report(progress(message, completedSteps, totalSteps));
-            LOGGER.fine(() -> "Polling fastboot reconnect. serial=" + device.serial());
+            LOGGER.atDebug().log(() -> "Polling fastboot reconnect. serial=" + device.serial());
             CommandResult result = runner.run(List.of(executable, "devices"), DEVICE_POLL_TIMEOUT);
             if (!result.timedOut() && result.exitCode() == 0 && containsDevice(parseDevices(result.output()), device.serial())) {
-                LOGGER.info(() -> "Fastboot device reconnected. serial=" + device.serial());
+                LOGGER.atInfo().log(() -> "Fastboot device reconnected. serial=" + device.serial());
                 reporter.report(progress(message, completedSteps + 1, totalSteps));
                 return OperationResult.success(SdkMessages.get("core.fastboot.reconnected", device.serial()));
             }
             sleepReconnectPoll();
         }
-        LOGGER.warning(() -> "Timed out waiting for fastboot reconnect. serial=" + device.serial());
+        LOGGER.atWarn().log(() -> "Timed out waiting for fastboot reconnect. serial=" + device.serial());
         return OperationResult.failure(SdkMessages.get("core.fastboot.reconnectTimedOut", device.serial()));
     }
 
@@ -304,15 +305,15 @@ public final class ProcessFastbootService implements FastbootService {
         command.add(device.serial());
         command.addAll(arguments);
 
-        LOGGER.info(() -> "Running fastboot command. command=" + LogRedactor.redactCommand(command));
+        LOGGER.atInfo().log(() -> "Running fastboot command. command=" + LogRedactor.redactCommand(command));
         CommandResult result = runner.run(List.copyOf(command), FLASH_TIMEOUT);
         String commandText = commandText(command);
         if (result.timedOut()) {
-            LOGGER.warning(() -> "fastboot command timed out. command=" + LogRedactor.redactCommand(command));
+            LOGGER.atWarn().log(() -> "fastboot command timed out. command=" + LogRedactor.redactCommand(command));
             return OperationResult.failure(SdkMessages.get("core.fastboot.timeout", commandText));
         }
         if (result.exitCode() != 0) {
-            LOGGER.warning(() -> "fastboot command failed. command="
+            LOGGER.atWarn().log(() -> "fastboot command failed. command="
                     + LogRedactor.redactCommand(command)
                     + ", exitCode="
                     + result.exitCode()
@@ -324,7 +325,7 @@ public final class ProcessFastbootService implements FastbootService {
                     commandText,
                     outputSummary(result.output())));
         }
-        LOGGER.info(() -> "fastboot command completed. command=" + LogRedactor.redactCommand(command));
+        LOGGER.atInfo().log(() -> "fastboot command completed. command=" + LogRedactor.redactCommand(command));
         return OperationResult.success(SdkMessages.get("core.fastboot.commandSucceeded", commandText));
     }
 
@@ -335,7 +336,7 @@ public final class ProcessFastbootService implements FastbootService {
     /// @return command result.
     /// @throws IOException when the process cannot be started.
     private static CommandResult runProcessCommand(@Unmodifiable List<String> command, Duration timeout) throws IOException {
-        LOGGER.fine(() -> "Starting process. command=" + LogRedactor.redactCommand(command) + ", timeout=" + timeout);
+        LOGGER.atDebug().log(() -> "Starting process. command=" + LogRedactor.redactCommand(command) + ", timeout=" + timeout);
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(true);
 
@@ -343,7 +344,7 @@ public final class ProcessFastbootService implements FastbootService {
         try {
             process = builder.start();
         } catch (IOException e) {
-            LOGGER.warning(() -> "Failed to start process. command=" + LogRedactor.redactCommand(command));
+            LOGGER.atWarn().log(() -> "Failed to start process. command=" + LogRedactor.redactCommand(command));
             throw new IOException(SdkMessages.get("core.fastboot.missingExecutable", command.getFirst()), e);
         }
 
@@ -360,19 +361,19 @@ public final class ProcessFastbootService implements FastbootService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             destroyProcess(process, reader);
-            LOGGER.warning(() -> "Interrupted while running process. command=" + LogRedactor.redactCommand(command));
+            LOGGER.atWarn().log(() -> "Interrupted while running process. command=" + LogRedactor.redactCommand(command));
             throw new IOException(SdkMessages.get("core.fastboot.interrupted", commandText(command)), e);
         }
 
         if (!finished) {
             destroyProcess(process, reader);
-            LOGGER.warning(() -> "Process timed out. command=" + LogRedactor.redactCommand(command));
+            LOGGER.atWarn().log(() -> "Process timed out. command=" + LogRedactor.redactCommand(command));
             return new CommandResult(-1, output.toString(), true);
         }
 
         joinReader(reader);
         CommandResult result = new CommandResult(process.exitValue(), output.toString(), false);
-        LOGGER.fine(() -> "Process completed. command="
+        LOGGER.atDebug().log(() -> "Process completed. command="
                 + LogRedactor.redactCommand(command)
                 + ", exitCode="
                 + result.exitCode()

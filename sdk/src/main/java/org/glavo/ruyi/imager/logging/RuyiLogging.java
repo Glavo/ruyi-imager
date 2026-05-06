@@ -6,6 +6,8 @@ package org.glavo.ruyi.imager.logging;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -23,7 +25,6 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.LogRecord;
-import java.util.logging.Logger;
 
 /// Configures application logging for CLI and GUI runs.
 @NotNullByDefault
@@ -47,10 +48,10 @@ public final class RuyiLogging {
     private static final int ROTATION_FILE_COUNT = 5;
 
     /// Root JUL logger.
-    private static final Logger ROOT_LOGGER = LogManager.getLogManager().getLogger("");
+    private static final java.util.logging.Logger ROOT_LOGGER = LogManager.getLogManager().getLogger("");
 
-    /// Logger for logging subsystem events.
-    private static final Logger LOGGER = Logger.getLogger(RuyiLogging.class.getName());
+    /// SLF4J logger for logging subsystem events.
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuyiLogging.class);
 
     /// Active file handler installed by this class.
     private static @Nullable Handler activeHandler;
@@ -162,7 +163,7 @@ public final class RuyiLogging {
             ROOT_LOGGER.setLevel(level.julLevel());
             activeHandler = handler;
             currentLogFile = logFile.toAbsolutePath().normalize();
-            LOGGER.info(() -> "Logging initialized. level=" + level + ", file=" + currentLogFile);
+            LOGGER.info("Logging initialized. level={}, file={}", level, currentLogFile);
         } catch (IOException | RuntimeException exception) {
             currentLogFile = null;
             ROOT_LOGGER.setLevel(Level.OFF);

@@ -11,13 +11,14 @@ import org.glavo.ruyi.imager.logging.RuyiLogging;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Starts the Ruyi Imager desktop or command-line application.
 @NotNullByDefault
 public final class Main {
     /// Logger for process bootstrap events.
-    private static final Logger LOGGER = Logger.getLogger(Main.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
 
     /// Prevents construction of the bootstrap class.
     private Main() {

@@ -12,7 +12,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Writes and verifies raw block images.
 @NotNullByDefault
@@ -60,7 +61,7 @@ public interface BlockImageWriter {
 @NotNullByDefault
 final class FileChannelBlockImageWriter implements BlockImageWriter {
     /// Logger for raw block image I/O.
-    private static final Logger LOGGER = Logger.getLogger(FileChannelBlockImageWriter.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(FileChannelBlockImageWriter.class);
 
     /// Shared writer instance.
     static final BlockImageWriter INSTANCE = new FileChannelBlockImageWriter();
@@ -87,7 +88,7 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
             long totalBytes,
             String message,
             ProgressReporter reporter) throws IOException {
-        LOGGER.info(() -> "Opening block image write channels. source="
+        LOGGER.atInfo().log(() -> "Opening block image write channels. source="
                 + source
                 + ", target="
                 + target
@@ -111,7 +112,7 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
             }
             output.force(true);
         }
-        LOGGER.info(() -> "Block image write channels closed. target=" + target);
+        LOGGER.atInfo().log(() -> "Block image write channels closed. target=" + target);
     }
 
     /// Verifies target bytes against a source image.
@@ -130,7 +131,7 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
             long totalBytes,
             String message,
             ProgressReporter reporter) throws IOException {
-        LOGGER.info(() -> "Opening block image verify channels. source="
+        LOGGER.atInfo().log(() -> "Opening block image verify channels. source="
                 + source
                 + ", target="
                 + target
@@ -151,7 +152,7 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
                 int expectedRead = readFully(input, inputBuffer);
                 int actualRead = readFully(output, outputBuffer);
                 if (expectedRead != actualRead) {
-                    LOGGER.warning(() -> "Block image verification length mismatch. target="
+                    LOGGER.atWarn().log(() -> "Block image verification length mismatch. target="
                             + target
                             + ", expectedRead="
                             + expectedRead
@@ -167,7 +168,7 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
                 outputBuffer.flip();
                 if (!inputBuffer.equals(outputBuffer)) {
                     long mismatchOffset = verifiedBytes;
-                    LOGGER.warning(() -> "Block image verification content mismatch. target="
+                    LOGGER.atWarn().log(() -> "Block image verification content mismatch. target="
                             + target
                             + ", offset="
                             + mismatchOffset);
@@ -177,7 +178,7 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
                 verifiedBytes += expectedRead;
                 reporter.report(new ProgressEvent("verify", message, verifiedBytes, totalBytes));
             }
-            LOGGER.info(() -> "Block image verification channels closed. target=" + target);
+            LOGGER.atInfo().log(() -> "Block image verification channels closed. target=" + target);
             return true;
         }
     }

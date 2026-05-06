@@ -32,14 +32,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Reads and synchronizes Ruyi metadata repositories.
 @NotNullByDefault
 public final class RuyiRepositoryStore {
     /// Logger for repository metadata operations.
-    private static final Logger LOGGER = Logger.getLogger(RuyiRepositoryStore.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuyiRepositoryStore.class);
 
     /// Official Ruyi repository identifier.
     public static final String DEFAULT_REPO_ID = "ruyisdk";
@@ -76,11 +76,11 @@ public final class RuyiRepositoryStore {
     public @Unmodifiable List<RuyiRepositoryEntry> readEntries() throws IOException {
         Path configFile = directories.configDirectory().resolve("config.toml");
         if (!Files.isRegularFile(configFile)) {
-            LOGGER.info(() -> "Repository config is absent. Using default repository. path=" + configFile);
+            LOGGER.atInfo().log(() -> "Repository config is absent. Using default repository. path=" + configFile);
             return List.of(defaultEntry(null, null, null));
         }
 
-        LOGGER.info(() -> "Reading repository config. path=" + configFile);
+        LOGGER.atInfo().log(() -> "Reading repository config. path=" + configFile);
         TomlParseResult config = parseToml(configFile);
         ArrayList<RuyiRepositoryEntry> entries = new ArrayList<>();
         entries.add(readDefaultEntry(config));
@@ -104,7 +104,7 @@ public final class RuyiRepositoryStore {
         entries.sort(Comparator.comparingInt(RuyiRepositoryEntry::priority)
                 .reversed()
                 .thenComparing(RuyiRepositoryEntry::id));
-        LOGGER.info(() -> "Repository config loaded. entries=" + entries.size());
+        LOGGER.atInfo().log(() -> "Repository config loaded. entries=" + entries.size());
         return List.copyOf(entries);
     }
 
@@ -132,7 +132,7 @@ public final class RuyiRepositoryStore {
         Files.createDirectories(directories.cacheDirectory().resolve("repos"));
 
         List<RuyiRepositoryEntry> entries = readActiveEntries();
-        LOGGER.info(() -> "Updating active repositories. count=" + entries.size());
+        LOGGER.atInfo().log(() -> "Updating active repositories. count=" + entries.size());
         for (RuyiRepositoryEntry entry : entries) {
             sync(entry, reporter);
         }
@@ -246,7 +246,7 @@ public final class RuyiRepositoryStore {
     private void sync(RuyiRepositoryEntry entry, ProgressReporter reporter) throws IOException {
         Path root = resolveRoot(entry);
         @Nullable String remote = entry.remote();
-        LOGGER.info(() -> "Synchronizing repository. id="
+        LOGGER.atInfo().log(() -> "Synchronizing repository. id="
                 + entry.id()
                 + ", root="
                 + root
@@ -286,7 +286,7 @@ public final class RuyiRepositoryStore {
             String remote,
             ProgressReporter reporter) throws IOException {
         reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.cloning", entry.id())));
-        LOGGER.info(() -> "Cloning repository. id="
+        LOGGER.atInfo().log(() -> "Cloning repository. id="
                 + entry.id()
                 + ", remote="
                 + LogRedactor.redactText(remote)
@@ -305,7 +305,7 @@ public final class RuyiRepositoryStore {
                 .call()) {
             reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.cloned", entry.id())));
         } catch (GitAPIException e) {
-            LOGGER.log(Level.WARNING, "Repository clone failed. id=" + entry.id(), e);
+            LOGGER.warn("Repository clone failed. id=" + entry.id(), e);
             throw new IOException(SdkMessages.get("core.repo.cloneFailed", entry.id(), e.getMessage()), e);
         }
     }
@@ -323,7 +323,7 @@ public final class RuyiRepositoryStore {
             String remote,
             ProgressReporter reporter) throws IOException {
         reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.updating", entry.id())));
-        LOGGER.info(() -> "Pulling repository. id="
+        LOGGER.atInfo().log(() -> "Pulling repository. id="
                 + entry.id()
                 + ", remote="
                 + LogRedactor.redactText(remote)
@@ -345,7 +345,7 @@ public final class RuyiRepositoryStore {
             }
             reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.updatedOne", entry.id())));
         } catch (GitAPIException e) {
-            LOGGER.log(Level.WARNING, "Repository update failed. id=" + entry.id(), e);
+            LOGGER.warn("Repository update failed. id=" + entry.id(), e);
             throw new IOException(SdkMessages.get("core.repo.updateFailed", entry.id(), e.getMessage()), e);
         }
     }

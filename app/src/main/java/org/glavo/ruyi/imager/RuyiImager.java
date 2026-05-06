@@ -21,13 +21,14 @@ import org.jetbrains.annotations.Nullable;
 
 import java.net.URL;
 import java.util.Locale;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// JavaFX application for the Ruyi Imager guided flashing workflow.
 @NotNullByDefault
 public final class RuyiImager extends Application {
     /// Logger for JavaFX application lifecycle events.
-    private static final Logger LOGGER = Logger.getLogger(RuyiImager.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuyiImager.class);
 
     /// Default GUI font bundled with the application.
     private static final String DEFAULT_FONT_RESOURCE =
@@ -102,15 +103,15 @@ public final class RuyiImager extends Application {
 
         @Nullable URL fontResource = RuyiImager.class.getResource(DEFAULT_FONT_RESOURCE);
         if (fontResource == null) {
-            LOGGER.warning("Default GUI font resource is missing.");
+            LOGGER.warn("Default GUI font resource is missing.");
             return;
         }
 
         @Nullable Font font = Font.loadFont(fontResource.toExternalForm(), 13.0);
         if (font == null) {
-            LOGGER.warning("Default GUI font could not be loaded.");
+            LOGGER.warn("Default GUI font could not be loaded.");
         } else {
-            LOGGER.info(() -> "Loaded default GUI font. family=" + font.getFamily() + ", name=" + font.getName());
+            LOGGER.atInfo().log(() -> "Loaded default GUI font. family=" + font.getFamily() + ", name=" + font.getName());
         }
     }
 }

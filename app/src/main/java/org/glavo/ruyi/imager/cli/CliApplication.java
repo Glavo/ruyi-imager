@@ -41,8 +41,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Picocli command tree for scriptable Ruyi Imager operations.
 @Command(
@@ -51,7 +51,7 @@ import java.util.logging.Logger;
 @NotNullByDefault
 public final class CliApplication implements Runnable {
     /// Logger for CLI command execution.
-    private static final Logger LOGGER = Logger.getLogger(CliApplication.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(CliApplication.class);
 
     /// Services used by every command.
     private final AppServices services;
@@ -119,7 +119,7 @@ public final class CliApplication implements Runnable {
                 services.directories(),
                 RuyiLogging.cliLevel(optionValue(args, "--log-level"), hasFlag(args, "--verbose")),
                 pathOptionValue(args, "--log-file"));
-        LOGGER.info(() -> "CLI command started. args=" + LogRedactor.redactCommand(List.of(args)));
+        LOGGER.atInfo().log(() -> "CLI command started. args=" + LogRedactor.redactCommand(List.of(args)));
         try {
             CliApplication root = new CliApplication(services);
             CommandLine commandLine = new CommandLine(root);
@@ -129,7 +129,7 @@ public final class CliApplication implements Runnable {
             commandLine.addSubcommand("flash", new FlashCommand(services));
             localizeCommands(commandLine);
             int exitCode = commandLine.execute(args);
-            LOGGER.info(() -> "CLI command finished. exitCode=" + exitCode);
+            LOGGER.atInfo().log(() -> "CLI command finished. exitCode=" + exitCode);
             return exitCode;
         } finally {
             RuyiLogging.shutdown();
@@ -242,7 +242,7 @@ public final class CliApplication implements Runnable {
     /// @param json whether JSON output is enabled.
     /// @return software error exit code.
     private static int failException(Exception exception, boolean json) {
-        LOGGER.log(Level.SEVERE, "CLI command failed.", exception);
+        LOGGER.error("CLI command failed.", exception);
         return fail(exceptionMessage(exception), json);
     }
 
@@ -293,7 +293,7 @@ public final class CliApplication implements Runnable {
     private static int finish(OperationResult result, boolean json) {
         @Nullable String logFile = RuyiLogging.currentLogFileText();
         if (!result.success()) {
-            LOGGER.warning(() -> "CLI operation failed. message=" + result.message());
+            LOGGER.atWarn().log(() -> "CLI operation failed. message=" + result.message());
         }
         if (json) {
             Map<String, Object> output = new LinkedHashMap<>();

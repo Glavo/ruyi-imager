@@ -29,14 +29,14 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Downloads and verifies Ruyi distfiles.
 @NotNullByDefault
 public final class RuyiDistfileDownloader {
     /// Logger for distfile download operations.
-    private static final Logger LOGGER = Logger.getLogger(RuyiDistfileDownloader.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuyiDistfileDownloader.class);
 
     /// HTTP client used for distfile downloads.
     private final HttpClient httpClient;
@@ -66,14 +66,14 @@ public final class RuyiDistfileDownloader {
     public Path download(RuyiDistfile distfile, Path targetDirectory, ProgressReporter reporter) throws IOException {
         Files.createDirectories(targetDirectory);
         Path target = targetDirectory.resolve(distfile.name());
-        LOGGER.info(() -> "Downloading distfile. name="
+        LOGGER.atInfo().log(() -> "Downloading distfile. name="
                 + distfile.name()
                 + ", target="
                 + target
                 + ", sources="
                 + distfile.sourceUris().size());
         if (Files.isRegularFile(target) && verify(target, distfile)) {
-            LOGGER.info(() -> "Using cached distfile. name=" + distfile.name() + ", path=" + target);
+            LOGGER.atInfo().log(() -> "Using cached distfile. name=" + distfile.name() + ", path=" + target);
             reporter.report(new ProgressEvent(
                     "download",
                     SdkMessages.get("core.download.cached", distfile.name()),
@@ -83,13 +83,13 @@ public final class RuyiDistfileDownloader {
         }
 
         if (distfile.fetchRestricted()) {
-            LOGGER.warning(() -> "Distfile requires manual download. name=" + distfile.name() + ", target=" + target);
+            LOGGER.atWarn().log(() -> "Distfile requires manual download. name=" + distfile.name() + ", target=" + target);
             throw new IOException(manualDownloadMessage(distfile, target));
         }
 
         List<URI> sourceUris = distfile.sourceUris();
         if (sourceUris.isEmpty()) {
-            LOGGER.warning(() -> "Distfile has no source URLs. name=" + distfile.name());
+            LOGGER.atWarn().log(() -> "Distfile has no source URLs. name=" + distfile.name());
             throw new IOException(SdkMessages.get("core.download.noUrls", distfile.name()));
         }
 
@@ -99,17 +99,17 @@ public final class RuyiDistfileDownloader {
             try {
                 downloadFromUri(distfile, sourceUri, partial, reporter);
                 moveVerifiedPartial(partial, target, distfile);
-                LOGGER.info(() -> "Distfile download completed. name=" + distfile.name() + ", target=" + target);
+                LOGGER.atInfo().log(() -> "Distfile download completed. name=" + distfile.name() + ", target=" + target);
                 return target;
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Distfile source failed. name="
+                LOGGER.warn("Distfile source failed. name="
                         + distfile.name()
                         + ", uri="
                         + LogRedactor.redactUri(sourceUri), e);
                 failure = e;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                LOGGER.log(Level.WARNING, "Distfile download interrupted. name=" + distfile.name(), e);
+                LOGGER.warn("Distfile download interrupted. name=" + distfile.name(), e);
                 throw new IOException(SdkMessages.get("core.download.interrupted", distfile.name()), e);
             }
         }
@@ -132,7 +132,7 @@ public final class RuyiDistfileDownloader {
             ProgressReporter reporter) throws IOException, InterruptedException {
         @Nullable String scheme = sourceUri.getScheme();
         if (!"http".equals(scheme) && !"https".equals(scheme)) {
-            LOGGER.warning(() -> "Unsupported distfile URI scheme. uri=" + LogRedactor.redactUri(sourceUri));
+            LOGGER.atWarn().log(() -> "Unsupported distfile URI scheme. uri=" + LogRedactor.redactUri(sourceUri));
             throw new IOException(SdkMessages.get("core.download.unsupportedScheme", sourceUri));
         }
 
@@ -140,7 +140,7 @@ public final class RuyiDistfileDownloader {
         Long expectedSize = distfile.sizeBytes();
         if (expectedSize != null && existingBytes > expectedSize) {
             long oversizedBytes = existingBytes;
-            LOGGER.info(() -> "Discarding oversized partial download. name="
+            LOGGER.atInfo().log(() -> "Discarding oversized partial download. name="
                     + distfile.name()
                     + ", partial="
                     + partial
@@ -160,7 +160,7 @@ public final class RuyiDistfileDownloader {
         }
 
         long resumeBytes = existingBytes;
-        LOGGER.info(() -> "Requesting distfile source. name="
+        LOGGER.atInfo().log(() -> "Requesting distfile source. name="
                 + distfile.name()
                 + ", uri="
                 + LogRedactor.redactUri(sourceUri)
@@ -169,7 +169,7 @@ public final class RuyiDistfileDownloader {
         reporter.report(new ProgressEvent("download", SdkMessages.get("core.download.downloading", distfile.name()), existingBytes, expectedSize));
         HttpResponse<InputStream> response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
         int statusCode = response.statusCode();
-        LOGGER.info(() -> "Distfile source responded. name="
+        LOGGER.atInfo().log(() -> "Distfile source responded. name="
                 + distfile.name()
                 + ", uri="
                 + LogRedactor.redactUri(sourceUri)
@@ -182,7 +182,7 @@ public final class RuyiDistfileDownloader {
         }
         if (statusCode != 200 && statusCode != 206) {
             response.body().close();
-            LOGGER.warning(() -> "Unexpected distfile source status. name="
+            LOGGER.atWarn().log(() -> "Unexpected distfile source status. name="
                     + distfile.name()
                     + ", uri="
                     + LogRedactor.redactUri(sourceUri)
@@ -191,7 +191,7 @@ public final class RuyiDistfileDownloader {
             throw new IOException(SdkMessages.get("core.download.unexpectedStatus", statusCode, sourceUri));
         }
         if (existingBytes > 0L && statusCode == 200) {
-            LOGGER.info(() -> "Source ignored range request; restarting partial download. name=" + distfile.name());
+            LOGGER.atInfo().log(() -> "Source ignored range request; restarting partial download. name=" + distfile.name());
             existingBytes = 0L;
         }
 
@@ -243,7 +243,7 @@ public final class RuyiDistfileDownloader {
     /// @throws IOException when verification or move fails.
     private static void moveVerifiedPartial(Path partial, Path target, RuyiDistfile distfile) throws IOException {
         if (!verify(partial, distfile)) {
-            LOGGER.warning(() -> "Downloaded distfile verification failed. name="
+            LOGGER.atWarn().log(() -> "Downloaded distfile verification failed. name="
                     + distfile.name()
                     + ", partial="
                     + partial);

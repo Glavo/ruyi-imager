@@ -72,8 +72,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.catalogImageFlashable;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.compatibleTarget;
@@ -87,7 +87,7 @@ import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetWritable;
 @NotNullByDefault
 public final class MainWindow {
     /// Logger for GUI workflow events.
-    private static final Logger LOGGER = Logger.getLogger(MainWindow.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(MainWindow.class);
 
     /// Language choices exposed in the GUI.
     private static final @Unmodifiable List<LanguageOption> LANGUAGE_OPTIONS = List.of(
@@ -223,7 +223,7 @@ public final class MainWindow {
         try {
             accepted = preferences.readStartupSafetyWarningAccepted();
         } catch (IOException exception) {
-            LOGGER.log(Level.WARNING, "Failed to read GUI startup safety warning preference.", exception);
+            LOGGER.warn("Failed to read GUI startup safety warning preference.", exception);
             accepted = false;
         }
 
@@ -247,7 +247,7 @@ public final class MainWindow {
             preferences.writeStartupSafetyWarningAccepted();
             LOGGER.info("Saved GUI startup safety warning acknowledgement.");
         } catch (IOException exception) {
-            LOGGER.log(Level.WARNING, "Failed to write GUI startup safety warning preference.", exception);
+            LOGGER.warn("Failed to write GUI startup safety warning preference.", exception);
             showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
         }
     }
@@ -808,7 +808,7 @@ public final class MainWindow {
                 Messages.setLocale(locale);
             }
         } catch (IOException exception) {
-            LOGGER.log(Level.FINE, "Failed to read GUI preferences.", exception);
+            LOGGER.debug("Failed to read GUI preferences.", exception);
             // The UI can still run with the default locale.
         }
     }
@@ -819,9 +819,9 @@ public final class MainWindow {
     private void savePreferredLocale(Locale locale) {
         try {
             preferences.writeLocale(locale);
-            LOGGER.info(() -> "Saved GUI locale preference. locale=" + locale);
+            LOGGER.atInfo().log(() -> "Saved GUI locale preference. locale=" + locale);
         } catch (IOException exception) {
-            LOGGER.log(Level.WARNING, "Failed to write GUI preferences.", exception);
+            LOGGER.warn("Failed to write GUI preferences.", exception);
             showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
         }
     }
@@ -1422,7 +1422,7 @@ public final class MainWindow {
     /// @param failureTitle title used when the task fails.
     /// @param onSuccess action executed on the JavaFX application thread when the task succeeds.
     private <T> void startBackgroundTask(Task<T> task, String failureTitle, Consumer<T> onSuccess) {
-        LOGGER.fine(() -> "Starting GUI background task. failureTitle=" + failureTitle);
+        LOGGER.atDebug().log(() -> "Starting GUI background task. failureTitle=" + failureTitle);
         busy = true;
         refreshState();
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
@@ -1434,10 +1434,10 @@ public final class MainWindow {
             finishBackgroundTask();
             @Nullable T result = task.getValue();
             if (result != null) {
-                LOGGER.fine("GUI background task succeeded.");
+                LOGGER.debug("GUI background task succeeded.");
                 onSuccess.accept(result);
             } else {
-                LOGGER.warning("GUI background task returned null.");
+                LOGGER.warn("GUI background task returned null.");
                 showError(failureTitle, Messages.get("gui.dialog.emptyResult"));
             }
         });
@@ -1445,9 +1445,9 @@ public final class MainWindow {
             finishBackgroundTask();
             Throwable failure = task.getException();
             if (failure == null) {
-                LOGGER.severe("GUI background task failed without an exception.");
+                LOGGER.error("GUI background task failed without an exception.");
             } else {
-                LOGGER.log(Level.SEVERE, "GUI background task failed.", failure);
+                LOGGER.error("GUI background task failed.", failure);
             }
             showError(failureTitle, failure == null ? "Unknown failure." : failure.getMessage());
         });

@@ -6,6 +6,8 @@ dependencies {
     compileOnlyApi("org.jetbrains:annotations:26.1.0")
     testCompileOnly("org.jetbrains:annotations:26.1.0")
 
+    api("org.slf4j:slf4j-api:2.0.17")
+
     implementation("com.fasterxml.jackson.core:jackson-databind:2.21.2")
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
     implementation("org.glavo.kala:kala-compress-archivers-tar:1.27.1-3")
@@ -18,6 +20,7 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.slf4j:slf4j-jdk14:2.0.17")
 }
 
 tasks.test {

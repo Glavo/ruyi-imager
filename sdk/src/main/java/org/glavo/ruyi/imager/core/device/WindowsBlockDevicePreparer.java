@@ -19,13 +19,14 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Windows block-device preparer that dismounts target disk volumes before writing.
 @NotNullByDefault
 public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
     /// Logger for Windows block-device preparation.
-    private static final Logger LOGGER = Logger.getLogger(WindowsBlockDevicePreparer.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(WindowsBlockDevicePreparer.class);
 
     /// Maximum time allowed for preparing one Windows disk.
     private static final Duration PREPARE_TIMEOUT = Duration.ofSeconds(30);
@@ -100,18 +101,18 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
     @Override
     public BlockDevice prepare(BlockDevice target, ProgressReporter reporter) throws IOException {
         if (!target.mounted()) {
-            LOGGER.fine(() -> "Windows target is already unmounted. target=" + target.path());
+            LOGGER.atDebug().log(() -> "Windows target is already unmounted. target=" + target.path());
             return target;
         }
 
         if (!target.removable()) {
-            LOGGER.info(() -> "Windows mounted target is not removable; leaving mounted. target=" + target.path());
+            LOGGER.atInfo().log(() -> "Windows mounted target is not removable; leaving mounted. target=" + target.path());
             return target;
         }
 
         @Nullable Integer diskNumber = diskNumber(target);
         if (diskNumber == null) {
-            LOGGER.info(() -> "Windows target disk number could not be resolved. target=" + target.path());
+            LOGGER.atInfo().log(() -> "Windows target disk number could not be resolved. target=" + target.path());
             return target;
         }
 
@@ -123,23 +124,23 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
 
         CommandResult result;
         try {
-            LOGGER.info(() -> "Preparing Windows disk for writing. diskNumber=" + diskNumber);
+            LOGGER.atInfo().log(() -> "Preparing Windows disk for writing. diskNumber=" + diskNumber);
             result = runner.run(command(diskNumber), PREPARE_TIMEOUT);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOGGER.warning(() -> "Windows disk preparation interrupted. diskNumber=" + diskNumber);
+            LOGGER.atWarn().log(() -> "Windows disk preparation interrupted. diskNumber=" + diskNumber);
             throw new IOException(SdkMessages.get("core.device.windowsPrepareInterrupted"), e);
         }
 
         if (result.timedOut()) {
-            LOGGER.warning(() -> "Windows disk preparation timed out. diskNumber=" + diskNumber);
+            LOGGER.atWarn().log(() -> "Windows disk preparation timed out. diskNumber=" + diskNumber);
             throw new IOException(SdkMessages.get("core.device.windowsPrepareTimedOut"));
         }
         if (result.exitCode() != 0) {
             String message = result.error().isBlank()
                     ? SdkMessages.get("core.device.powershellExit", result.exitCode())
                     : result.error().strip();
-            LOGGER.warning(() -> "Windows disk preparation failed. diskNumber="
+            LOGGER.atWarn().log(() -> "Windows disk preparation failed. diskNumber="
                     + diskNumber
                     + ", exitCode="
                     + result.exitCode()
@@ -150,7 +151,7 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
             throw new IOException(SdkMessages.get("core.device.windowsPrepareFailed", diskNumber, message));
         }
 
-        LOGGER.info(() -> "Windows disk prepared. diskNumber=" + diskNumber);
+        LOGGER.atInfo().log(() -> "Windows disk prepared. diskNumber=" + diskNumber);
         reporter.report(new ProgressEvent(
                 "prepare",
                 SdkMessages.get("core.flash.preparedTarget", target.displayName()),

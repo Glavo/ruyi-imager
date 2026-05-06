@@ -20,13 +20,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Windows block-device enumerator backed by read-only CIM queries.
 @NotNullByDefault
 public final class WindowsBlockDeviceService implements BlockDeviceService {
     /// Logger for Windows device enumeration.
-    private static final Logger LOGGER = Logger.getLogger(WindowsBlockDeviceService.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(WindowsBlockDeviceService.class);
 
     /// JSON mapper used for PowerShell output.
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -125,13 +126,13 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
-            LOGGER.warning("Windows block-device enumeration interrupted.");
+            LOGGER.warn("Windows block-device enumeration interrupted.");
             throw new IOException(SdkMessages.get("core.device.windowsInterrupted"), e);
         }
 
         if (!completed) {
             process.destroyForcibly();
-            LOGGER.warning("Windows block-device enumeration timed out.");
+            LOGGER.warn("Windows block-device enumeration timed out.");
             throw new IOException(SdkMessages.get("core.device.windowsTimedOut"));
         }
 
@@ -140,7 +141,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         int exitCode = process.exitValue();
         if (exitCode != 0) {
             String message = error.isBlank() ? SdkMessages.get("core.device.powershellExit", exitCode) : error.strip();
-            LOGGER.warning(() -> "Windows block-device enumeration failed. exitCode="
+            LOGGER.atWarn().log(() -> "Windows block-device enumeration failed. exitCode="
                     + exitCode
                     + ", error="
                     + LogRedactor.redactOutput(error, 1000));
@@ -148,7 +149,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         }
 
         @Unmodifiable List<BlockDevice> devices = parseDevices(output);
-        LOGGER.info(() -> "Windows block devices enumerated. count=" + devices.size());
+        LOGGER.atInfo().log(() -> "Windows block devices enumerated. count=" + devices.size());
         return devices;
     }
 

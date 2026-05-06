@@ -27,7 +27,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -36,7 +37,7 @@ import java.util.zip.ZipInputStream;
 @NotNullByDefault
 public final class RuyiImageMaterializer {
     /// Logger for image artifact materialization.
-    private static final Logger LOGGER = Logger.getLogger(RuyiImageMaterializer.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuyiImageMaterializer.class);
 
     /// Compressor stream factory with optional compressor modules loaded through ServiceLoader.
     private static final CompressorStreamFactory COMPRESSOR_STREAMS =
@@ -87,14 +88,14 @@ public final class RuyiImageMaterializer {
             Path artifactDirectory,
             ProgressReporter reporter) throws IOException {
         Files.createDirectories(artifactDirectory);
-        LOGGER.info(() -> "Materializing image. atom="
+        LOGGER.atInfo().log(() -> "Materializing image. atom="
                 + image.atom()
                 + ", distfiles="
                 + downloadedDistfiles.size()
                 + ", artifactDirectory="
                 + artifactDirectory);
         if (downloadedDistfiles.size() != image.distfiles().size()) {
-            LOGGER.warning(() -> "Materialized distfile count mismatch. atom="
+            LOGGER.atWarn().log(() -> "Materialized distfile count mismatch. atom="
                     + image.atom()
                     + ", expected="
                     + image.distfiles().size()
@@ -117,7 +118,7 @@ public final class RuyiImageMaterializer {
 
         for (Path partition : partitions) {
             if (!Files.isRegularFile(partition)) {
-                LOGGER.warning(() -> "Materialized partition is missing. atom="
+                LOGGER.atWarn().log(() -> "Materialized partition is missing. atom="
                         + image.atom()
                         + ", partition="
                         + partition);
@@ -126,7 +127,7 @@ public final class RuyiImageMaterializer {
         }
 
         Path result = partitions.size() == 1 ? partitions.getFirst() : artifactDirectory;
-        LOGGER.info(() -> "Image materialized. atom=" + image.atom() + ", result=" + result);
+        LOGGER.atInfo().log(() -> "Image materialized. atom=" + image.atom() + ", result=" + result);
         return result;
     }
 
@@ -138,7 +139,7 @@ public final class RuyiImageMaterializer {
     /// @throws IOException when the distfile cannot be materialized.
     private static void materializeDistfile(RuyiDistfile distfile, Path source, Path artifactDirectory) throws IOException {
         String method = resolveUnpackMethod(distfile);
-        LOGGER.info(() -> "Materializing distfile. name="
+        LOGGER.atInfo().log(() -> "Materializing distfile. name="
                 + distfile.name()
                 + ", method="
                 + method
@@ -259,7 +260,7 @@ public final class RuyiImageMaterializer {
     /// @param target target path.
     /// @throws IOException when the copy fails.
     private static void copyRaw(Path source, Path target) throws IOException {
-        LOGGER.fine(() -> "Copying raw distfile. source=" + source + ", target=" + target);
+        LOGGER.atDebug().log(() -> "Copying raw distfile. source=" + source + ", target=" + target);
         @Nullable Path parent = target.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
@@ -273,7 +274,7 @@ public final class RuyiImageMaterializer {
     /// @param target target path.
     /// @throws IOException when decompression fails.
     private static void decompressGzip(Path source, Path target) throws IOException {
-        LOGGER.fine(() -> "Decompressing gzip distfile. source=" + source + ", target=" + target);
+        LOGGER.atDebug().log(() -> "Decompressing gzip distfile. source=" + source + ", target=" + target);
         @Nullable Path parent = target.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
@@ -298,7 +299,7 @@ public final class RuyiImageMaterializer {
             Path target,
             Path artifactDirectory,
             String method) throws IOException {
-        LOGGER.fine(() -> "Decompressing compressed distfile. method="
+        LOGGER.atDebug().log(() -> "Decompressing compressed distfile. method="
                 + method
                 + ", source="
                 + source
@@ -384,7 +385,7 @@ public final class RuyiImageMaterializer {
     /// @param stripComponents leading path components to strip from each entry.
     /// @throws IOException when extraction fails or the archive attempts path traversal.
     private static void extractZip(Path source, Path artifactDirectory, int stripComponents) throws IOException {
-        LOGGER.fine(() -> "Extracting zip distfile. source="
+        LOGGER.atDebug().log(() -> "Extracting zip distfile. source="
                 + source
                 + ", artifactDirectory="
                 + artifactDirectory
@@ -428,7 +429,7 @@ public final class RuyiImageMaterializer {
     /// @param distfile distfile metadata.
     /// @throws IOException when extraction fails or the archive attempts path traversal.
     private static void extractTar(InputStream input, Path artifactDirectory, RuyiDistfile distfile) throws IOException {
-        LOGGER.fine(() -> "Extracting tar distfile. name="
+        LOGGER.atDebug().log(() -> "Extracting tar distfile. name="
                 + distfile.name()
                 + ", artifactDirectory="
                 + artifactDirectory
@@ -529,7 +530,7 @@ public final class RuyiImageMaterializer {
     /// @param artifactDirectory output artifact directory.
     /// @throws IOException when extraction fails.
     private static void extractAutoTar(RuyiDistfile distfile, Path source, Path artifactDirectory) throws IOException {
-        LOGGER.fine(() -> "Detecting tar compression. name=" + distfile.name() + ", source=" + source);
+        LOGGER.atDebug().log(() -> "Detecting tar compression. name=" + distfile.name() + ", source=" + source);
         String name = distfile.name().toLowerCase(Locale.ROOT);
         if (name.endsWith(".tar.gz") || name.endsWith(".tgz")) {
             try (InputStream input = new GZIPInputStream(Files.newInputStream(source))) {
@@ -567,7 +568,7 @@ public final class RuyiImageMaterializer {
     /// @param artifactDirectory output artifact directory.
     /// @throws IOException when the deb package is invalid or the data tarball cannot be extracted.
     private static void extractDeb(RuyiDistfile distfile, Path source, Path artifactDirectory) throws IOException {
-        LOGGER.fine(() -> "Extracting Debian distfile. name=" + distfile.name() + ", source=" + source);
+        LOGGER.atDebug().log(() -> "Extracting Debian distfile. name=" + distfile.name() + ", source=" + source);
         try (InputStream input = Files.newInputStream(source)) {
             byte[] globalHeader = input.readNBytes(AR_GLOBAL_HEADER.length);
             if (!Arrays.equals(globalHeader, AR_GLOBAL_HEADER)) {
@@ -582,7 +583,7 @@ public final class RuyiImageMaterializer {
 
                 BoundedInputStream entryInput = new BoundedInputStream(input, member.size());
                 if (member.name().startsWith("data.tar")) {
-                    LOGGER.info(() -> "Found Debian data archive. source=" + source + ", member=" + member.name());
+                    LOGGER.atInfo().log(() -> "Found Debian data archive. source=" + source + ", member=" + member.name());
                     extractDebDataTar(distfile, source, artifactDirectory, member.name(), entryInput);
                     return;
                 }

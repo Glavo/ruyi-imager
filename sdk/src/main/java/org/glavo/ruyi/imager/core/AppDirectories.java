@@ -7,7 +7,8 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Filesystem locations used by Ruyi Imager.
 ///
@@ -16,7 +17,7 @@ import java.util.logging.Logger;
 @NotNullByDefault
 public record AppDirectories(Path configDirectory, Path cacheDirectory) {
     /// Logger for application directory resolution.
-    private static final Logger LOGGER = Logger.getLogger(AppDirectories.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(AppDirectories.class);
 
     /// Creates default application directories for the current platform.
     ///
@@ -35,7 +36,7 @@ public record AppDirectories(Path configDirectory, Path cacheDirectory) {
                     xdgBase("XDG_CONFIG_HOME", home.resolve(".config")).resolve("ruyi-imager"),
                     xdgBase("XDG_CACHE_HOME", home.resolve(".cache")).resolve("ruyi-imager"));
         }
-        LOGGER.info(() -> "Resolved application directories. config="
+        LOGGER.atInfo().log(() -> "Resolved application directories. config="
                 + directories.configDirectory()
                 + ", cache="
                 + directories.cacheDirectory());

@@ -134,6 +134,7 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind:2.21.2")
     implementation("info.picocli:picocli:4.7.7")
     implementation("io.github.palexdev:materialfx:21.18.0-alpha")
+    runtimeOnly("org.slf4j:slf4j-jdk14:2.0.17")
 
     javafx("base")?.let { implementation(it) }
     javafx("controls")?.let { implementation(it) }
@@ -142,6 +143,7 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.slf4j:slf4j-jdk14:2.0.17")
 }
 
 sourceSets {

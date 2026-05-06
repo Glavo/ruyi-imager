@@ -28,13 +28,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// macOS block-device enumerator backed by read-only `diskutil` plist output.
 @NotNullByDefault
 public final class MacOSBlockDeviceService implements BlockDeviceService {
     /// Logger for macOS device enumeration.
-    private static final Logger LOGGER = Logger.getLogger(MacOSBlockDeviceService.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(MacOSBlockDeviceService.class);
 
     /// Maximum time allowed for one `diskutil` invocation.
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(20);
@@ -48,13 +49,13 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
         LOGGER.info("Enumerating macOS block devices with diskutil.");
         String listPlist = runDiskutil("list", "-plist");
         ArrayList<String> identifiers = diskIdentifiers(listPlist);
-        LOGGER.info(() -> "macOS disk identifiers found. count=" + identifiers.size());
+        LOGGER.atInfo().log(() -> "macOS disk identifiers found. count=" + identifiers.size());
         LinkedHashMap<String, String> infoPlists = new LinkedHashMap<>();
         for (String identifier : identifiers) {
             infoPlists.put(identifier, runDiskutil("info", "-plist", identifier));
         }
         @Unmodifiable List<BlockDevice> devices = parseDevices(listPlist, infoPlists);
-        LOGGER.info(() -> "macOS block devices enumerated. count=" + devices.size());
+        LOGGER.atInfo().log(() -> "macOS block devices enumerated. count=" + devices.size());
         return devices;
     }
 
@@ -169,7 +170,7 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
         ArrayList<String> command = new ArrayList<>(arguments.length + 1);
         command.add("diskutil");
         command.addAll(List.of(arguments));
-        LOGGER.fine(() -> "Running diskutil command. command=" + LogRedactor.redactCommand(command));
+        LOGGER.atDebug().log(() -> "Running diskutil command. command=" + LogRedactor.redactCommand(command));
         Process process = new ProcessBuilder(command).start();
 
         boolean completed;
@@ -178,13 +179,13 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
-            LOGGER.warning(() -> "diskutil command interrupted. command=" + LogRedactor.redactCommand(command));
+            LOGGER.atWarn().log(() -> "diskutil command interrupted. command=" + LogRedactor.redactCommand(command));
             throw new IOException(SdkMessages.get("core.device.enumerationInterrupted", "macOS"), e);
         }
 
         if (!completed) {
             process.destroyForcibly();
-            LOGGER.warning(() -> "diskutil command timed out. command=" + LogRedactor.redactCommand(command));
+            LOGGER.atWarn().log(() -> "diskutil command timed out. command=" + LogRedactor.redactCommand(command));
             throw new IOException(SdkMessages.get("core.device.enumerationTimedOut", "macOS"));
         }
 
@@ -195,7 +196,7 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
             String message = error.isBlank()
                     ? SdkMessages.get("core.device.commandExit", "diskutil", exitCode)
                     : error.strip();
-            LOGGER.warning(() -> "diskutil command failed. command="
+            LOGGER.atWarn().log(() -> "diskutil command failed. command="
                     + LogRedactor.redactCommand(command)
                     + ", exitCode="
                     + exitCode

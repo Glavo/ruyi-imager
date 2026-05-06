@@ -30,13 +30,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Ruyi-backed image catalog service.
 @NotNullByDefault
 public final class RuyiImageCatalogService implements ImageCatalogService {
     /// Logger for image catalog operations.
-    private static final Logger LOGGER = Logger.getLogger(RuyiImageCatalogService.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuyiImageCatalogService.class);
 
     /// Known Ruyi device vendor id to display-name mapping.
     private static final @Unmodifiable Map<String, String> DEVICE_MANUFACTURERS = Map.ofEntries(
@@ -111,7 +112,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         ImageCatalog catalog = cachedCatalog;
         if (catalog != null) {
             int imageCount = catalog.images().size();
-            LOGGER.fine(() -> "Using cached image catalog. images=" + imageCount);
+            LOGGER.atDebug().log(() -> "Using cached image catalog. images=" + imageCount);
             return catalog;
         }
 
@@ -139,7 +140,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
         for (RuyiRepositoryEntry entry : repositoryStore.readActiveEntries()) {
             Path root = repositoryStore.resolveRoot(entry);
             if (!Files.isDirectory(root)) {
-                LOGGER.info(() -> "Skipping repository without local root. id=" + entry.id() + ", root=" + root);
+                LOGGER.atInfo().log(() -> "Skipping repository without local root. id=" + entry.id() + ", root=" + root);
                 continue;
             }
 
@@ -152,11 +153,11 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 }
             }
             int addedCount = images.size() - beforeCount;
-            LOGGER.info(() -> "Repository images loaded. repo=" + entry.id() + ", added=" + addedCount);
+            LOGGER.atInfo().log(() -> "Repository images loaded. repo=" + entry.id() + ", added=" + addedCount);
         }
 
         images.sort(Comparator.comparing(ImageEntry::displayName).thenComparing(ImageEntry::atom));
-        LOGGER.info(() -> "Image catalog listed. images=" + images.size());
+        LOGGER.atInfo().log(() -> "Image catalog listed. images=" + images.size());
         return new ImageCatalog(images);
     }
 
@@ -169,13 +170,13 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     @Override
     public Path downloadImage(ImageEntry image, ProgressReporter reporter) throws IOException {
         if (image.distfiles().isEmpty()) {
-            LOGGER.warning(() -> "Image has no distfiles. atom=" + image.atom());
+            LOGGER.atWarn().log(() -> "Image has no distfiles. atom=" + image.atom());
             throw new IOException(SdkMessages.get("core.download.imageNoDistfiles", image.atom()));
         }
 
         Path downloadDirectory = downloadDirectory(image);
         Files.createDirectories(downloadDirectory);
-        LOGGER.info(() -> "Downloading image. atom="
+        LOGGER.atInfo().log(() -> "Downloading image. atom="
                 + image.atom()
                 + ", distfiles="
                 + image.distfiles().size()
@@ -195,7 +196,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 .resolve(image.version());
         Path result = materializer.materialize(image, List.copyOf(downloadedDistfiles), artifactDirectory, reporter);
         reporter.report(ProgressEvent.indeterminate("download", SdkMessages.get("core.download.imageComplete", image.atom())));
-        LOGGER.info(() -> "Image download completed. atom=" + image.atom() + ", artifact=" + result);
+        LOGGER.atInfo().log(() -> "Image download completed. atom=" + image.atom() + ", artifact=" + result);
         return result;
     }
 
@@ -208,7 +209,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     public ImageCacheStatus cacheStatus(ImageEntry image) throws IOException {
         List<RuyiDistfile> distfiles = image.distfiles();
         if (distfiles.isEmpty()) {
-            LOGGER.fine(() -> "Cache status unknown for image without distfiles. atom=" + image.atom());
+            LOGGER.atDebug().log(() -> "Cache status unknown for image without distfiles. atom=" + image.atom());
             return ImageCacheStatus.unknown(0);
         }
 
@@ -272,7 +273,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 distfiles.size(),
                 cachedBytes,
                 totalBytesKnown ? expectedBytes : null);
-        LOGGER.fine(() -> "Image cache status. atom="
+        LOGGER.atDebug().log(() -> "Image cache status. atom="
                 + image.atom()
                 + ", state="
                 + status.state()
@@ -306,12 +307,12 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     private static @Unmodifiable List<ImageEntry> readRepositoryImages(RuyiRepositoryMetadata metadata) throws IOException {
         @Nullable Path packageRoot = resolvePackageRoot(metadata.root());
         if (packageRoot == null) {
-            LOGGER.info(() -> "Repository has no package metadata root. repo=" + metadata.id() + ", root=" + metadata.root());
+            LOGGER.atInfo().log(() -> "Repository has no package metadata root. repo=" + metadata.id() + ", root=" + metadata.root());
             return List.of();
         }
 
         @Unmodifiable List<String> deviceIds = readDeviceIds(metadata.root());
-        LOGGER.info(() -> "Reading repository images. repo="
+        LOGGER.atInfo().log(() -> "Reading repository images. repo="
                 + metadata.id()
                 + ", packageRoot="
                 + packageRoot
@@ -323,7 +324,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 readCategory(metadata, categoryPath, deviceIds, result);
             }
         }
-        LOGGER.info(() -> "Repository image manifests read. repo=" + metadata.id() + ", images=" + result.size());
+        LOGGER.atInfo().log(() -> "Repository image manifests read. repo=" + metadata.id() + ", images=" + result.size());
         return List.copyOf(result);
     }
 
@@ -987,7 +988,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     private static TomlParseResult parseToml(Path path) throws IOException {
         TomlParseResult result = Toml.parse(path);
         if (result.hasErrors()) {
-            LOGGER.warning(() -> "TOML parse failed. path=" + path + ", errors=" + result.errors().size());
+            LOGGER.atWarn().log(() -> "TOML parse failed. path=" + path + ", errors=" + result.errors().size());
             StringBuilder builder = new StringBuilder(SdkMessages.get("core.toml.parseFailed", path));
             for (TomlParseError error : result.errors()) {
                 builder.append(System.lineSeparator()).append(error);

@@ -9,7 +9,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Locale;
 import java.util.logging.Level;
 
-/// Stable user-facing log levels mapped to `java.util.logging` levels.
+/// Stable user-facing log levels mapped to JUL backend levels.
 @NotNullByDefault
 public enum RuyiLogLevel {
     /// Disables all application logging.

@@ -20,13 +20,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Linux block-device enumerator backed by read-only `lsblk` JSON output.
 @NotNullByDefault
 public final class LinuxBlockDeviceService implements BlockDeviceService {
     /// Logger for Linux device enumeration.
-    private static final Logger LOGGER = Logger.getLogger(LinuxBlockDeviceService.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(LinuxBlockDeviceService.class);
 
     /// JSON mapper used for `lsblk` output.
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -54,13 +55,13 @@ public final class LinuxBlockDeviceService implements BlockDeviceService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
-            LOGGER.warning("Linux block-device enumeration interrupted.");
+            LOGGER.warn("Linux block-device enumeration interrupted.");
             throw new IOException(SdkMessages.get("core.device.enumerationInterrupted", "Linux"), e);
         }
 
         if (!completed) {
             process.destroyForcibly();
-            LOGGER.warning("Linux block-device enumeration timed out.");
+            LOGGER.warn("Linux block-device enumeration timed out.");
             throw new IOException(SdkMessages.get("core.device.enumerationTimedOut", "Linux"));
         }
 
@@ -69,7 +70,7 @@ public final class LinuxBlockDeviceService implements BlockDeviceService {
         int exitCode = process.exitValue();
         if (exitCode != 0) {
             String message = error.isBlank() ? SdkMessages.get("core.device.commandExit", "lsblk", exitCode) : error.strip();
-            LOGGER.warning(() -> "Linux block-device enumeration failed. exitCode="
+            LOGGER.atWarn().log(() -> "Linux block-device enumeration failed. exitCode="
                     + exitCode
                     + ", error="
                     + LogRedactor.redactOutput(error, 1000));
@@ -77,7 +78,7 @@ public final class LinuxBlockDeviceService implements BlockDeviceService {
         }
 
         @Unmodifiable List<BlockDevice> devices = parseDevices(output);
-        LOGGER.info(() -> "Linux block devices enumerated. count=" + devices.size());
+        LOGGER.atInfo().log(() -> "Linux block devices enumerated. count=" + devices.size());
         return devices;
     }
 

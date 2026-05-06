@@ -8,6 +8,7 @@ import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,7 +16,6 @@ import java.util.UUID;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
-import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,19 +26,21 @@ public final class LoggingProgressReporterTest {
     /// Verifies that progress events are forwarded and diagnostic records are emitted.
     @Test
     public void forwardsAndLogsProgressEvents() {
-        Logger logger = Logger.getLogger("progress-test-" + UUID.randomUUID());
+        String loggerName = "progress-test-" + UUID.randomUUID();
+        java.util.logging.Logger julLogger = java.util.logging.Logger.getLogger(loggerName);
         CapturingHandler handler = new CapturingHandler();
-        logger.setUseParentHandlers(false);
-        logger.setLevel(Level.FINE);
-        logger.addHandler(handler);
+        handler.setLevel(Level.FINE);
+        julLogger.setUseParentHandlers(false);
+        julLogger.setLevel(Level.FINE);
+        julLogger.addHandler(handler);
 
         ArrayList<ProgressEvent> events = new ArrayList<>();
-        ProgressReporter reporter = new LoggingProgressReporter(events::add, logger);
+        ProgressReporter reporter = new LoggingProgressReporter(events::add, LoggerFactory.getLogger(loggerName));
         reporter.report(new ProgressEvent("download", "Downloading.", 0L, 10L));
         reporter.report(new ProgressEvent("download", "Downloading.", 5L, 10L));
         reporter.report(new ProgressEvent("download", "Downloading.", 10L, 10L));
 
-        logger.removeHandler(handler);
+        julLogger.removeHandler(handler);
         assertEquals(3, events.size());
         assertTrue(handler.records().size() >= 2);
         assertEquals("download", events.getFirst().stage());

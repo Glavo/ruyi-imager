@@ -7,11 +7,10 @@ import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
 
 import java.time.Duration;
 import java.util.Objects;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /// Progress reporter wrapper that mirrors throttled progress snapshots to logs.
 @NotNullByDefault
@@ -61,7 +60,7 @@ public final class LoggingProgressReporter implements ProgressReporter {
     @Override
     public void report(ProgressEvent event) {
         delegate.report(event);
-        if (!logger.isLoggable(Level.FINE)) {
+        if (!logger.isDebugEnabled()) {
             return;
         }
 
@@ -79,7 +78,7 @@ public final class LoggingProgressReporter implements ProgressReporter {
             lastCurrent = event.currentBytes();
             lastTotal = event.totalBytes();
             lastLogNanos = now;
-            logger.fine(() -> progressMessage(event));
+            logger.debug(progressMessage(event));
         }
     }
 

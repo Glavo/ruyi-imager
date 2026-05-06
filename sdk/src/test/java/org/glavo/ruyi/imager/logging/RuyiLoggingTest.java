@@ -7,10 +7,11 @@ import org.glavo.ruyi.imager.core.AppDirectories;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -18,6 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /// Tests application logging configuration.
 @NotNullByDefault
 public final class RuyiLoggingTest {
+    /// Test logger that exercises the SLF4J API against the configured backend.
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuyiLoggingTest.class);
+
     /// Verifies the default rotating log file path.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -36,7 +40,7 @@ public final class RuyiLoggingTest {
 
         try {
             RuyiLogging.configure(directories, RuyiLogLevel.INFO, null);
-            Logger.getLogger(RuyiLoggingTest.class.getName()).info("default log test");
+            LOGGER.info("default log test");
 
             assertEquals(expected, RuyiLogging.currentLogFile());
             assertEquals(RuyiLogLevel.INFO, RuyiLogging.currentLevel());
@@ -59,7 +63,7 @@ public final class RuyiLoggingTest {
 
         try {
             RuyiLogging.configure(directories, RuyiLogLevel.DEBUG, logFile);
-            Logger.getLogger(RuyiLoggingTest.class.getName()).fine("debug log test");
+            LOGGER.debug("debug log test");
 
             assertEquals(logFile, RuyiLogging.currentLogFile());
             assertEquals(RuyiLogLevel.DEBUG, RuyiLogging.currentLevel());

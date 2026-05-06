@@ -25,13 +25,14 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
-import java.util.logging.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /// Flash service that dispatches `dd-v1` writes and fastboot strategies.
 @NotNullByDefault
 public final class LocalFlashService implements FlashService {
     /// Logger for flash orchestration.
-    private static final Logger LOGGER = Logger.getLogger(LocalFlashService.class.getName());
+    private static final Logger LOGGER = LoggerFactory.getLogger(LocalFlashService.class);
 
     /// Image catalog service used to materialize Ruyi images.
     private final ImageCatalogService images;
@@ -97,7 +98,7 @@ public final class LocalFlashService implements FlashService {
     /// @throws IOException when files cannot be read or written.
     @Override
     public OperationResult flash(FlashRequest request, ProgressReporter reporter) throws IOException {
-        LOGGER.info(() -> "Flash request started. source="
+        LOGGER.atInfo().log(() -> "Flash request started. source="
                 + sourceSummary(request)
                 + ", target="
                 + targetSummary(request.target())
@@ -110,12 +111,12 @@ public final class LocalFlashService implements FlashService {
 
         @Nullable ImageEntry image = request.image();
         if (image == null) {
-            LOGGER.warning("Flash request has no image source.");
+            LOGGER.warn("Flash request has no image source.");
             return OperationResult.failure(SdkMessages.get("core.flash.noSource"));
         }
 
         if ("dd-v1".equals(image.strategy())) {
-            LOGGER.info(() -> "Dispatching dd-v1 flash. atom=" + image.atom());
+            LOGGER.atInfo().log(() -> "Dispatching dd-v1 flash. atom=" + image.atom());
             Path materialized = images.downloadImage(image, reporter);
             @Unmodifiable Map<String, Path> partitions = resolvePartitionPaths(image, materialized);
             if (partitions.size() == 1 && request.target().blockDevice() != null) {
@@ -125,11 +126,11 @@ public final class LocalFlashService implements FlashService {
         }
 
         if (isFastbootStrategy(image.strategy())) {
-            LOGGER.info(() -> "Dispatching fastboot flash. atom=" + image.atom() + ", strategy=" + image.strategy());
+            LOGGER.atInfo().log(() -> "Dispatching fastboot flash. atom=" + image.atom() + ", strategy=" + image.strategy());
             return flashFastbootImage(image, request.target(), reporter);
         }
 
-        LOGGER.warning(() -> "Unsupported flash strategy. atom=" + image.atom() + ", strategy=" + image.strategy());
+        LOGGER.atWarn().log(() -> "Unsupported flash strategy. atom=" + image.atom() + ", strategy=" + image.strategy());
         return OperationResult.failure(SdkMessages.get("core.flash.unsupportedStrategy", image.strategy()));
     }
 
@@ -148,14 +149,14 @@ public final class LocalFlashService implements FlashService {
             ProgressReporter reporter) throws IOException {
         @Nullable BlockDevice blockDevice = target.blockDevice();
         if (blockDevice == null) {
-            LOGGER.warning("Block image flash requested without a block target.");
+            LOGGER.warn("Block image flash requested without a block target.");
             return OperationResult.failure(SdkMessages.get("core.flash.blockTargetRequired"));
         }
 
         @Nullable String validationError = validateBlockImage(source, blockDevice, true);
         if (validationError != null) {
             String message = validationError;
-            LOGGER.warning(() -> "Block target validation failed before preparation. source="
+            LOGGER.atWarn().log(() -> "Block target validation failed before preparation. source="
                     + source
                     + ", target="
                     + blockDevice.path()
@@ -168,7 +169,7 @@ public final class LocalFlashService implements FlashService {
         validationError = validateBlockImage(source, preparedBlockDevice, false);
         if (validationError != null) {
             String message = validationError;
-            LOGGER.warning(() -> "Block target validation failed after preparation. source="
+            LOGGER.atWarn().log(() -> "Block target validation failed after preparation. source="
                     + source
                     + ", target="
                     + preparedBlockDevice.path()
@@ -201,7 +202,7 @@ public final class LocalFlashService implements FlashService {
             ProgressReporter reporter) throws IOException {
         @Unmodifiable Map<String, BlockDevice> blockTargets = target.blockDevices();
         if (blockTargets.isEmpty()) {
-            LOGGER.warning(() -> "Partition flash requested without targets. partitions=" + partitionNames(partitions));
+            LOGGER.atWarn().log(() -> "Partition flash requested without targets. partitions=" + partitionNames(partitions));
             return OperationResult.failure(SdkMessages.get(
                     "core.flash.partitionTargetsRequired",
                     partitionNames(partitions)));
@@ -219,7 +220,7 @@ public final class LocalFlashService implements FlashService {
             String partition = entry.getKey();
             @Nullable BlockDevice blockDevice = blockTargets.get(partition);
             if (blockDevice == null) {
-                LOGGER.warning(() -> "Missing partition target. partition=" + partition);
+                LOGGER.atWarn().log(() -> "Missing partition target. partition=" + partition);
                 return OperationResult.failure(SdkMessages.get("core.flash.missingPartitionTarget", partition));
             }
 
@@ -231,7 +232,7 @@ public final class LocalFlashService implements FlashService {
             @Nullable String validationError = validateBlockImage(entry.getValue(), blockDevice, true);
             if (validationError != null) {
                 String message = validationError;
-                LOGGER.warning(() -> "Partition target validation failed before preparation. partition="
+                LOGGER.atWarn().log(() -> "Partition target validation failed before preparation. partition="
                         + partition
                         + ", target="
                         + blockDevice.path()
@@ -247,7 +248,7 @@ public final class LocalFlashService implements FlashService {
             validationError = validateBlockImage(entry.getValue(), preparedBlockDevice, false);
             if (validationError != null) {
                 String message = validationError;
-                LOGGER.warning(() -> "Partition target validation failed after preparation. partition="
+                LOGGER.atWarn().log(() -> "Partition target validation failed after preparation. partition="
                         + partition
                         + ", target="
                         + preparedBlockDevice.path()
@@ -317,7 +318,7 @@ public final class LocalFlashService implements FlashService {
         if (!blockDevice.mounted()) {
             return blockDevice;
         }
-        LOGGER.info(() -> "Preparing mounted block target. target=" + blockDevice.path());
+        LOGGER.atInfo().log(() -> "Preparing mounted block target. target=" + blockDevice.path());
         return blockDevicePreparer.prepare(blockDevice, reporter);
     }
 
@@ -339,7 +340,7 @@ public final class LocalFlashService implements FlashService {
             String verifyMessage,
             ProgressReporter reporter) throws IOException {
         long sourceSize = Files.size(source);
-        LOGGER.info(() -> "Writing block image. source="
+        LOGGER.atInfo().log(() -> "Writing block image. source="
                 + source
                 + ", target="
                 + blockDevice.path()
@@ -350,15 +351,15 @@ public final class LocalFlashService implements FlashService {
 
         reporter.report(new ProgressEvent("flash", writeMessage, 0L, sourceSize));
         blockImageWriter.write(source, blockDevice.path(), sourceSize, writeMessage, reporter);
-        LOGGER.info(() -> "Block image write completed. target=" + blockDevice.path());
+        LOGGER.atInfo().log(() -> "Block image write completed. target=" + blockDevice.path());
 
         if (verify) {
             reporter.report(new ProgressEvent("verify", verifyMessage, 0L, sourceSize));
             if (!blockImageWriter.verify(source, blockDevice.path(), sourceSize, verifyMessage, reporter)) {
-                LOGGER.warning(() -> "Block image verification failed. target=" + blockDevice.path());
+                LOGGER.atWarn().log(() -> "Block image verification failed. target=" + blockDevice.path());
                 return OperationResult.failure(SdkMessages.get("core.flash.verifyFailed"));
             }
-            LOGGER.info(() -> "Block image verification completed. target=" + blockDevice.path());
+            LOGGER.atInfo().log(() -> "Block image verification completed. target=" + blockDevice.path());
         }
 
         return OperationResult.success(SdkMessages.get("core.flash.success"));
@@ -385,7 +386,7 @@ public final class LocalFlashService implements FlashService {
             ProgressReporter reporter) throws IOException {
         @Nullable FastbootDevice fastbootDevice = target.fastbootDevice();
         if (fastbootDevice == null) {
-            LOGGER.warning(() -> "Fastboot flash requested without fastboot target. atom=" + image.atom());
+            LOGGER.atWarn().log(() -> "Fastboot flash requested without fastboot target. atom=" + image.atom());
             return OperationResult.failure(SdkMessages.get("core.fastboot.targetRequired"));
         }
 
