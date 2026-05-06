@@ -24,8 +24,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /// Flash service that dispatches `dd-v1` writes and fastboot strategies.
 @NotNullByDefault
@@ -74,11 +76,12 @@ public final class LocalFlashService implements FlashService {
         }
 
         if ("dd-v1".equals(image.strategy())) {
-            if (image.partitionMap().size() != 1) {
-                return OperationResult.failure(Messages.get("core.flash.oneTarget"));
+            Path materialized = images.downloadImage(image, reporter);
+            @Unmodifiable Map<String, Path> partitions = resolvePartitionPaths(image, materialized);
+            if (partitions.size() == 1 && request.target().blockDevice() != null) {
+                return flashBlockImage(partitions.values().iterator().next(), request.target(), request.verify(), reporter);
             }
-            Path source = images.downloadImage(image, reporter);
-            return flashBlockImage(source, request.target(), request.verify(), reporter);
+            return flashBlockPartitions(partitions, request.target(), request.verify(), reporter);
         }
 
         if (isFastbootStrategy(image.strategy())) {
@@ -106,33 +109,148 @@ public final class LocalFlashService implements FlashService {
             return OperationResult.failure(Messages.get("core.flash.blockTargetRequired"));
         }
 
+        @Nullable String validationError = validateBlockImage(source, blockDevice);
+        if (validationError != null) {
+            return OperationResult.failure(validationError);
+        }
+
+        return writeValidatedBlockImage(
+                source,
+                blockDevice,
+                verify,
+                Messages.get("core.flash.writing"),
+                Messages.get("core.flash.verifying"),
+                reporter);
+    }
+
+    /// Writes multiple materialized partition images to partition-specific block targets.
+    ///
+    /// @param partitions materialized partition images keyed by partition name.
+    /// @param target selected target map.
+    /// @param verify whether post-write verification should run.
+    /// @param reporter progress reporter.
+    /// @return operation result.
+    /// @throws IOException when files cannot be read or written.
+    private static OperationResult flashBlockPartitions(
+            @Unmodifiable Map<String, Path> partitions,
+            FlashTarget target,
+            boolean verify,
+            ProgressReporter reporter) throws IOException {
+        @Unmodifiable Map<String, BlockDevice> blockTargets = target.blockDevices();
+        if (blockTargets.isEmpty()) {
+            return OperationResult.failure(Messages.get(
+                    "core.flash.partitionTargetsRequired",
+                    partitionNames(partitions)));
+        }
+
+        for (String partition : blockTargets.keySet()) {
+            if (!partitions.containsKey(partition)) {
+                return OperationResult.failure(Messages.get("core.flash.unknownPartitionTarget", partition));
+            }
+        }
+
+        Set<Path> targetPaths = new HashSet<>();
+        for (Map.Entry<String, Path> entry : partitions.entrySet()) {
+            String partition = entry.getKey();
+            @Nullable BlockDevice blockDevice = blockTargets.get(partition);
+            if (blockDevice == null) {
+                return OperationResult.failure(Messages.get("core.flash.missingPartitionTarget", partition));
+            }
+
+            Path normalizedTargetPath = blockDevice.path().toAbsolutePath().normalize();
+            if (!targetPaths.add(normalizedTargetPath)) {
+                return OperationResult.failure(Messages.get("core.flash.duplicatePartitionTarget", normalizedTargetPath));
+            }
+
+            @Nullable String validationError = validateBlockImage(entry.getValue(), blockDevice);
+            if (validationError != null) {
+                return OperationResult.failure(Messages.get(
+                        "core.flash.partitionTargetInvalid",
+                        partition,
+                        validationError));
+            }
+        }
+
+        for (Map.Entry<String, Path> entry : partitions.entrySet()) {
+            String partition = entry.getKey();
+            BlockDevice blockDevice = blockTargets.get(partition);
+            OperationResult result = writeValidatedBlockImage(
+                    entry.getValue(),
+                    blockDevice,
+                    verify,
+                    Messages.get("core.flash.writingPartition", partition),
+                    Messages.get("core.flash.verifyingPartition", partition),
+                    reporter);
+            if (!result.success()) {
+                return result;
+            }
+        }
+
+        return OperationResult.success(Messages.get("core.flash.success"));
+    }
+
+    /// Validates one source image and target block device before writing.
+    ///
+    /// @param source source image path.
+    /// @param blockDevice target block device.
+    /// @return failure message, or null when source and target are acceptable.
+    /// @throws IOException when source or target metadata cannot be read.
+    private static @Nullable String validateBlockImage(Path source, BlockDevice blockDevice) throws IOException {
         @Nullable String safetyError = validateTarget(blockDevice);
         if (safetyError != null) {
-            return OperationResult.failure(safetyError);
+            return safetyError;
         }
         if (!Files.isRegularFile(source)) {
-            return OperationResult.failure(Messages.get("core.flash.localImageMissing", source));
+            return Messages.get("core.flash.localImageMissing", source);
         }
-
         long sourceSize = Files.size(source);
         if (blockDevice.sizeBytes() > 0L && sourceSize > blockDevice.sizeBytes()) {
-            return OperationResult.failure(Messages.get("core.flash.imageTooLarge"));
+            return Messages.get("core.flash.imageTooLarge");
         }
         if (Files.isSameFile(source, blockDevice.path())) {
-            return OperationResult.failure(Messages.get("core.flash.selfWrite"));
+            return Messages.get("core.flash.selfWrite");
         }
+        return null;
+    }
 
-        reporter.report(new ProgressEvent("flash", Messages.get("core.flash.writing"), 0L, sourceSize));
-        writeImage(source, blockDevice.path(), sourceSize, reporter);
+    /// Writes one already validated raw image to a block device target.
+    ///
+    /// @param source source image path.
+    /// @param blockDevice target block device.
+    /// @param verify whether post-write verification should run.
+    /// @param writeMessage progress message for writing.
+    /// @param verifyMessage progress message for verification.
+    /// @param reporter progress reporter.
+    /// @return operation result.
+    /// @throws IOException when files cannot be read or written.
+    private static OperationResult writeValidatedBlockImage(
+            Path source,
+            BlockDevice blockDevice,
+            boolean verify,
+            String writeMessage,
+            String verifyMessage,
+            ProgressReporter reporter) throws IOException {
+        long sourceSize = Files.size(source);
+
+        reporter.report(new ProgressEvent("flash", writeMessage, 0L, sourceSize));
+        writeImage(source, blockDevice.path(), sourceSize, writeMessage, reporter);
 
         if (verify) {
-            reporter.report(new ProgressEvent("verify", Messages.get("core.flash.verifying"), 0L, sourceSize));
-            if (!verifyImage(source, blockDevice.path(), sourceSize, reporter)) {
+            reporter.report(new ProgressEvent("verify", verifyMessage, 0L, sourceSize));
+            if (!verifyImage(source, blockDevice.path(), sourceSize, verifyMessage, reporter)) {
                 return OperationResult.failure(Messages.get("core.flash.verifyFailed"));
             }
         }
 
         return OperationResult.success(Messages.get("core.flash.success"));
+    }
+
+    /// Formats partition names for diagnostics.
+    ///
+    /// @param partitions partition image map.
+    /// @return comma-separated partition names.
+    private static String partitionNames(@Unmodifiable Map<String, Path> partitions) {
+        return String.join(", ", partitions.keySet());
     }
 
     /// Flashes one materialized image through fastboot.
@@ -224,9 +342,15 @@ public final class LocalFlashService implements FlashService {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param message progress message.
     /// @param reporter progress reporter.
     /// @throws IOException when the image cannot be written.
-    private static void writeImage(Path source, Path target, long totalBytes, ProgressReporter reporter) throws IOException {
+    private static void writeImage(
+            Path source,
+            Path target,
+            long totalBytes,
+            String message,
+            ProgressReporter reporter) throws IOException {
         try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ);
              FileChannel output = FileChannel.open(target, StandardOpenOption.WRITE)) {
             ByteBuffer buffer = ByteBuffer.allocateDirect(BUFFER_SIZE);
@@ -241,7 +365,7 @@ public final class LocalFlashService implements FlashService {
                 while (buffer.hasRemaining()) {
                     writtenBytes += output.write(buffer);
                 }
-                reporter.report(new ProgressEvent("flash", Messages.get("core.flash.writing"), writtenBytes, totalBytes));
+                reporter.report(new ProgressEvent("flash", message, writtenBytes, totalBytes));
             }
             output.force(true);
         }
@@ -252,10 +376,16 @@ public final class LocalFlashService implements FlashService {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return whether the target bytes match the source image.
     /// @throws IOException when files cannot be read.
-    private static boolean verifyImage(Path source, Path target, long totalBytes, ProgressReporter reporter) throws IOException {
+    private static boolean verifyImage(
+            Path source,
+            Path target,
+            long totalBytes,
+            String message,
+            ProgressReporter reporter) throws IOException {
         try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ);
              FileChannel output = FileChannel.open(target, StandardOpenOption.READ)) {
             ByteBuffer inputBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE);
@@ -284,7 +414,7 @@ public final class LocalFlashService implements FlashService {
                 }
 
                 verifiedBytes += expectedRead;
-                reporter.report(new ProgressEvent("verify", Messages.get("core.flash.verifying"), verifiedBytes, totalBytes));
+                reporter.report(new ProgressEvent("verify", message, verifiedBytes, totalBytes));
             }
             return true;
         }

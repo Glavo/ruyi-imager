@@ -179,6 +179,54 @@ public final class CliApplicationTest {
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
     }
 
+    /// Flashes a catalog dd-v1 image with multiple partition target mappings through the public CLI.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written, flashed, or read.
+    @Test
+    public void flashMultiPartitionDdImageUsesPartitionDevices(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] bootBytes = imageBytes(64);
+        byte[] rootBytes = imageBytes(96);
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Files.write(artifactDirectory.resolve("boot.img"), bootBytes);
+        Files.write(artifactDirectory.resolve("root.img"), rootBytes);
+
+        Path bootTarget = temporaryDirectory.resolve("boot-target.raw");
+        Path rootTarget = temporaryDirectory.resolve("root-target.raw");
+        Files.write(bootTarget, new byte[128]);
+        Files.write(rootTarget, new byte[128]);
+
+        BlockDevice bootDevice = blockDevice("boot-device", bootTarget, 128L, false, false, false);
+        BlockDevice rootDevice = blockDevice("root-device", rootTarget, 128L, false, false, false);
+        ImageEntry image = imageEntry("dd-v1", Map.of("boot", "boot.img", "root", "root.img"));
+
+        CliResult result = runCli(
+                services(
+                        temporaryDirectory,
+                        new FixedBlockDeviceService(List.of(bootDevice, rootDevice)),
+                        new FixedImageCatalogService(image, artifactDirectory),
+                        new EmptyFastbootService()),
+                "flash",
+                "--atom",
+                image.atom(),
+                "--partition-device",
+                "boot=boot-device",
+                "--partition-device",
+                "root=root-device",
+                "--yes",
+                "--skip-verify",
+                "--json");
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        String[] lines = result.stdout().strip().split("\\R");
+        JsonNode finalEvent = MAPPER.readTree(lines[lines.length - 1]);
+        assertEquals("complete", finalEvent.path("type").asText());
+        assertTrue(finalEvent.path("success").asBoolean());
+        assertArrayEquals(bootBytes, Arrays.copyOf(Files.readAllBytes(bootTarget), bootBytes.length));
+        assertArrayEquals(rootBytes, Arrays.copyOf(Files.readAllBytes(rootTarget), rootBytes.length));
+    }
+
     /// Flashes a catalog fastboot image through the public CLI.
     ///
     /// @param temporaryDirectory temporary test directory.

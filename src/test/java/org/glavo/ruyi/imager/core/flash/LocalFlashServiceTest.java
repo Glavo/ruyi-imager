@@ -78,6 +78,58 @@ public final class LocalFlashServiceTest {
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
     }
 
+    /// Writes a multi-partition Ruyi dd-v1 image into mapped simulated target files.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void flashesMultiPartitionRuyiDdImageToMappedTargets(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] bootBytes = imageBytes(128);
+        byte[] rootBytes = imageBytes(256);
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Files.write(artifactDirectory.resolve("boot.img"), bootBytes);
+        Files.write(artifactDirectory.resolve("root.img"), rootBytes);
+
+        Path bootTarget = temporaryDirectory.resolve("boot-target.raw");
+        Path rootTarget = temporaryDirectory.resolve("root-target.raw");
+        Files.write(bootTarget, new byte[512]);
+        Files.write(rootTarget, new byte[512]);
+
+        ImageEntry image = imageEntry("dd-v1", Map.of("boot", "boot.img", "root", "root.img"));
+        OperationResult result = new LocalFlashService(new FixedImageCatalogService(artifactDirectory)).flash(
+                new FlashRequest(image, null, FlashTarget.blockDevices(Map.of(
+                        "boot", target(bootTarget, 512, false, false),
+                        "root", target(rootTarget, 512, false, false))), true),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertArrayEquals(bootBytes, Arrays.copyOf(Files.readAllBytes(bootTarget), bootBytes.length));
+        assertArrayEquals(rootBytes, Arrays.copyOf(Files.readAllBytes(rootTarget), rootBytes.length));
+    }
+
+    /// Refuses a multi-partition Ruyi dd-v1 image when only a single block target is provided.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesMultiPartitionRuyiDdImageWithoutMappedTargets(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Files.write(artifactDirectory.resolve("boot.img"), new byte[]{1});
+        Files.write(artifactDirectory.resolve("root.img"), new byte[]{2});
+
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(target, new byte[16]);
+
+        ImageEntry image = imageEntry("dd-v1", Map.of("boot", "boot.img", "root", "root.img"));
+        OperationResult result = new LocalFlashService(new FixedImageCatalogService(artifactDirectory)).flash(
+                new FlashRequest(image, null, target(target, 16, false, false), false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+    }
+
     /// Flashes a materialized Ruyi fastboot image through a fastboot backend.
     ///
     /// @param temporaryDirectory temporary test directory.

@@ -623,11 +623,18 @@ public final class CliApplication implements Runnable {
         /// Target block device identifier.
         @Option(
                 names = "--device",
-                required = true,
                 paramLabel = "ID",
                 description = "Target device id.",
                 descriptionKey = "cli.option.device")
         private @Nullable String deviceId;
+
+        /// Partition-specific target block device mappings.
+        @Option(
+                names = "--partition-device",
+                paramLabel = "PARTITION=ID",
+                description = "Partition target mapping.",
+                descriptionKey = "cli.option.partitionDevice")
+        private List<String> partitionDeviceSpecs = new ArrayList<>();
 
         /// Whether the destructive operation was explicitly confirmed.
         @Option(
@@ -673,13 +680,11 @@ public final class CliApplication implements Runnable {
             }
 
             String requestedDeviceId = deviceId;
-            if (requestedDeviceId == null) {
-                return fail(Messages.get("cli.error.missingTargetDevice"), json);
-            }
-
             try {
+                @Unmodifiable Map<String, String> requestedPartitionDevices =
+                        parsePartitionDeviceSpecs(partitionDeviceSpecs);
                 @Nullable ImageEntry image = null;
-                Path requestedLocalImage = localImage;
+                @Nullable Path requestedLocalImage = localImage;
                 if (atom != null) {
                     image = services.images().findImage(atom);
                     if (image == null) {
@@ -690,13 +695,31 @@ public final class CliApplication implements Runnable {
                 }
 
                 FlashTarget target;
-                if (image != null && fastbootStrategy(image.strategy())) {
+                if (!requestedPartitionDevices.isEmpty()) {
+                    if (requestedDeviceId != null) {
+                        return fail(Messages.get("cli.error.deviceConflictsWithPartitionDevice"), json);
+                    }
+                    if (image == null || !"dd-v1".equals(image.strategy())) {
+                        return fail(Messages.get("cli.error.partitionDeviceRequiresAtom"), json);
+                    }
+                    target = FlashTarget.blockDevices(resolvePartitionDevices(requestedPartitionDevices));
+                } else if (image != null && "dd-v1".equals(image.strategy()) && image.partitionMap().size() > 1) {
+                    return fail(
+                            Messages.get("cli.error.missingPartitionTargets", String.join(", ", image.partitionMap().keySet())),
+                            json);
+                } else if (image != null && fastbootStrategy(image.strategy())) {
+                    if (requestedDeviceId == null) {
+                        return fail(Messages.get("cli.error.missingTargetDevice"), json);
+                    }
                     @Nullable FastbootDevice fastbootDevice = services.fastboot().findDevice(requestedDeviceId);
                     if (fastbootDevice == null) {
                         return fail(Messages.get("cli.error.unknownTargetDevice", requestedDeviceId), json);
                     }
                     target = FlashTarget.fastbootDevice(fastbootDevice);
                 } else {
+                    if (requestedDeviceId == null) {
+                        return fail(Messages.get("cli.error.missingTargetDevice"), json);
+                    }
                     @Nullable BlockDevice blockDevice = services.devices().findDevice(requestedDeviceId);
                     if (blockDevice == null) {
                         return fail(Messages.get("cli.error.unknownTargetDevice", requestedDeviceId), json);
@@ -711,6 +734,63 @@ public final class CliApplication implements Runnable {
             } catch (IOException | RuntimeException e) {
                 return fail(exceptionMessage(e), json);
             }
+        }
+
+        /// Parses partition target mapping options.
+        ///
+        /// @param specs raw option values.
+        /// @return immutable partition target id map.
+        private static @Unmodifiable Map<String, String> parsePartitionDeviceSpecs(List<String> specs) {
+            LinkedHashMap<String, String> result = new LinkedHashMap<>();
+            for (String spec : specs) {
+                int delimiterIndex = spec.indexOf('=');
+                if (delimiterIndex <= 0 || delimiterIndex == spec.length() - 1) {
+                    throw new IllegalArgumentException(Messages.get("cli.error.invalidPartitionDevice", spec));
+                }
+
+                String partition = spec.substring(0, delimiterIndex).strip();
+                String device = spec.substring(delimiterIndex + 1).strip();
+                if (partition.isEmpty() || device.isEmpty()) {
+                    throw new IllegalArgumentException(Messages.get("cli.error.invalidPartitionDevice", spec));
+                }
+                if (result.put(partition, device) != null) {
+                    throw new IllegalArgumentException(Messages.get("cli.error.duplicatePartitionDevice", partition));
+                }
+            }
+            return Collections.unmodifiableMap(result);
+        }
+
+        /// Resolves partition target device ids to block devices.
+        ///
+        /// @param partitionDeviceIds partition target device ids.
+        /// @return immutable partition target device map.
+        /// @throws IOException when device enumeration fails.
+        private @Unmodifiable Map<String, BlockDevice> resolvePartitionDevices(
+                @Unmodifiable Map<String, String> partitionDeviceIds) throws IOException {
+            @Unmodifiable List<BlockDevice> devices = services.devices().listDevices();
+            LinkedHashMap<String, BlockDevice> result = new LinkedHashMap<>();
+            for (Map.Entry<String, String> entry : partitionDeviceIds.entrySet()) {
+                @Nullable BlockDevice device = findBlockDevice(devices, entry.getValue());
+                if (device == null) {
+                    throw new IllegalArgumentException(Messages.get("cli.error.unknownTargetDevice", entry.getValue()));
+                }
+                result.put(entry.getKey(), device);
+            }
+            return Collections.unmodifiableMap(result);
+        }
+
+        /// Finds a block device by id in an already enumerated device list.
+        ///
+        /// @param devices device list.
+        /// @param id target device id.
+        /// @return matching device, or null when not found.
+        private static @Nullable BlockDevice findBlockDevice(@Unmodifiable List<BlockDevice> devices, String id) {
+            for (BlockDevice device : devices) {
+                if (device.id().equals(id)) {
+                    return device;
+                }
+            }
+            return null;
         }
     }
 

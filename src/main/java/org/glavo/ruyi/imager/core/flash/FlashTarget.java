@@ -8,18 +8,34 @@ import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
+
+import java.util.Map;
 
 /// Target selected for a flash operation.
 ///
 /// @param blockDevice block device target for local writes.
+/// @param blockDevices partition-specific block device targets for multi-partition local writes.
 /// @param fastbootDevice fastboot target for fastboot strategies.
 @NotNullByDefault
 public record FlashTarget(
         @Nullable BlockDevice blockDevice,
+        @Unmodifiable Map<String, BlockDevice> blockDevices,
         @Nullable FastbootDevice fastbootDevice) {
-    /// Validates that exactly one concrete target is selected.
+    /// Copies target maps and validates that exactly one concrete target mode is selected.
     public FlashTarget {
-        if ((blockDevice == null) == (fastbootDevice == null)) {
+        blockDevices = Map.copyOf(blockDevices);
+        int selectedModes = 0;
+        if (blockDevice != null) {
+            selectedModes++;
+        }
+        if (!blockDevices.isEmpty()) {
+            selectedModes++;
+        }
+        if (fastbootDevice != null) {
+            selectedModes++;
+        }
+        if (selectedModes != 1) {
             throw new IllegalArgumentException(Messages.get("core.flash.exactlyOneTarget"));
         }
     }
@@ -29,7 +45,15 @@ public record FlashTarget(
     /// @param blockDevice target block device.
     /// @return flash target.
     public static FlashTarget blockDevice(BlockDevice blockDevice) {
-        return new FlashTarget(blockDevice, null);
+        return new FlashTarget(blockDevice, Map.of(), null);
+    }
+
+    /// Creates partition-specific block device targets.
+    ///
+    /// @param blockDevices target block devices keyed by partition name.
+    /// @return flash target.
+    public static FlashTarget blockDevices(@Unmodifiable Map<String, BlockDevice> blockDevices) {
+        return new FlashTarget(null, blockDevices, null);
     }
 
     /// Creates a fastboot target.
@@ -37,14 +61,14 @@ public record FlashTarget(
     /// @param fastbootDevice target fastboot device.
     /// @return flash target.
     public static FlashTarget fastbootDevice(FastbootDevice fastbootDevice) {
-        return new FlashTarget(null, fastbootDevice);
+        return new FlashTarget(null, Map.of(), fastbootDevice);
     }
 
-    /// Returns whether the target is a block device.
+    /// Returns whether the target uses block devices.
     ///
-    /// @return whether a block device is selected.
+    /// @return whether one or more block devices are selected.
     public boolean isBlockDevice() {
-        return blockDevice != null;
+        return blockDevice != null || !blockDevices.isEmpty();
     }
 
     /// Returns whether the target is a fastboot device.
