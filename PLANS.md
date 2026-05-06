@@ -7,7 +7,7 @@
 - 构建一个 Java 25 应用，通过共享 core service 同时支持 CLI 和 JavaFX GUI 刷写镜像。
 - GUI 采用类似 Armbian Imager 的流程：目录镜像按 Manufacturer -> Board -> Operating System 选择，本地镜像作为并列二选一入口，然后选择 storage 或 fastboot 目标。
 - 镜像元数据、下载、校验和物化逻辑从 Ruyi 语义移植到 Java；不嵌入 Starlark，不依赖外部 `ruyi` 命令。
-- 保留破坏性写入安全门；默认只执行当前应用明确支持的刷写策略。
+- 默认只执行当前应用明确支持的刷写策略。
 
 ### Implemented
 
@@ -41,10 +41,3 @@
   - `GRADLE_OPTS=-Dhttps.proxyHost=p.g -Dhttps.proxyPort=7890 --sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED`
   - `ZIG_EXECUTABLE=D:\Application\zig-x86_64-windows-0.16.0\zig.exe`
 - 注意：Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝；需要沙箱外只读运行验证。
-
-### Constraints
-
-- Java 代码遵守仓库 `AGENTS.md`：`@NotNullByDefault`、nullable 标注、record 优先、immutable collection 标注、Markdown Javadoc。
-- GUI “类似 Armbian Imager”指交互结构和信息架构相似，不复制代码或视觉资产。
-- CLI 必须保留 `--yes` 破坏性操作安全门；GUI 必须保留最终确认弹窗。
-- 默认拒绝系统盘、已挂载目标和只读目标。
