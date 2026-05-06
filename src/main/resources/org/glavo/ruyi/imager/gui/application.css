@@ -270,18 +270,23 @@
     -fx-background-radius: 2em;
 }
 
+.selection-search-row {
+    -fx-alignment: center-right;
+}
+
 .selection-search {
     -fx-background-color: #ffffff;
+    -fx-background-insets: 0;
     -fx-border-color: #d6e0ea;
+    -fx-border-width: 1;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
-    -fx-padding: 0 14;
+    -fx-padding: 0 12;
     -fx-font-size: 14px;
 }
 
-.selection-search .text-field {
-    -fx-padding: 0;
-    -fx-background-color: transparent;
+.selection-search:focused {
+    -fx-border-color: #8fb7c5;
 }
 
 .selection-list-view .list-cell {

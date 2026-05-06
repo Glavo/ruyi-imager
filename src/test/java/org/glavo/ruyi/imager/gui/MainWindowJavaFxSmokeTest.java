@@ -4,7 +4,7 @@
 package org.glavo.ruyi.imager.gui;
 
 import io.github.palexdev.materialfx.controls.MFXComboBox;
-import io.github.palexdev.materialfx.controls.MFXTextField;
+import javafx.scene.control.TextField;
 import javafx.application.Platform;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
@@ -13,6 +13,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.ScrollBar;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.AppServices;
@@ -106,7 +107,8 @@ public final class MainWindowJavaFxSmokeTest {
                 TreeView<MainWindow.OperatingSystemTreeNode> treeView = MainWindow.selectionTreeView();
                 Node content = MainWindow.operatingSystemSelectionContent(treeView, List.of(revyos, ubuntu), revyos);
                 VBox contentBox = assertInstanceOf(VBox.class, content);
-                MFXTextField searchField = assertInstanceOf(MFXTextField.class, contentBox.getChildren().get(0));
+                HBox searchRow = assertInstanceOf(HBox.class, contentBox.getChildren().get(0));
+                TextField searchField = assertInstanceOf(TextField.class, searchRow.getChildren().getFirst());
 
                 assertEquals(revyos, MainWindow.selectedTreeImage(treeView));
 

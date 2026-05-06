@@ -15,6 +15,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
+import javafx.scene.control.TextField;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
@@ -32,7 +33,6 @@ import io.github.palexdev.materialfx.controls.MFXButton;
 import io.github.palexdev.materialfx.controls.MFXComboBox;
 import io.github.palexdev.materialfx.controls.MFXProgressBar;
 import io.github.palexdev.materialfx.controls.MFXScrollPane;
-import io.github.palexdev.materialfx.controls.MFXTextField;
 import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListCell;
 import io.github.palexdev.materialfx.controls.legacy.MFXLegacyListView;
 import io.github.palexdev.materialfx.dialogs.MFXGenericDialog;
@@ -518,7 +518,7 @@ public final class MainWindow {
             ListView<T> listView,
             List<T> items,
             BiPredicate<T, String> matcher) {
-        MFXTextField searchField = selectionSearchField();
+        TextField searchField = selectionSearchField();
 
         FilteredList<T> filteredItems = new FilteredList<>(FXCollections.observableArrayList(items));
         listView.setItems(filteredItems);
@@ -533,7 +533,7 @@ public final class MainWindow {
             }
         });
 
-        VBox content = new VBox(10, searchField, listView);
+        VBox content = new VBox(10, selectionSearchRow(searchField), listView);
         content.setMinWidth(SELECTION_LIST_WIDTH);
         content.setPrefWidth(SELECTION_LIST_WIDTH);
         content.setMaxWidth(SELECTION_LIST_WIDTH);
@@ -546,17 +546,31 @@ public final class MainWindow {
     /// Creates the search field used by selection dialogs.
     ///
     /// @return selection search field.
-    private static MFXTextField selectionSearchField() {
-        MFXTextField searchField = new MFXTextField();
+    private static TextField selectionSearchField() {
+        TextField searchField = new TextField();
         searchField.promptTextProperty().bind(Messages.binding("gui.search.placeholder"));
-        searchField.setMinWidth(SELECTION_LIST_WIDTH);
-        searchField.setPrefWidth(SELECTION_LIST_WIDTH);
-        searchField.setMaxWidth(SELECTION_LIST_WIDTH);
-        searchField.setMinHeight(42.0);
-        searchField.setPrefHeight(42.0);
-        searchField.setMaxHeight(42.0);
+        searchField.setMinWidth(320.0);
+        searchField.setPrefWidth(320.0);
+        searchField.setMaxWidth(320.0);
+        searchField.setMinHeight(36.0);
+        searchField.setPrefHeight(36.0);
+        searchField.setMaxHeight(36.0);
         searchField.getStyleClass().add("selection-search");
         return searchField;
+    }
+
+    /// Creates a row that aligns a selection search field to the right edge.
+    ///
+    /// @param searchField search field.
+    /// @return search row.
+    private static HBox selectionSearchRow(TextField searchField) {
+        HBox row = new HBox(searchField);
+        row.setAlignment(Pos.CENTER_RIGHT);
+        row.setMinWidth(SELECTION_LIST_WIDTH);
+        row.setPrefWidth(SELECTION_LIST_WIDTH);
+        row.setMaxWidth(SELECTION_LIST_WIDTH);
+        row.getStyleClass().add("selection-search-row");
+        return row;
     }
 
     /// Wraps an operating system tree with search.
@@ -569,7 +583,7 @@ public final class MainWindow {
             TreeView<OperatingSystemTreeNode> treeView,
             List<ImageEntry> images,
             @Nullable ImageEntry currentImage) {
-        MFXTextField searchField = selectionSearchField();
+        TextField searchField = selectionSearchField();
 
         Runnable refreshTree = () -> {
             String query = normalizeSearchQuery(searchField.getText());
@@ -584,7 +598,7 @@ public final class MainWindow {
         searchField.textProperty().addListener((_, _, _) -> refreshTree.run());
         populateOperatingSystemTree(treeView, images, "", currentImage);
 
-        VBox content = new VBox(10, searchField, treeView);
+        VBox content = new VBox(10, selectionSearchRow(searchField), treeView);
         content.setMinWidth(SELECTION_LIST_WIDTH);
         content.setPrefWidth(SELECTION_LIST_WIDTH);
         content.setMaxWidth(SELECTION_LIST_WIDTH);
