@@ -6,7 +6,11 @@ package org.glavo.ruyi.imager.gui;
 import io.github.palexdev.materialfx.controls.MFXComboBox;
 import io.github.palexdev.materialfx.controls.MFXTextField;
 import javafx.application.Platform;
+import javafx.geometry.Orientation;
 import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.scene.control.ScrollBar;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
 import javafx.scene.layout.VBox;
@@ -38,11 +42,14 @@ import org.opentest4j.TestAbortedException;
 
 import java.awt.GraphicsEnvironment;
 import java.io.IOException;
+import java.net.URL;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -53,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Smoke tests for JavaFX controls used by the main window selection flows.
 @NotNullByDefault
@@ -144,6 +152,33 @@ public final class MainWindowJavaFxSmokeTest {
         });
     }
 
+    /// Verifies that the operating-system tree keeps a visible vertical scrollbar.
+    ///
+    /// @throws Exception when JavaFX execution fails.
+    @Test
+    public void showsOperatingSystemTreeScrollbar() throws Exception {
+        runOnJavaFxThread(() -> {
+            TreeView<MainWindow.OperatingSystemTreeNode> treeView = MainWindow.selectionTreeView();
+            Node content = MainWindow.operatingSystemSelectionContent(treeView, manyImages(), null);
+            Parent parent = assertInstanceOf(Parent.class, content);
+            Scene scene = new Scene(parent);
+            @Nullable String stylesheet = applicationStylesheet();
+            assertNotNull(stylesheet);
+            scene.getStylesheets().add(stylesheet);
+
+            parent.applyCss();
+            parent.layout();
+            treeView.applyCss();
+            treeView.layout();
+
+            @Nullable ScrollBar verticalScrollBar = verticalScrollBar(treeView);
+            assertNotNull(verticalScrollBar);
+            assertTrue(verticalScrollBar.prefWidth(-1.0) > 0.0);
+            assertTrue(verticalScrollBar.isVisible());
+            return null;
+        });
+    }
+
     /// Runs an action on the JavaFX application thread.
     ///
     /// @param action action to run.
@@ -192,6 +227,44 @@ public final class MainWindowJavaFxSmokeTest {
         selector.getItems().setAll(devices);
         selector.setValue(selected);
         return selector;
+    }
+
+    /// Finds the vertical scrollbar inside a tree view.
+    ///
+    /// @param treeView tree view.
+    /// @return vertical scrollbar, or null when no scrollbar exists.
+    private static @Nullable ScrollBar verticalScrollBar(TreeView<?> treeView) {
+        Set<Node> scrollBars = treeView.lookupAll(".scroll-bar");
+        for (Node node : scrollBars) {
+            if (node instanceof ScrollBar scrollBar && scrollBar.getOrientation() == Orientation.VERTICAL) {
+                return scrollBar;
+            }
+        }
+        return null;
+    }
+
+    /// Returns the application stylesheet for GUI smoke tests.
+    ///
+    /// @return stylesheet URL, or null when missing.
+    private static @Nullable String applicationStylesheet() {
+        @Nullable URL stylesheet = MainWindow.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
+        return stylesheet == null ? null : stylesheet.toExternalForm();
+    }
+
+    /// Creates enough image entries to require scrolling in the operating-system tree.
+    ///
+    /// @return image list.
+    private static @Unmodifiable List<ImageEntry> manyImages() {
+        ArrayList<ImageEntry> images = new ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            images.add(image(
+                    "ubuntu-test-" + i,
+                    "Ubuntu image " + i + " for Test Board",
+                    "generic",
+                    "dd-v1",
+                    Map.of("disk", "ubuntu-" + i + ".raw")));
+        }
+        return List.copyOf(images);
     }
 
     /// Creates an image entry for GUI smoke tests.

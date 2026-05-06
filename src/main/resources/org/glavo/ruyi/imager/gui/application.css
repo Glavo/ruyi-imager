@@ -198,7 +198,6 @@
     -fx-background-color: transparent;
 }
 
-.selection-tree-view > .virtual-flow > .scroll-bar,
 .selection-tree-view > .virtual-flow > .scroll-bar .decrement-arrow,
 .selection-tree-view > .virtual-flow > .scroll-bar .increment-arrow,
 .selection-tree-view > .virtual-flow > .scroll-bar .decrement-button,
