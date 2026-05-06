@@ -501,7 +501,7 @@ public final class CliApplicationTest {
         ImageCatalogService images = new RuyiImageCatalogService(directories, repositoryStore);
         return new AppServices(
                 directories,
-                new RuyiRepositoryService(repositoryStore),
+                new RuyiRepositoryService(repositoryStore, images::invalidateCache),
                 images,
                 devices,
                 fastboot,

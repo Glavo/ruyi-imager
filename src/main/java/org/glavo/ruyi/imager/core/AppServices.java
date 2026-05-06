@@ -47,8 +47,8 @@ public record AppServices(
         LOGGER.info("Creating default application services.");
         AppDirectories directories = AppDirectories.defaults();
         RuyiRepositoryStore repositoryStore = new RuyiRepositoryStore(directories);
-        RepositoryService repository = new RuyiRepositoryService(repositoryStore);
         ImageCatalogService images = new RuyiImageCatalogService(directories, repositoryStore);
+        RepositoryService repository = new RuyiRepositoryService(repositoryStore, images::invalidateCache);
         BlockDeviceService devices = new PlatformBlockDeviceService();
         FastbootService fastboot = new ProcessFastbootService();
         FlashService flash = new LocalFlashService(images, fastboot, createBlockDevicePreparer());

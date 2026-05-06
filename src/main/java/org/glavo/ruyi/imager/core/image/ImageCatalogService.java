@@ -19,6 +19,10 @@ public interface ImageCatalogService {
     /// @throws IOException when local metadata cannot be read.
     ImageCatalog listImages() throws IOException;
 
+    /// Invalidates any in-memory metadata cache maintained by this service.
+    default void invalidateCache() {
+    }
+
     /// Finds one image by atom name.
     ///
     /// @param atom image atom name.

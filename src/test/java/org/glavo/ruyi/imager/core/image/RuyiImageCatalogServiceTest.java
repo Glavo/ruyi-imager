@@ -70,6 +70,37 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals(List.of("images"), distfile.prefixesToUnpack());
     }
 
+    /// Verifies image metadata is cached until explicitly invalidated.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when test fixture files cannot be created or read.
+    @Test
+    public void cachesImageCatalogUntilInvalidated(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        writeConfig(configDirectory, repoDirectory);
+        writeRepositoryConfig(repoDirectory);
+        writeImageManifest(repoDirectory, "1.2.3", "Original image", "original-image", "image.raw");
+
+        RuyiImageCatalogService service = new RuyiImageCatalogService(
+                new AppDirectories(configDirectory, cacheDirectory),
+                new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory)));
+
+        ImageCatalog firstCatalog = service.listImages();
+        writeImageManifest(repoDirectory, "1.2.3", "Updated image", "updated-image", "image.raw");
+        ImageCatalog cachedCatalog = service.listImages();
+
+        assertEquals(firstCatalog, cachedCatalog);
+        assertEquals("Original image", cachedCatalog.images().getFirst().displayName());
+
+        service.invalidateCache();
+        ImageCatalog refreshedCatalog = service.listImages();
+
+        assertEquals("Updated image", refreshedCatalog.images().getFirst().displayName());
+    }
+
     /// Verifies fetch_restriction declarations are rendered from repository messages.
     ///
     /// @param temporaryDirectory temporary test directory.

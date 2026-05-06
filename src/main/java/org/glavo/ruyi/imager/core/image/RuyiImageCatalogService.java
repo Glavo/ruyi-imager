@@ -62,6 +62,9 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// Materializer used to prepare flashable artifacts.
     private final RuyiImageMaterializer materializer;
 
+    /// Cached catalog snapshot read from repository metadata.
+    private @Nullable ImageCatalog cachedCatalog;
+
     /// Creates the catalog service.
     ///
     /// @param directories application directories.
@@ -104,7 +107,31 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// @return currently known image catalog.
     /// @throws IOException when local metadata cannot be read.
     @Override
-    public ImageCatalog listImages() throws IOException {
+    public synchronized ImageCatalog listImages() throws IOException {
+        ImageCatalog catalog = cachedCatalog;
+        if (catalog != null) {
+            int imageCount = catalog.images().size();
+            LOGGER.fine(() -> "Using cached image catalog. images=" + imageCount);
+            return catalog;
+        }
+
+        catalog = loadImages();
+        cachedCatalog = catalog;
+        return catalog;
+    }
+
+    /// Invalidates the in-memory image catalog cache.
+    @Override
+    public synchronized void invalidateCache() {
+        cachedCatalog = null;
+        LOGGER.info("Image catalog cache invalidated.");
+    }
+
+    /// Loads images from repository metadata.
+    ///
+    /// @return loaded image catalog.
+    /// @throws IOException when local metadata cannot be read.
+    private ImageCatalog loadImages() throws IOException {
         LOGGER.info("Listing image catalog.");
         ArrayList<ImageEntry> images = new ArrayList<>();
         HashSet<String> seenPackages = new HashSet<>();
