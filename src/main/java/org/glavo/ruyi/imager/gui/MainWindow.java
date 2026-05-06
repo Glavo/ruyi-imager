@@ -331,6 +331,8 @@ public final class MainWindow {
 
         Label catalogTitle = localizedLabel("gui.choice.catalog");
         catalogTitle.getStyleClass().add("choice-title");
+        catalogTitle.setAlignment(Pos.CENTER);
+        catalogTitle.setMaxWidth(Double.MAX_VALUE);
 
         VBox catalogFlow = new VBox(12,
                 catalogTitle,
@@ -342,17 +344,21 @@ public final class MainWindow {
 
         Label localTitle = localizedLabel("gui.choice.local");
         localTitle.getStyleClass().add("choice-title");
+        localTitle.setAlignment(Pos.CENTER);
+        localTitle.setMaxWidth(Double.MAX_VALUE);
 
         VBox localFlow = new VBox(12, localTitle, createLocalImageOption());
         localFlow.setAlignment(Pos.TOP_CENTER);
-        localFlow.setFillWidth(false);
         localFlow.getStyleClass().add("local-choice");
         HBox.setHgrow(localFlow, Priority.ALWAYS);
 
         Label separator = localizedLabel("gui.choice.or");
         separator.getStyleClass().add("choice-separator");
+        VBox separatorBox = new VBox(separator);
+        separatorBox.setAlignment(Pos.CENTER);
+        separatorBox.prefHeightProperty().bind(catalogFlow.heightProperty());
 
-        HBox sourceChoices = new HBox(16, catalogFlow, separator, localFlow);
+        HBox sourceChoices = new HBox(16, catalogFlow, separatorBox, localFlow);
         sourceChoices.setAlignment(Pos.TOP_CENTER);
         sourceChoices.getStyleClass().add("source-choices");
 

@@ -46,6 +46,7 @@
 }
 
 .choice-title {
+    -fx-alignment: center;
     -fx-font-size: 15px;
     -fx-font-weight: 700;
     -fx-text-fill: #18212b;
