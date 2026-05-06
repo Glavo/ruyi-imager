@@ -34,7 +34,7 @@
 }
 
 .source-choices {
-    -fx-alignment: center;
+    -fx-alignment: top-center;
 }
 
 .catalog-choice {

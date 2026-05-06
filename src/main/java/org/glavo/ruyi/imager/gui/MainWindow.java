@@ -344,7 +344,7 @@ public final class MainWindow {
         localTitle.getStyleClass().add("choice-title");
 
         VBox localFlow = new VBox(12, localTitle, createLocalImageOption());
-        localFlow.setAlignment(Pos.CENTER);
+        localFlow.setAlignment(Pos.TOP_CENTER);
         localFlow.setFillWidth(false);
         localFlow.getStyleClass().add("local-choice");
         HBox.setHgrow(localFlow, Priority.ALWAYS);
@@ -353,7 +353,7 @@ public final class MainWindow {
         separator.getStyleClass().add("choice-separator");
 
         HBox sourceChoices = new HBox(16, catalogFlow, separator, localFlow);
-        sourceChoices.setAlignment(Pos.CENTER);
+        sourceChoices.setAlignment(Pos.TOP_CENTER);
         sourceChoices.getStyleClass().add("source-choices");
 
         VBox workflow = new VBox(14,
