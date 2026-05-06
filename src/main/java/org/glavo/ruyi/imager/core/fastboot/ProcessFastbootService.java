@@ -29,6 +29,15 @@ public final class ProcessFastbootService implements FastbootService {
     /// Timeout used for fastboot device enumeration.
     private static final Duration DEVICES_TIMEOUT = Duration.ofSeconds(15);
 
+    /// Timeout used for one fastboot device polling command.
+    private static final Duration DEVICE_POLL_TIMEOUT = Duration.ofSeconds(3);
+
+    /// Maximum time to wait for a board to reconnect after rebooting.
+    private static final Duration RECONNECT_TIMEOUT = Duration.ofSeconds(45);
+
+    /// Delay between reconnect polling attempts.
+    private static final Duration RECONNECT_POLL_INTERVAL = Duration.ofSeconds(1);
+
     /// Timeout used for one fastboot flashing command.
     private static final Duration FLASH_TIMEOUT = Duration.ofMinutes(30);
 
@@ -41,6 +50,9 @@ public final class ProcessFastbootService implements FastbootService {
     /// Fastboot executable name or path.
     private final String executable;
 
+    /// Command runner used for fastboot process execution.
+    private final CommandRunner runner;
+
     /// Creates a service using `fastboot` from `PATH`.
     public ProcessFastbootService() {
         this("fastboot");
@@ -50,7 +62,16 @@ public final class ProcessFastbootService implements FastbootService {
     ///
     /// @param executable executable name or path.
     public ProcessFastbootService(String executable) {
+        this(executable, ProcessFastbootService::runProcessCommand);
+    }
+
+    /// Creates a service with a custom command runner.
+    ///
+    /// @param executable executable name or path.
+    /// @param runner command runner.
+    ProcessFastbootService(String executable, CommandRunner runner) {
         this.executable = executable;
+        this.runner = runner;
     }
 
     /// Lists devices currently visible to fastboot.
@@ -59,7 +80,7 @@ public final class ProcessFastbootService implements FastbootService {
     /// @throws IOException when fastboot cannot be executed.
     @Override
     public @Unmodifiable List<FastbootDevice> listDevices() throws IOException {
-        CommandResult result = runCommand(List.of(executable, "devices"), DEVICES_TIMEOUT);
+        CommandResult result = runner.run(List.of(executable, "devices"), DEVICES_TIMEOUT);
         if (result.timedOut()) {
             throw new IOException(Messages.get("core.fastboot.timeout", commandText(List.of(executable, "devices"))));
         }
@@ -132,15 +153,18 @@ public final class ProcessFastbootService implements FastbootService {
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
-        for (Map.Entry<String, Path> entry : orderedPartitions(partitions)) {
+        @Unmodifiable List<Map.Entry<String, Path>> ordered = orderedPartitions(partitions);
+        int totalSteps = ordered.size();
+        for (int i = 0; i < ordered.size(); i++) {
+            Map.Entry<String, Path> entry = ordered.get(i);
             String partition = entry.getKey();
-            reporter.report(ProgressEvent.indeterminate(
-                    "fastboot",
-                    Messages.get("core.fastboot.flashingPartition", partition)));
+            String message = Messages.get("core.fastboot.flashingPartition", partition);
+            reporter.report(progress(message, i, totalSteps));
             OperationResult result = runFastboot(device, List.of("flash", partition, entry.getValue().toString()));
             if (!result.success()) {
                 return result;
             }
+            reporter.report(progress(message, i + 1, totalSteps));
         }
         return OperationResult.success(Messages.get("core.fastboot.success"));
     }
@@ -161,25 +185,88 @@ public final class ProcessFastbootService implements FastbootService {
             return OperationResult.failure(Messages.get("core.fastboot.missingPartition", "uboot"));
         }
 
-        reporter.report(ProgressEvent.indeterminate("fastboot", Messages.get("core.fastboot.loadingLpi4aUboot")));
+        int totalSteps = 4;
+        reporter.report(progress(Messages.get("core.fastboot.loadingLpi4aUboot"), 0, totalSteps));
         OperationResult ramResult = runFastboot(device, List.of("flash", "ram", uboot.toString()));
         if (!ramResult.success()) {
             return ramResult;
         }
+        reporter.report(progress(Messages.get("core.fastboot.loadingLpi4aUboot"), 1, totalSteps));
 
-        reporter.report(ProgressEvent.indeterminate("fastboot", Messages.get("core.fastboot.rebooting")));
+        reporter.report(progress(Messages.get("core.fastboot.rebooting"), 1, totalSteps));
         OperationResult rebootResult = runFastboot(device, List.of("reboot"));
         if (!rebootResult.success()) {
             return rebootResult;
         }
+        reporter.report(progress(Messages.get("core.fastboot.rebooting"), 2, totalSteps));
 
-        reporter.report(ProgressEvent.indeterminate("fastboot", Messages.get("core.fastboot.flashingPartition", "uboot")));
+        OperationResult reconnectResult = waitForReconnect(device, reporter, 2, totalSteps);
+        if (!reconnectResult.success()) {
+            return reconnectResult;
+        }
+
+        String flashMessage = Messages.get("core.fastboot.flashingPartition", "uboot");
+        reporter.report(progress(flashMessage, 3, totalSteps));
         OperationResult ubootResult = runFastboot(device, List.of("flash", "uboot", uboot.toString()));
         if (!ubootResult.success()) {
             return ubootResult;
         }
+        reporter.report(progress(flashMessage, 4, totalSteps));
 
         return OperationResult.success(Messages.get("core.fastboot.success"));
+    }
+
+    /// Waits for a device to reconnect after a fastboot reboot.
+    ///
+    /// @param device target fastboot device.
+    /// @param reporter progress reporter.
+    /// @param completedSteps completed progress steps.
+    /// @param totalSteps total progress steps.
+    /// @return operation result.
+    /// @throws IOException when fastboot cannot be executed or waiting is interrupted.
+    private OperationResult waitForReconnect(
+            FastbootDevice device,
+            ProgressReporter reporter,
+            int completedSteps,
+            int totalSteps) throws IOException {
+        long deadlineNanos = System.nanoTime() + RECONNECT_TIMEOUT.toNanos();
+        String message = Messages.get("core.fastboot.waitingReconnect", device.serial());
+        while (System.nanoTime() < deadlineNanos) {
+            reporter.report(progress(message, completedSteps, totalSteps));
+            CommandResult result = runner.run(List.of(executable, "devices"), DEVICE_POLL_TIMEOUT);
+            if (!result.timedOut() && result.exitCode() == 0 && containsDevice(parseDevices(result.output()), device.serial())) {
+                reporter.report(progress(message, completedSteps + 1, totalSteps));
+                return OperationResult.success(Messages.get("core.fastboot.reconnected", device.serial()));
+            }
+            sleepReconnectPoll();
+        }
+        return OperationResult.failure(Messages.get("core.fastboot.reconnectTimedOut", device.serial()));
+    }
+
+    /// Returns whether a parsed fastboot device list contains one serial.
+    ///
+    /// @param devices parsed devices.
+    /// @param serial expected device serial.
+    /// @return whether the serial is present.
+    private static boolean containsDevice(@Unmodifiable List<FastbootDevice> devices, String serial) {
+        for (FastbootDevice device : devices) {
+            if (device.serial().equals(serial)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Sleeps between reconnect polling attempts.
+    ///
+    /// @throws IOException when interrupted.
+    private static void sleepReconnectPoll() throws IOException {
+        try {
+            Thread.sleep(RECONNECT_POLL_INTERVAL.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(Messages.get("core.fastboot.reconnectInterrupted"), e);
+        }
     }
 
     /// Runs one fastboot command for a target device.
@@ -195,7 +282,7 @@ public final class ProcessFastbootService implements FastbootService {
         command.add(device.serial());
         command.addAll(arguments);
 
-        CommandResult result = runCommand(List.copyOf(command), FLASH_TIMEOUT);
+        CommandResult result = runner.run(List.copyOf(command), FLASH_TIMEOUT);
         String commandText = commandText(command);
         if (result.timedOut()) {
             return OperationResult.failure(Messages.get("core.fastboot.timeout", commandText));
@@ -216,7 +303,7 @@ public final class ProcessFastbootService implements FastbootService {
     /// @param timeout command timeout.
     /// @return command result.
     /// @throws IOException when the process cannot be started.
-    private static CommandResult runCommand(@Unmodifiable List<String> command, Duration timeout) throws IOException {
+    private static CommandResult runProcessCommand(@Unmodifiable List<String> command, Duration timeout) throws IOException {
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(true);
 
@@ -239,18 +326,27 @@ public final class ProcessFastbootService implements FastbootService {
             finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            process.destroyForcibly();
+            destroyProcess(process, reader);
             throw new IOException(Messages.get("core.fastboot.interrupted", commandText(command)), e);
         }
 
         if (!finished) {
-            process.destroyForcibly();
-            joinReader(reader);
+            destroyProcess(process, reader);
             return new CommandResult(-1, output.toString(), true);
         }
 
         joinReader(reader);
         return new CommandResult(process.exitValue(), output.toString(), false);
+    }
+
+    /// Destroys a process and waits briefly for output cleanup.
+    ///
+    /// @param process process to destroy.
+    /// @param reader output reader thread.
+    /// @throws IOException when interrupted while waiting for output cleanup.
+    private static void destroyProcess(Process process, Thread reader) throws IOException {
+        process.destroyForcibly();
+        joinReader(reader);
     }
 
     /// Reads process output into a shared buffer.
@@ -311,6 +407,16 @@ public final class ProcessFastbootService implements FastbootService {
         return index < 0 ? PARTITION_ORDER.size() : index;
     }
 
+    /// Creates a determinate fastboot progress event.
+    ///
+    /// @param message progress message.
+    /// @param currentStep completed step count.
+    /// @param totalSteps total step count.
+    /// @return progress event.
+    private static ProgressEvent progress(String message, int currentStep, int totalSteps) {
+        return new ProgressEvent("fastboot", message, (long) currentStep, (long) totalSteps);
+    }
+
     /// Formats a command line for diagnostics.
     ///
     /// @param command command arguments.
@@ -334,12 +440,25 @@ public final class ProcessFastbootService implements FastbootService {
         return trimmed.substring(0, MAX_OUTPUT_CHARS) + "...";
     }
 
+    /// Runs one command with a timeout.
+    @FunctionalInterface
+    @NotNullByDefault
+    interface CommandRunner {
+        /// Executes a command.
+        ///
+        /// @param command command line.
+        /// @param timeout command timeout.
+        /// @return command result.
+        /// @throws IOException when the command cannot be executed.
+        CommandResult run(@Unmodifiable List<String> command, Duration timeout) throws IOException;
+    }
+
     /// Captured command result.
     ///
     /// @param exitCode process exit code.
     /// @param output combined process output.
     /// @param timedOut whether the process timed out.
     @NotNullByDefault
-    private record CommandResult(int exitCode, String output, boolean timedOut) {
+    record CommandResult(int exitCode, String output, boolean timedOut) {
     }
 }

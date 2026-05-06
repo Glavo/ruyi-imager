@@ -18,7 +18,7 @@
 - Image catalog 已支持扫描 `packages/` 或旧 `manifests/`，解析 provisionable manifest、strategy、partition map、distfiles、checksums、mirror URL、slug，并优先按 Ruyi device entity 匹配开发板/variant、按 device id 推导开发板制造商，支持 atom/版本/slug/SemVer 选择。
 - Distfile 下载器已支持 HTTP/HTTPS、`.part` 续传、原子落盘、大小和 SHA-256/SHA-512 校验、缓存复用，以及 `restrict = ["fetch"]` 的手动下载提示。
 - Artifact 物化已支持 raw、gzip、bzip2、lz4、xz、zstd、zip、tar、tar.gz、tar.bz2、tar.lz4、tar.xz、tar.zst；tar 读取和压缩流读取已使用 `Glavo/kala-compress`；unsupported unpack method 会报告支持列表、下载文件和产物目录，并禁止显式未知 unpack 方法静默按 raw 复制。
-- 本地刷写已支持 `dd-v1` 和 `fastboot-v1` / `fastboot-v1(lpi4a-uboot)`；dd 使用本地块设备写入，支持单目标整盘镜像和多分区 target mapping，并会在多分区写入前预校验所有目标；fastboot 使用受控外部 `fastboot` 命令执行。
+- 本地刷写已支持 `dd-v1` 和 `fastboot-v1` / `fastboot-v1(lpi4a-uboot)`；dd 使用本地块设备写入，支持单目标整盘镜像和多分区 target mapping，并会在多分区写入前预校验所有目标；fastboot 使用受控外部 `fastboot` 命令执行，支持分区级进度、LPi4A reboot 后自动重连等待，以及超时/中断时的进程清理。
 - Windows、Linux 和 macOS 只读块设备枚举已接入，并会保留已挂载卷的挂载点用于 CLI/GUI 展示；Linux/macOS parser fixture 已覆盖，真实硬件仍需 smoke test。
 - GUI 已实现 MaterialFX 风格主窗口、更宽默认窗口、无阴影步骤控件和选择列表、运行时中英文切换、语言偏好持久化、目录镜像/本地镜像二选一流程且左右标题居中、“或”分隔符垂直居中、本地镜像卡片为等高纵向布局、渐进式步骤启用、树形操作系统分类选择、dd/fastboot 目标切换、多分区 `dd-v1` 目标映射流程、策略/缓存/目标风险状态标记、结构化最终确认弹窗。
 - i18n 基础设施已接入 `ResourceBundle`；`Messages` 提供 locale property 和 `StringBinding` helper，当前资源包含 English 和简体中文。
@@ -29,8 +29,6 @@
   - 在真实 Linux/macOS 设备上做只读枚举 smoke test。
   - 完善 Windows 写盘前的挂载/卷占用处理策略；当前只拒绝已挂载目标，不做自动卸载。
   - 评估是否需要原生/FFM 后端替代直接 `FileChannel` 写物理设备。
-- 刷写策略：
-  - 增加 fastboot 自动重连等待、取消、失败清理和更细粒度进度统计。
 - GUI：
   - 对树形操作系统选择器和多分区存储选择器做一次实际 JavaFX 交互 smoke test。
 - 测试：
