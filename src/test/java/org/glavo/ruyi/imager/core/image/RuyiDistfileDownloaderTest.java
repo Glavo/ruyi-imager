@@ -54,6 +54,7 @@ public final class RuyiDistfileDownloaderTest {
                     false,
                     true,
                     0,
+                    List.of(),
                     "raw");
 
             Path result = new RuyiDistfileDownloader().download(distfile, temporaryDirectory, NO_PROGRESS);
@@ -85,6 +86,7 @@ public final class RuyiDistfileDownloaderTest {
                     false,
                     true,
                     0,
+                    List.of(),
                     "raw");
 
             Path result = new RuyiDistfileDownloader().download(distfile, temporaryDirectory, NO_PROGRESS);

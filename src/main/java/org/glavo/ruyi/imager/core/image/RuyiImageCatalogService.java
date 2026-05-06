@@ -494,6 +494,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             @Nullable TomlTable checksumsTable = table.getTable("checksums");
             @Unmodifiable Map<String, String> checksums = checksumsTable == null ? Map.of() : readStringMap(checksumsTable);
             @Nullable Long stripComponents = table.getLong("strip_components");
+            @Unmodifiable List<String> prefixesToUnpack = readStringArray(table.getArray("prefixes_to_unpack"));
             result.add(new RuyiDistfile(
                     name,
                     metadata.resolveDistfileUrls(name, declaredUrls, restricts.contains("mirror")),
@@ -502,6 +503,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                     restricts.contains("fetch"),
                     restricts.contains("mirror"),
                     stripComponents == null ? 1 : Math.toIntExact(stripComponents),
+                    prefixesToUnpack,
                     table.getString("unpack")));
         }
         return List.copyOf(result);

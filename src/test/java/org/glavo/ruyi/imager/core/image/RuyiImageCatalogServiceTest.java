@@ -65,6 +65,7 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals(1024L, distfile.sizeBytes());
         assertEquals("0123456789abcdef", distfile.checksums().get("sha256"));
         assertEquals(List.of(URI.create("https://dist.example/dist/image.raw")), distfile.sourceUris());
+        assertEquals(List.of("images"), distfile.prefixesToUnpack());
     }
 
     /// Verifies Ruyi atom matching and latest stable version selection.
@@ -379,6 +380,7 @@ public final class RuyiImageCatalogServiceTest {
                         [[distfiles]]
                         name = "%s"
                         size = 1024
+                        prefixes_to_unpack = ["images"]
 
                         [distfiles.checksums]
                         sha256 = "0123456789abcdef"

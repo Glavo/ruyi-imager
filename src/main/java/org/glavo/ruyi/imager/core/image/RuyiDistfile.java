@@ -20,6 +20,7 @@ import java.util.Map;
 /// @param fetchRestricted whether automatic fetching is restricted.
 /// @param mirrorRestricted whether default mirrors are disabled.
 /// @param stripComponents archive path component count to strip.
+/// @param prefixesToUnpack archive path prefixes to extract for tar-based distfiles.
 /// @param unpack requested unpack method, or null for auto.
 @NotNullByDefault
 public record RuyiDistfile(
@@ -30,10 +31,12 @@ public record RuyiDistfile(
         boolean fetchRestricted,
         boolean mirrorRestricted,
         int stripComponents,
+        @Unmodifiable List<String> prefixesToUnpack,
         @Nullable String unpack) {
     /// Copies collections into immutable instances.
     public RuyiDistfile {
         sourceUris = List.copyOf(sourceUris);
         checksums = Map.copyOf(checksums);
+        prefixesToUnpack = List.copyOf(prefixesToUnpack);
     }
 }

@@ -10,9 +10,11 @@ import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
@@ -28,6 +30,7 @@ import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -145,6 +148,32 @@ public final class RuyiImageMaterializerTest {
         assertArrayEquals(content, Files.readAllBytes(result));
     }
 
+    /// Verifies tar distfiles honor prefixes_to_unpack.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void materializesTarDistfileWithPrefixesToUnpack(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "prefixed tar image".getBytes(StandardCharsets.UTF_8);
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.tar");
+        Files.createDirectories(source.getParent());
+        try (OutputStream output = Files.newOutputStream(source)) {
+            writeTarEntry(output, "root/images/image.raw", content);
+            writeTarEntry(output, "root/images-other/other.raw", "ignored".getBytes(StandardCharsets.UTF_8));
+            writeTarEntry(output, "root/ignored/other.raw", "ignored".getBytes(StandardCharsets.UTF_8));
+            finishTar(output);
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.tar", null, 1, List.of("root/images"), "images/image.raw");
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+
+        assertEquals(artifactDirectory.resolve("images/image.raw").toAbsolutePath().normalize(), result);
+        assertArrayEquals(content, Files.readAllBytes(result));
+        assertFalse(Files.exists(artifactDirectory.resolve("images-other/other.raw")));
+        assertFalse(Files.exists(artifactDirectory.resolve("ignored/other.raw")));
+    }
+
     /// Verifies tar.xz distfiles are extracted into the artifact directory.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -223,6 +252,30 @@ public final class RuyiImageMaterializerTest {
         assertArrayEquals(content, Files.readAllBytes(result));
     }
 
+    /// Verifies Debian package distfiles are extracted through their data tarball.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void materializesDebDistfile(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "deb image".getBytes(StandardCharsets.UTF_8);
+        ByteArrayOutputStream dataMember = new ByteArrayOutputStream();
+        try (GZIPOutputStream output = new GZIPOutputStream(dataMember)) {
+            writeTar(output, "usr/share/images/image.raw", content);
+        }
+
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.deb");
+        Files.createDirectories(source.getParent());
+        writeDeb(source, "data.tar.gz", dataMember.toByteArray());
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.deb", null, "usr/share/images/image.raw");
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+
+        assertEquals(artifactDirectory.resolve("usr/share/images/image.raw").toAbsolutePath().normalize(), result);
+        assertArrayEquals(content, Files.readAllBytes(result));
+    }
+
     /// Verifies tar path traversal entries are rejected.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -242,12 +295,12 @@ public final class RuyiImageMaterializerTest {
                 NO_PROGRESS));
     }
 
-    /// Verifies unsupported archive formats fail explicitly.
+    /// Verifies invalid Debian package distfiles fail explicitly.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when fixture files cannot be written.
     @Test
-    public void rejectsUnsupportedArchiveFormat(@TempDir Path temporaryDirectory) throws Exception {
+    public void rejectsInvalidDebArchive(@TempDir Path temporaryDirectory) throws Exception {
         Path source = temporaryDirectory.resolve("downloads").resolve("image.deb");
         Files.createDirectories(source.getParent());
         Files.write(source, new byte[]{1, 2, 3});
@@ -261,12 +314,8 @@ public final class RuyiImageMaterializerTest {
                 artifactDirectory,
                 NO_PROGRESS));
         String message = exception.getMessage();
-        assertTrue(message.contains("deb"), message);
-        assertTrue(message.contains("image.deb"), message);
-        assertTrue(message.contains("raw"), message);
-        assertTrue(message.contains("tar.zst"), message);
+        assertTrue(message.contains("Debian"), message);
         assertTrue(message.contains(source.toAbsolutePath().normalize().toString()), message);
-        assertTrue(message.contains(artifactDirectory.toAbsolutePath().normalize().toString()), message);
     }
 
     /// Verifies unknown declared unpack methods are not silently copied as raw files.
@@ -316,6 +365,23 @@ public final class RuyiImageMaterializerTest {
             @Nullable String unpack,
             int stripComponents,
             String partitionPath) {
+        return image(distfileName, unpack, stripComponents, List.of(), partitionPath);
+    }
+
+    /// Creates a minimal image entry.
+    ///
+    /// @param distfileName distfile name.
+    /// @param unpack unpack method.
+    /// @param stripComponents archive path components to strip.
+    /// @param prefixesToUnpack archive path prefixes to extract.
+    /// @param partitionPath partition image path.
+    /// @return image entry.
+    private static ImageEntry image(
+            String distfileName,
+            @Nullable String unpack,
+            int stripComponents,
+            @Unmodifiable List<String> prefixesToUnpack,
+            String partitionPath) {
         RuyiDistfile distfile = new RuyiDistfile(
                 distfileName,
                 List.of(URI.create("https://example.invalid/" + distfileName)),
@@ -324,6 +390,7 @@ public final class RuyiImageMaterializerTest {
                 false,
                 true,
                 stripComponents,
+                prefixesToUnpack,
                 unpack);
         return new ImageEntry(
                 "ruyisdk",
@@ -371,6 +438,46 @@ public final class RuyiImageMaterializerTest {
         }
     }
 
+    /// Writes a minimal Debian package archive.
+    ///
+    /// @param target target deb path.
+    /// @param dataMemberName data tar member name.
+    /// @param dataMember data tar member content.
+    /// @throws IOException when writing fails.
+    private static void writeDeb(Path target, String dataMemberName, byte @Unmodifiable [] dataMember) throws IOException {
+        try (OutputStream output = Files.newOutputStream(target)) {
+            output.write("!<arch>\n".getBytes(StandardCharsets.US_ASCII));
+            writeArMember(output, "debian-binary", "2.0\n".getBytes(StandardCharsets.US_ASCII));
+            writeArMember(output, dataMemberName, dataMember);
+        }
+    }
+
+    /// Writes one Unix ar member.
+    ///
+    /// @param output target stream.
+    /// @param name member name.
+    /// @param content member content.
+    /// @throws IOException when writing fails.
+    private static void writeArMember(
+            OutputStream output,
+            String name,
+            byte @Unmodifiable [] content) throws IOException {
+        String header = String.format(
+                Locale.ROOT,
+                "%-16s%-12d%-6d%-6d%-8s%-10d`\n",
+                name + "/",
+                0,
+                0,
+                0,
+                "100644",
+                content.length);
+        output.write(header.getBytes(StandardCharsets.US_ASCII));
+        output.write(content);
+        if ((content.length & 1) != 0) {
+            output.write('\n');
+        }
+    }
+
     /// Opens a compressed output stream.
     ///
     /// @param output backing output stream.
@@ -399,6 +506,20 @@ public final class RuyiImageMaterializerTest {
     /// @param content entry content.
     /// @throws IOException when writing fails.
     private static void writeTar(OutputStream output, String entryName, byte[] content) throws IOException {
+        writeTarEntry(output, entryName, content);
+        finishTar(output);
+    }
+
+    /// Writes one tar file entry.
+    ///
+    /// @param output target stream.
+    /// @param entryName archive entry name.
+    /// @param content entry content.
+    /// @throws IOException when writing fails.
+    private static void writeTarEntry(
+            OutputStream output,
+            String entryName,
+            byte @Unmodifiable [] content) throws IOException {
         byte[] header = new byte[512];
         byte[] name = entryName.getBytes(StandardCharsets.UTF_8);
         System.arraycopy(name, 0, header, 0, Math.min(name.length, 100));
@@ -428,6 +549,13 @@ public final class RuyiImageMaterializerTest {
         if (padding > 0) {
             output.write(new byte[padding]);
         }
+    }
+
+    /// Writes tar end-of-archive blocks.
+    ///
+    /// @param output target stream.
+    /// @throws IOException when writing fails.
+    private static void finishTar(OutputStream output) throws IOException {
         output.write(new byte[1024]);
     }
 
