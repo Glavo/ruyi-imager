@@ -30,6 +30,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for Ruyi distfile downloading.
 @NotNullByDefault
@@ -53,6 +55,7 @@ public final class RuyiDistfileDownloaderTest {
                     Map.of("sha256", sha256(content)),
                     false,
                     true,
+                    null,
                     0,
                     List.of(),
                     "raw");
@@ -85,6 +88,7 @@ public final class RuyiDistfileDownloaderTest {
                     Map.of("sha256", sha256(content)),
                     false,
                     true,
+                    null,
                     0,
                     List.of(),
                     "raw");
@@ -94,6 +98,34 @@ public final class RuyiDistfileDownloaderTest {
             assertArrayEquals(content, Files.readAllBytes(result));
             assertEquals(List.of("bytes=128-"), server.rangeRequests());
         }
+    }
+
+    /// Verifies that fetch-restricted distfiles report rendered manual instructions.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    @Test
+    public void reportsFetchRestrictionInstructions(@TempDir Path temporaryDirectory) {
+        RuyiDistfile distfile = new RuyiDistfile(
+                "manual.raw",
+                List.of(),
+                null,
+                Map.of(),
+                true,
+                true,
+                new RuyiFetchRestriction(
+                        Map.of("en_US", "Download with {{ method }} to {{ dest_path }}."),
+                        Map.of("method", "browser")),
+                0,
+                List.of(),
+                "raw");
+
+        IOException exception = assertThrows(IOException.class, () ->
+                new RuyiDistfileDownloader().download(distfile, temporaryDirectory, NO_PROGRESS));
+
+        String message = exception.getMessage();
+        assertTrue(message.contains("manual.raw"), message);
+        assertTrue(message.contains("browser"), message);
+        assertTrue(message.contains(temporaryDirectory.resolve("manual.raw").toAbsolutePath().normalize().toString()), message);
     }
 
     /// Computes a SHA-256 digest for bytes.

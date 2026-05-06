@@ -19,6 +19,7 @@ import java.util.Map;
 /// @param checksums expected checksums by algorithm.
 /// @param fetchRestricted whether automatic fetching is restricted.
 /// @param mirrorRestricted whether default mirrors are disabled.
+/// @param fetchRestriction manual fetch instructions.
 /// @param stripComponents archive path component count to strip.
 /// @param prefixesToUnpack archive path prefixes to extract for tar-based distfiles.
 /// @param unpack requested unpack method, or null for auto.
@@ -30,6 +31,7 @@ public record RuyiDistfile(
         @Unmodifiable Map<String, String> checksums,
         boolean fetchRestricted,
         boolean mirrorRestricted,
+        @Nullable RuyiFetchRestriction fetchRestriction,
         int stripComponents,
         @Unmodifiable List<String> prefixesToUnpack,
         @Nullable String unpack) {

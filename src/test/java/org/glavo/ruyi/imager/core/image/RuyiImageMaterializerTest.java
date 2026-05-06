@@ -389,6 +389,7 @@ public final class RuyiImageMaterializerTest {
                 Map.of(),
                 false,
                 true,
+                null,
                 stripComponents,
                 prefixesToUnpack,
                 unpack);

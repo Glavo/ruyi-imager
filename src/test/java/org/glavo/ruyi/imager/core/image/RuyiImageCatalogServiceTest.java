@@ -15,10 +15,12 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for Ruyi image catalog parsing.
 @NotNullByDefault
@@ -66,6 +68,34 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals("0123456789abcdef", distfile.checksums().get("sha256"));
         assertEquals(List.of(URI.create("https://dist.example/dist/image.raw")), distfile.sourceUris());
         assertEquals(List.of("images"), distfile.prefixesToUnpack());
+    }
+
+    /// Verifies fetch_restriction declarations are rendered from repository messages.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when test fixture files cannot be created or read.
+    @Test
+    public void parsesFetchRestrictionInstructions(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        writeConfig(configDirectory, repoDirectory);
+        writeRepositoryConfig(repoDirectory);
+        writeFetchRestrictedImageManifest(repoDirectory);
+
+        RuyiImageCatalogService service = new RuyiImageCatalogService(
+                new AppDirectories(configDirectory, cacheDirectory),
+                new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory)));
+
+        RuyiDistfile distfile = service.listImages().images().getFirst().distfiles().getFirst();
+
+        assertTrue(distfile.fetchRestricted());
+        @Nullable RuyiFetchRestriction fetchRestriction = distfile.fetchRestriction();
+        assertNotNull(fetchRestriction);
+        String instructions = fetchRestriction.render(Path.of("downloads").resolve("manual.raw"), Locale.ENGLISH);
+        assertTrue(instructions.contains("manual.raw"), instructions);
+        assertTrue(instructions.contains("manual"), instructions);
     }
 
     /// Verifies Ruyi atom matching and latest stable version selection.
@@ -279,6 +309,12 @@ public final class RuyiImageCatalogServiceTest {
                 id = "ruyi-dist"
                 urls = ["https://dist.example/dist/"]
                 """);
+        Files.writeString(repoDirectory.resolve("messages.toml"), """
+                ruyi-repo-messages = "v1"
+
+                ["manual/image"]
+                en_US = "Fetch this image manually to {{ dest_path }}."
+                """);
     }
 
     /// Writes one device entity fixture.
@@ -298,6 +334,46 @@ public final class RuyiImageCatalogServiceTest {
                         id = "%s"
                         display_name = "%s"
                         """.formatted(deviceId, deviceId));
+    }
+
+    /// Writes a fetch-restricted image manifest fixture.
+    ///
+    /// @param repoDirectory repository directory.
+    /// @throws Exception when fixture files cannot be written.
+    private static void writeFetchRestrictedImageManifest(Path repoDirectory) throws Exception {
+        Path packageDirectory = repoDirectory.resolve("packages").resolve("board-image").resolve("manual-milkv-meles");
+        Files.createDirectories(packageDirectory);
+        Files.writeString(
+                packageDirectory.resolve("1.2.3.toml"),
+                """
+                        format = "v1"
+                        kind = ["blob", "provisionable"]
+
+                        [metadata]
+                        desc = "Manual image for Milk-V Meles"
+                        slug = "manual-meles"
+                        vendor = { name = "PLCT", eula = "" }
+
+                        [[distfiles]]
+                        name = "manual.raw"
+                        size = 1024
+                        restrict = ["fetch"]
+
+                        [distfiles.fetch_restriction]
+                        msgid = "manual/image"
+
+                        [distfiles.checksums]
+                        sha256 = "0123456789abcdef"
+
+                        [blob]
+                        distfiles = ["manual.raw"]
+
+                        [provisionable]
+                        strategy = "dd-v1"
+
+                        [provisionable.partition_map]
+                        disk = "manual.raw"
+                        """);
     }
 
     /// Writes one image manifest fixture.

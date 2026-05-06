@@ -476,6 +476,8 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             return List.of();
         }
 
+        @Unmodifiable Map<String, @Unmodifiable Map<String, String>> repoMessages =
+                readRepoMessages(metadata.root().resolve("messages.toml"));
         ArrayList<RuyiDistfile> result = new ArrayList<>();
         for (int i = 0; i < array.size(); i++) {
             Object value = array.get(i);
@@ -495,6 +497,8 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             @Unmodifiable Map<String, String> checksums = checksumsTable == null ? Map.of() : readStringMap(checksumsTable);
             @Nullable Long stripComponents = table.getLong("strip_components");
             @Unmodifiable List<String> prefixesToUnpack = readStringArray(table.getArray("prefixes_to_unpack"));
+            @Nullable RuyiFetchRestriction fetchRestriction =
+                    readFetchRestriction(table.getTable("fetch_restriction"), repoMessages);
             result.add(new RuyiDistfile(
                     name,
                     metadata.resolveDistfileUrls(name, declaredUrls, restricts.contains("mirror")),
@@ -502,11 +506,74 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                     checksums,
                     restricts.contains("fetch"),
                     restricts.contains("mirror"),
+                    fetchRestriction,
                     stripComponents == null ? 1 : Math.toIntExact(stripComponents),
                     prefixesToUnpack,
                     table.getString("unpack")));
         }
         return List.copyOf(result);
+    }
+
+    /// Reads a fetch restriction declaration.
+    ///
+    /// @param table fetch restriction table.
+    /// @param repoMessages repository messages keyed by message id and language code.
+    /// @return fetch restriction, or null when absent or incomplete.
+    private static @Nullable RuyiFetchRestriction readFetchRestriction(
+            @Nullable TomlTable table,
+            @Unmodifiable Map<String, @Unmodifiable Map<String, String>> repoMessages) {
+        if (table == null) {
+            return null;
+        }
+
+        @Nullable String msgid = table.getString("msgid");
+        if (msgid == null || msgid.isBlank()) {
+            return null;
+        }
+
+        @Nullable Map<String, String> templates = repoMessages.get(msgid);
+        if (templates == null || templates.isEmpty()) {
+            return null;
+        }
+
+        @Nullable TomlTable paramsTable = table.getTable("params");
+        @Unmodifiable Map<String, String> params = paramsTable == null ? Map.of() : readStringMap(paramsTable);
+        return new RuyiFetchRestriction(templates, params);
+    }
+
+    /// Reads repository message templates.
+    ///
+    /// @param path messages.toml path.
+    /// @return messages keyed by message id and language code.
+    private static @Unmodifiable Map<String, @Unmodifiable Map<String, String>> readRepoMessages(Path path) {
+        if (!Files.isRegularFile(path)) {
+            return Map.of();
+        }
+
+        TomlParseResult messages;
+        try {
+            messages = Toml.parse(path);
+        } catch (IOException e) {
+            return Map.of();
+        }
+        if (messages.hasErrors() || !"v1".equals(messages.get(List.of("ruyi-repo-messages")))) {
+            return Map.of();
+        }
+
+        LinkedHashMap<String, @Unmodifiable Map<String, String>> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : messages.entrySet()) {
+            String key = entry.getKey();
+            if ("ruyi-repo-messages".equals(key)) {
+                continue;
+            }
+            if (entry.getValue() instanceof TomlTable table) {
+                @Unmodifiable Map<String, String> values = readStringMap(table);
+                if (!values.isEmpty()) {
+                    result.put(key, values);
+                }
+            }
+        }
+        return Map.copyOf(result);
     }
 
     /// Reads a restrict field that may be either a string or a string array.

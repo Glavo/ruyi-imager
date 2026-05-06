@@ -69,7 +69,7 @@ public final class RuyiDistfileDownloader {
         }
 
         if (distfile.fetchRestricted()) {
-            throw new IOException(Messages.get("core.download.manual", distfile.name()));
+            throw new IOException(manualDownloadMessage(distfile, target));
         }
 
         List<URI> sourceUris = distfile.sourceUris();
@@ -225,6 +225,24 @@ public final class RuyiDistfileDownloader {
 
         @Nullable String sha512 = checksums.get("sha512");
         return sha512 == null || sha512.equalsIgnoreCase(computeDigest(path, "SHA-512"));
+    }
+
+    /// Creates a manual download error message.
+    ///
+    /// @param distfile distfile declaration.
+    /// @param target expected target path.
+    /// @return manual download message.
+    private static String manualDownloadMessage(RuyiDistfile distfile, Path target) {
+        @Nullable RuyiFetchRestriction restriction = distfile.fetchRestriction();
+        if (restriction == null) {
+            return Messages.get("core.download.manual", distfile.name());
+        }
+
+        String instructions = restriction.render(target, Messages.locale());
+        if (instructions.isBlank()) {
+            return Messages.get("core.download.manual", distfile.name());
+        }
+        return Messages.get("core.download.manualWithInstructions", distfile.name(), instructions);
     }
 
     /// Computes a message digest for a file.
