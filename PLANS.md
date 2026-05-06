@@ -8,10 +8,12 @@
 - GUI 采用类似 Armbian Imager 的流程：目录镜像按 Manufacturer -> Board -> Operating System 选择，本地镜像作为并列二选一入口，然后选择 storage 或 fastboot 目标。
 - 镜像元数据、下载、校验和物化逻辑从 Ruyi 语义移植到 Java；不嵌入 Starlark，不依赖外部 `ruyi` 命令。
 - 默认只执行当前应用明确支持的刷写策略。
+- 将刷写、下载、设备枚举、日志和共享 i18n 作为内部 SDK 模块沉淀，方便后续独立测试和替换写入后端。
 
 ### Implemented
 
 - 工程入口：Java 25 Gradle `application`，无参数或 `gui` 启动 JavaFX，其他参数进入 CLI。
+- 模块化：Gradle 已拆分为 `:sdk` 和 `:app`；`:sdk` 使用 `java-library` 承载 core、i18n、logging 和对应单测，`:app` 承载 CLI、JavaFX GUI、发行包和应用层测试。
 - Core service：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FastbootService`、`FlashService` 已由 `AppServices` 统一组装，供 CLI/GUI 共享。
 - Ruyi metadata：支持默认 repo、用户配置覆盖、overlay repo、本地 repo、JGit clone/pull、mirror/dist URL 解析；catalog 支持 `packages/` 和旧 `manifests/`，并解析 provisionable manifest、strategy、partition map、distfiles、checksums、slug、device entity、SemVer/atom 选择。
 - Catalog cache：目录镜像元数据首次读取后缓存在 `ImageCatalogService` 内存快照中，GUI 的 manufacturer/board/OS 多步选择复用同一份 catalog；`repo update` 成功后自动失效缓存。
