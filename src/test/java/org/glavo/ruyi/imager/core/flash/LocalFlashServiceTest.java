@@ -57,6 +57,34 @@ public final class LocalFlashServiceTest {
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
     }
 
+    /// Writes a local image through an injected block image writer.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void usesInjectedBlockImageWriter(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1, 2, 3, 4});
+        Files.write(target, new byte[16]);
+        CapturingBlockImageWriter writer = new CapturingBlockImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(null, image, target(target, 16, false, false), true),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(image, writer.writeSource);
+        assertEquals(target, writer.writeTarget);
+        assertEquals(4L, writer.writeTotalBytes);
+        assertEquals(image, writer.verifySource);
+        assertEquals(target, writer.verifyTarget);
+    }
+
     /// Writes a materialized Ruyi dd-v1 image into a simulated target file.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -455,6 +483,74 @@ public final class LocalFlashServiceTest {
         public BlockDevice prepare(BlockDevice target, ProgressReporter reporter) {
             calls++;
             return clearMounted ? unmounted(target) : target;
+        }
+    }
+
+    /// Test block image writer that captures write and verification calls.
+    @NotNullByDefault
+    private static final class CapturingBlockImageWriter implements BlockImageWriter {
+        /// Verification result returned by this writer.
+        private final boolean verifyResult;
+
+        /// Captured write source.
+        private @Nullable Path writeSource;
+
+        /// Captured write target.
+        private @Nullable Path writeTarget;
+
+        /// Captured write byte count.
+        private long writeTotalBytes;
+
+        /// Captured verification source.
+        private @Nullable Path verifySource;
+
+        /// Captured verification target.
+        private @Nullable Path verifyTarget;
+
+        /// Creates the capturing writer.
+        ///
+        /// @param verifyResult verification result returned by this writer.
+        private CapturingBlockImageWriter(boolean verifyResult) {
+            this.verifyResult = verifyResult;
+        }
+
+        /// Captures one block-image write.
+        ///
+        /// @param source source image path.
+        /// @param target target path.
+        /// @param totalBytes source size.
+        /// @param message progress message.
+        /// @param reporter progress reporter.
+        @Override
+        public void write(
+                Path source,
+                Path target,
+                long totalBytes,
+                String message,
+                ProgressReporter reporter) {
+            this.writeSource = source;
+            this.writeTarget = target;
+            this.writeTotalBytes = totalBytes;
+        }
+
+        /// Captures one block-image verification.
+        ///
+        /// @param source source image path.
+        /// @param target target path.
+        /// @param totalBytes source size.
+        /// @param message progress message.
+        /// @param reporter progress reporter.
+        /// @return configured verification result.
+        @Override
+        public boolean verify(
+                Path source,
+                Path target,
+                long totalBytes,
+                String message,
+                ProgressReporter reporter) {
+            this.verifySource = source;
+            this.verifyTarget = target;
+            return verifyResult;
         }
     }
 
