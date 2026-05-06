@@ -334,11 +334,14 @@ public final class MainWindow {
         catalogTitle.setAlignment(Pos.CENTER);
         catalogTitle.setMaxWidth(Double.MAX_VALUE);
 
-        VBox catalogFlow = new VBox(12,
-                catalogTitle,
+        VBox catalogSteps = new VBox(12,
                 createStep("1", "gui.step.manufacturer", manufacturerValue, manufacturerButton),
                 createStep("2", "gui.step.board", boardValue, boardButton),
                 createStep("3", "gui.step.os", osValue, osButton));
+
+        VBox catalogFlow = new VBox(12,
+                catalogTitle,
+                catalogSteps);
         catalogFlow.getStyleClass().add("catalog-choice");
         HBox.setHgrow(catalogFlow, Priority.ALWAYS);
 
@@ -347,7 +350,11 @@ public final class MainWindow {
         localTitle.setAlignment(Pos.CENTER);
         localTitle.setMaxWidth(Double.MAX_VALUE);
 
-        VBox localFlow = new VBox(12, localTitle, createLocalImageOption());
+        VBox localOption = createLocalImageOption();
+        localOption.minHeightProperty().bind(catalogSteps.heightProperty());
+        localOption.prefHeightProperty().bind(catalogSteps.heightProperty());
+
+        VBox localFlow = new VBox(12, localTitle, localOption);
         localFlow.setAlignment(Pos.TOP_CENTER);
         localFlow.getStyleClass().add("local-choice");
         HBox.setHgrow(localFlow, Priority.ALWAYS);
@@ -373,19 +380,24 @@ public final class MainWindow {
     /// Creates the independent local-image option outside the catalog selection flow.
     ///
     /// @return custom image option node.
-    private HBox createLocalImageOption() {
+    private VBox createLocalImageOption() {
         Label description = localizedLabel("gui.local.description");
         description.getStyleClass().add("option-value");
+        description.setAlignment(Pos.CENTER);
+        description.setMaxWidth(Double.MAX_VALUE);
         description.setWrapText(true);
 
         localImageValue.getStyleClass().add("option-value");
+        localImageValue.setAlignment(Pos.CENTER);
+        localImageValue.setMaxWidth(Double.MAX_VALUE);
         localImageValue.setWrapText(true);
 
         VBox text = new VBox(4, description, localImageValue);
-        HBox.setHgrow(text, Priority.ALWAYS);
+        text.setAlignment(Pos.CENTER);
+        text.setMaxWidth(Double.MAX_VALUE);
 
-        HBox row = new HBox(16, text, localImageButton);
-        row.setAlignment(Pos.CENTER_LEFT);
+        VBox row = new VBox(16, text, localImageButton);
+        row.setAlignment(Pos.CENTER);
         row.setPrefWidth(LOCAL_IMAGE_OPTION_WIDTH);
         row.setMaxWidth(LOCAL_IMAGE_OPTION_WIDTH);
         row.getStyleClass().add("independent-option-row");
