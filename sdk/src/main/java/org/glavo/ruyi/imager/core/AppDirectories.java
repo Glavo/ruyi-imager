@@ -7,6 +7,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +26,7 @@ public record AppDirectories(Path configDirectory, Path cacheDirectory) {
     public static AppDirectories defaults() {
         Path home = Path.of(System.getProperty("user.home"));
         @Nullable String osName = System.getProperty("os.name");
-        boolean windows = osName != null && osName.toLowerCase().contains("win");
+        boolean windows = osName != null && isWindows(osName);
         AppDirectories directories;
         if (windows) {
             directories = new AppDirectories(
@@ -41,6 +42,14 @@ public record AppDirectories(Path configDirectory, Path cacheDirectory) {
                 + ", cache="
                 + directories.cacheDirectory());
         return directories;
+    }
+
+    /// Returns whether an operating system name identifies Windows.
+    ///
+    /// @param osName operating system name.
+    /// @return whether the OS is Windows.
+    static boolean isWindows(String osName) {
+        return osName.toLowerCase(Locale.ROOT).startsWith("windows");
     }
 
     /// Resolves a Windows known-folder environment variable.

@@ -101,7 +101,7 @@ public final class FastbootExecutableLocator {
         if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
             return new FastbootPlatform("macos-x86_64", "fastboot", false);
         }
-        if (normalizedOs.contains("win")) {
+        if (normalizedOs.startsWith("windows")) {
             return new FastbootPlatform("windows-x86_64", "fastboot.exe", true);
         }
         if (normalizedOs.contains("linux")) {

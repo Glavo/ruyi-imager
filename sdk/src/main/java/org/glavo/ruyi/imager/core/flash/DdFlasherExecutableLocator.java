@@ -102,7 +102,7 @@ public final class DdFlasherExecutableLocator {
         if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
             return new DdFlasherPlatform("macos-" + arch, "dd-flasher", false);
         }
-        if (normalizedOs.contains("win")) {
+        if (normalizedOs.startsWith("windows")) {
             return new DdFlasherPlatform("windows-" + arch, "dd-flasher.exe", true);
         }
         if (normalizedOs.contains("linux")) {

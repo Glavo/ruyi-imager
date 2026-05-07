@@ -44,7 +44,7 @@ val fastbootBundles = listOf(
 val bundledFastbootDirectory = layout.buildDirectory.dir("bundled-fastboot")
 val bundledDdFlasherDirectory = project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher")
 val ddFlasherExecutableName =
-    if (System.getProperty("os.name").lowercase().contains("win")) "dd-flasher.exe" else "dd-flasher"
+    if (isWindowsOs(System.getProperty("os.name").lowercase())) "dd-flasher.exe" else "dd-flasher"
 val testDdFlasherExecutable = project(":dd-flasher").layout.buildDirectory.file("cargo-target/release/$ddFlasherExecutableName")
 
 val alibabaPuhuitiFontUrl =
@@ -207,7 +207,7 @@ fun javafx(module: String): String? {
     val osName = System.getProperty("os.name").lowercase()
     val osArch = System.getProperty("os.arch").lowercase()
     val javafxOS = when {
-        osName.contains("win") -> "win"
+        isWindowsOs(osName) -> "win"
         osName.contains("mac") -> "mac"
         osName.contains("linux") -> "linux"
         else -> null
@@ -224,3 +224,10 @@ fun javafx(module: String): String? {
         "org.openjfx:javafx-$module:25.0.2:${javafxOS}${javafxArch}"
     }
 }
+
+/// Returns whether an OS name identifies Windows.
+///
+/// @param osName normalized operating system name.
+/// @return whether the OS is Windows.
+fun isWindowsOs(osName: String): Boolean =
+    osName.startsWith("windows")

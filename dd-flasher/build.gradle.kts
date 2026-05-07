@@ -14,7 +14,7 @@ fun currentPlatformDirectory(): String? {
     val osName = System.getProperty("os.name").lowercase()
     val osArch = System.getProperty("os.arch").lowercase()
     val os = when {
-        osName.contains("win") -> "windows"
+        isWindowsOs(osName) -> "windows"
         osName.contains("mac") || osName.contains("darwin") -> "macos"
         osName.contains("linux") -> "linux"
         else -> null
@@ -31,7 +31,14 @@ fun currentPlatformDirectory(): String? {
 ///
 /// @return executable file name.
 fun executableName(): String =
-    if (System.getProperty("os.name").lowercase().contains("win")) "dd-flasher.exe" else "dd-flasher"
+    if (isWindowsOs(System.getProperty("os.name").lowercase())) "dd-flasher.exe" else "dd-flasher"
+
+/// Returns whether an OS name identifies Windows.
+///
+/// @param osName normalized operating system name.
+/// @return whether the OS is Windows.
+fun isWindowsOs(osName: String): Boolean =
+    osName.startsWith("windows")
 
 val cargoTargetDirectoryPath = rustTargetDirectory.map { it.asFile.absolutePath }
 val releaseExecutable = rustTargetDirectory.map {
@@ -62,7 +69,7 @@ val prepareBundledDdFlasher = tasks.register<Copy>("prepareBundledDdFlasher") {
     into(layout.buildDirectory.dir("bundled-dd-flasher/$currentBundledPlatformDirectory"))
     rename { executableName() }
     doLast {
-        if (!System.getProperty("os.name").lowercase().contains("win")) {
+        if (!isWindowsOs(System.getProperty("os.name").lowercase())) {
             bundledExecutable.get().asFile.setExecutable(true, false)
         }
     }
