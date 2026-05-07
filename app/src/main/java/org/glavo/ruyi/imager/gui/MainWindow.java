@@ -394,6 +394,7 @@ public final class MainWindow {
                 catalogTitle,
                 catalogSteps);
         catalogFlow.getStyleClass().add("catalog-choice");
+        catalogFlow.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(catalogFlow, Priority.ALWAYS);
 
         Label localTitle = localizedLabel("gui.choice.local");
@@ -406,18 +407,26 @@ public final class MainWindow {
         localOption.prefHeightProperty().bind(catalogSteps.heightProperty());
 
         VBox localFlow = new VBox(12, localTitle, localOption);
-        localFlow.setAlignment(Pos.TOP_CENTER);
+        localFlow.setAlignment(Pos.TOP_RIGHT);
+        localFlow.setMinWidth(LOCAL_IMAGE_OPTION_WIDTH);
+        localFlow.setPrefWidth(LOCAL_IMAGE_OPTION_WIDTH);
+        localFlow.setMaxWidth(LOCAL_IMAGE_OPTION_WIDTH);
         localFlow.getStyleClass().add("local-choice");
-        HBox.setHgrow(localFlow, Priority.ALWAYS);
+        HBox.setHgrow(localFlow, Priority.NEVER);
 
         Label separator = localizedLabel("gui.choice.or");
         separator.getStyleClass().add("choice-separator");
+        Region separatorTitleSpacer = new Region();
+        separatorTitleSpacer.prefHeightProperty().bind(catalogTitle.heightProperty());
         VBox separatorBox = new VBox(separator);
         separatorBox.setAlignment(Pos.CENTER);
-        separatorBox.prefHeightProperty().bind(catalogFlow.heightProperty());
+        separatorBox.prefHeightProperty().bind(catalogSteps.heightProperty());
+        VBox separatorFlow = new VBox(12, separatorTitleSpacer, separatorBox);
+        separatorFlow.setAlignment(Pos.TOP_CENTER);
 
-        HBox sourceChoices = new HBox(16, catalogFlow, separatorBox, localFlow);
+        HBox sourceChoices = new HBox(16, catalogFlow, separatorFlow, localFlow);
         sourceChoices.setAlignment(Pos.TOP_CENTER);
+        sourceChoices.setMaxWidth(Double.MAX_VALUE);
         sourceChoices.getStyleClass().add("source-choices");
 
         VBox workflow = new VBox(14,

@@ -120,6 +120,26 @@
     -fx-border-radius: 8;
 }
 
+.step-button,
+.primary-action-button,
+.secondary-action-button,
+.header-button,
+.dialog-button,
+.language-selector,
+.partition-target-selector {
+    -fx-cursor: hand;
+}
+
+.step-button:disabled,
+.primary-action-button:disabled,
+.secondary-action-button:disabled,
+.header-button:disabled,
+.dialog-button:disabled,
+.language-selector:disabled,
+.partition-target-selector:disabled {
+    -fx-cursor: default;
+}
+
 .step-actions {
     -fx-alignment: center-right;
 }
@@ -306,12 +326,19 @@
 .selection-list-view .list-cell {
     -fx-background-radius: 6;
     -fx-padding: 10 12;
+    -fx-cursor: hand;
 }
 
 .selection-tree-view .tree-cell {
     -fx-background-color: #ffffff;
     -fx-background-radius: 6;
     -fx-padding: 8 10;
+    -fx-cursor: hand;
+}
+
+.selection-list-view .list-cell:empty,
+.selection-tree-view .tree-cell:empty {
+    -fx-cursor: default;
 }
 
 .selection-list-view .list-cell:selected {
