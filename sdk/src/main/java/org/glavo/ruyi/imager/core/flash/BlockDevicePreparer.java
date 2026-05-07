@@ -27,24 +27,3 @@ public interface BlockDevicePreparer {
     /// @throws IOException when the target cannot be prepared.
     BlockDevice prepare(BlockDevice target, ProgressReporter reporter) throws IOException;
 }
-
-/// Block device preparer that intentionally does nothing.
-@NotNullByDefault
-final class NoOpBlockDevicePreparer implements BlockDevicePreparer {
-    /// Shared no-op preparer instance.
-    static final BlockDevicePreparer INSTANCE = new NoOpBlockDevicePreparer();
-
-    /// Creates the no-op preparer.
-    private NoOpBlockDevicePreparer() {
-    }
-
-    /// Returns the original target unchanged.
-    ///
-    /// @param target target block device.
-    /// @param reporter progress reporter.
-    /// @return original target.
-    @Override
-    public BlockDevice prepare(BlockDevice target, ProgressReporter reporter) {
-        return target;
-    }
-}
