@@ -14,7 +14,9 @@ import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
+import org.glavo.ruyi.imager.core.flash.BlockDevicePreparer;
 import org.glavo.ruyi.imager.core.flash.LocalFlashService;
+import org.glavo.ruyi.imager.core.flash.ProcessDdImageWriter;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
@@ -481,7 +483,7 @@ public final class CliApplicationTest {
                 images,
                 devices,
                 fastboot,
-                new LocalFlashService(images, fastboot));
+                flashService(images, fastboot));
     }
 
     /// Creates AppServices backed by a real local Ruyi repository fixture.
@@ -505,7 +507,24 @@ public final class CliApplicationTest {
                 images,
                 devices,
                 fastboot,
-                new LocalFlashService(images, fastboot));
+                flashService(images, fastboot));
+    }
+
+    /// Creates a local flash service for CLI tests.
+    ///
+    /// @param images image catalog service.
+    /// @param fastboot fastboot service.
+    /// @return flash service.
+    private static LocalFlashService flashService(ImageCatalogService images, FastbootService fastboot) {
+        String executable = System.getProperty("ruyi.imager.test.ddFlasher.executable", "").strip();
+        if (executable.isEmpty()) {
+            return new LocalFlashService(images, fastboot);
+        }
+        return new LocalFlashService(
+                images,
+                fastboot,
+                BlockDevicePreparer.none(),
+                new ProcessDdImageWriter(executable));
     }
 
     /// Creates a local Ruyi repository fixture and matching services.

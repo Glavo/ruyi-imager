@@ -42,6 +42,10 @@ val fastbootBundles = listOf(
 )
 
 val bundledFastbootDirectory = layout.buildDirectory.dir("bundled-fastboot")
+val bundledDdFlasherDirectory = project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher")
+val ddFlasherExecutableName =
+    if (System.getProperty("os.name").lowercase().contains("win")) "dd-flasher.exe" else "dd-flasher"
+val testDdFlasherExecutable = project(":dd-flasher").layout.buildDirectory.file("cargo-target/release/$ddFlasherExecutableName")
 
 val alibabaPuhuitiFontUrl =
     "https://registry.npmmirror.com/@fontpkg/alibaba-puhuiti-3-0/-/alibaba-puhuiti-3-0-0.0.0.tgz"
@@ -163,24 +167,32 @@ distributions {
             into("tools/fastboot") {
                 from(bundledFastbootDirectory)
             }
+            into("tools/dd-flasher") {
+                from(bundledDdFlasherDirectory)
+            }
         }
     }
 }
 
 tasks.named("installDist") {
     dependsOn("prepareBundledFastboot")
+    dependsOn(":dd-flasher:prepareBundledDdFlasher")
 }
 
 tasks.named("distZip") {
     dependsOn("prepareBundledFastboot")
+    dependsOn(":dd-flasher:prepareBundledDdFlasher")
 }
 
 tasks.named("distTar") {
     dependsOn("prepareBundledFastboot")
+    dependsOn(":dd-flasher:prepareBundledDdFlasher")
 }
 
 tasks.test {
     jvmArgs("--enable-native-access=ALL-UNNAMED,javafx.graphics")
+    dependsOn(":dd-flasher:cargoBuild")
+    systemProperty("ruyi.imager.test.ddFlasher.executable", testDdFlasherExecutable.get().asFile.absolutePath)
 }
 
 tasks.processResources {

@@ -12,8 +12,6 @@ import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
-import org.glavo.ruyi.imager.dd.DdImageWriter;
-import org.glavo.ruyi.imager.dd.DdProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -21,8 +19,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -51,7 +52,7 @@ public final class LocalFlashServiceTest {
         Files.write(image, imageBytes);
         Files.write(target, new byte[2048]);
 
-        OperationResult result = new LocalFlashService(new EmptyImageCatalogService()).flash(
+        OperationResult result = flashService(new EmptyImageCatalogService()).flash(
                 new FlashRequest(null, image, target(target, 2048, false, false), true),
                 NO_PROGRESS);
 
@@ -100,7 +101,7 @@ public final class LocalFlashServiceTest {
         Files.write(target, new byte[1024]);
 
         ImageEntry image = imageEntry("dd-v1");
-        OperationResult result = new LocalFlashService(new FixedImageCatalogService(materializedImage)).flash(
+        OperationResult result = flashService(new FixedImageCatalogService(materializedImage)).flash(
                 new FlashRequest(image, null, target(target, 1024, false, false), true),
                 NO_PROGRESS);
 
@@ -127,7 +128,7 @@ public final class LocalFlashServiceTest {
         Files.write(rootTarget, new byte[512]);
 
         ImageEntry image = imageEntry("dd-v1", Map.of("boot", "boot.img", "root", "root.img"));
-        OperationResult result = new LocalFlashService(new FixedImageCatalogService(artifactDirectory)).flash(
+        OperationResult result = flashService(new FixedImageCatalogService(artifactDirectory)).flash(
                 new FlashRequest(image, null, FlashTarget.blockDevices(Map.of(
                         "boot", target(bootTarget, 512, false, false),
                         "root", target(rootTarget, 512, false, false))), true),
@@ -280,7 +281,8 @@ public final class LocalFlashServiceTest {
         OperationResult result = new LocalFlashService(
                 new EmptyImageCatalogService(),
                 new CapturingFastbootService(),
-                preparer).flash(
+                preparer,
+                new CopyingDdImageWriter()).flash(
                 new FlashRequest(null, image, target(target, 32, false, true, false), true),
                 NO_PROGRESS);
 
@@ -340,6 +342,18 @@ public final class LocalFlashServiceTest {
             bytes[i] = (byte) i;
         }
         return bytes;
+    }
+
+    /// Creates a flash service with an in-process test dd writer.
+    ///
+    /// @param images image catalog service.
+    /// @return test flash service.
+    private static LocalFlashService flashService(ImageCatalogService images) {
+        return new LocalFlashService(
+                images,
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                new CopyingDdImageWriter());
     }
 
     /// Creates a test target device.
@@ -527,7 +541,8 @@ public final class LocalFlashServiceTest {
                 Path source,
                 Path target,
                 long totalBytes,
-                DdProgressReporter reporter) {
+                String message,
+                ProgressReporter reporter) {
             this.writeSource = source;
             this.writeTarget = target;
             this.writeTotalBytes = totalBytes;
@@ -545,10 +560,71 @@ public final class LocalFlashServiceTest {
                 Path source,
                 Path target,
                 long totalBytes,
-                DdProgressReporter reporter) {
+                String message,
+                ProgressReporter reporter) {
             this.verifySource = source;
             this.verifyTarget = target;
             return verifyResult;
+        }
+    }
+
+    /// Test dd writer that copies bytes inside the JVM.
+    @NotNullByDefault
+    private static final class CopyingDdImageWriter implements DdImageWriter {
+        /// Writes source bytes to the target without truncating the target.
+        ///
+        /// @param source source image path.
+        /// @param target target path.
+        /// @param totalBytes source size.
+        /// @param message progress message.
+        /// @param reporter progress reporter.
+        /// @throws IOException when files cannot be read or written.
+        @Override
+        public void write(
+                Path source,
+                Path target,
+                long totalBytes,
+                String message,
+                ProgressReporter reporter) throws IOException {
+            try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ);
+                 FileChannel output = FileChannel.open(target, StandardOpenOption.WRITE)) {
+                long written = 0L;
+                while (written < totalBytes) {
+                    long transferred = input.transferTo(written, totalBytes - written, output);
+                    if (transferred <= 0L) {
+                        throw new IOException("No bytes were transferred.");
+                    }
+                    written += transferred;
+                }
+            }
+        }
+
+        /// Verifies source bytes against the target.
+        ///
+        /// @param source source image path.
+        /// @param target target path.
+        /// @param totalBytes source size.
+        /// @param message progress message.
+        /// @param reporter progress reporter.
+        /// @return whether target bytes match source bytes.
+        /// @throws IOException when files cannot be read.
+        @Override
+        public boolean verify(
+                Path source,
+                Path target,
+                long totalBytes,
+                String message,
+                ProgressReporter reporter) throws IOException {
+            try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ);
+                 FileChannel output = FileChannel.open(target, StandardOpenOption.READ)) {
+                ByteBuffer inputBuffer = ByteBuffer.allocate(Math.toIntExact(totalBytes));
+                ByteBuffer outputBuffer = ByteBuffer.allocate(Math.toIntExact(totalBytes));
+                input.read(inputBuffer);
+                output.read(outputBuffer);
+                inputBuffer.flip();
+                outputBuffer.flip();
+                return inputBuffer.equals(outputBuffer);
+            }
         }
     }
 

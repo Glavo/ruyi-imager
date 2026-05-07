@@ -13,9 +13,6 @@ import org.glavo.ruyi.imager.core.fastboot.ProcessFastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.core.SdkMessages;
-import org.glavo.ruyi.imager.dd.DdImageWriter;
-import org.glavo.ruyi.imager.dd.DdOperation;
-import org.glavo.ruyi.imager.dd.DdProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -73,7 +70,7 @@ public final class LocalFlashService implements FlashService {
             ImageCatalogService images,
             FastbootService fastboot,
             BlockDevicePreparer blockDevicePreparer) {
-        this(images, fastboot, blockDevicePreparer, DdImageWriter.fileChannel());
+        this(images, fastboot, blockDevicePreparer, DdImageWriter.process());
     }
 
     /// Creates the local flash service.
@@ -305,10 +302,23 @@ public final class LocalFlashService implements FlashService {
         if (blockDevice.sizeBytes() > 0L && sourceSize > blockDevice.sizeBytes()) {
             return SdkMessages.get("core.flash.imageTooLarge");
         }
-        if (Files.isSameFile(source, blockDevice.path())) {
+        if (isSamePath(source, blockDevice.path())) {
             return SdkMessages.get("core.flash.selfWrite");
         }
         return null;
+    }
+
+    /// Returns whether two paths refer to the same filesystem object when both paths can be resolved.
+    ///
+    /// @param source source path.
+    /// @param target target path.
+    /// @return whether both paths are known to refer to the same object.
+    private static boolean isSamePath(Path source, Path target) {
+        try {
+            return Files.isSameFile(source, target);
+        } catch (IOException _) {
+            return false;
+        }
     }
 
     /// Prepares a block target when it is currently mounted.
@@ -353,13 +363,12 @@ public final class LocalFlashService implements FlashService {
                 + verify);
 
         reporter.report(new ProgressEvent("flash", writeMessage, 0L, sourceSize));
-        DdProgressReporter ddReporter = ddProgressReporter(writeMessage, verifyMessage, reporter);
-        ddImageWriter.write(source, blockDevice.path(), sourceSize, ddReporter);
+        ddImageWriter.write(source, blockDevice.path(), sourceSize, writeMessage, reporter);
         LOGGER.atInfo().log(() -> "Block image write completed. target=" + blockDevice.path());
 
         if (verify) {
             reporter.report(new ProgressEvent("verify", verifyMessage, 0L, sourceSize));
-            if (!ddImageWriter.verify(source, blockDevice.path(), sourceSize, ddReporter)) {
+            if (!ddImageWriter.verify(source, blockDevice.path(), sourceSize, verifyMessage, reporter)) {
                 LOGGER.atWarn().log(() -> "Block image verification failed. target=" + blockDevice.path());
                 return OperationResult.failure(SdkMessages.get("core.flash.verifyFailed"));
             }
@@ -367,25 +376,6 @@ public final class LocalFlashService implements FlashService {
         }
 
         return OperationResult.success(SdkMessages.get("core.flash.success"));
-    }
-
-    /// Adapts dd progress into SDK progress events.
-    ///
-    /// @param writeMessage localized write message.
-    /// @param verifyMessage localized verification message.
-    /// @param reporter SDK progress reporter.
-    /// @return dd progress reporter.
-    private static DdProgressReporter ddProgressReporter(
-            String writeMessage,
-            String verifyMessage,
-            ProgressReporter reporter) {
-        return event -> {
-            if (event.operation() == DdOperation.WRITE) {
-                reporter.report(new ProgressEvent("flash", writeMessage, event.currentBytes(), event.totalBytes()));
-            } else {
-                reporter.report(new ProgressEvent("verify", verifyMessage, event.currentBytes(), event.totalBytes()));
-            }
-        };
     }
 
     /// Formats partition names for diagnostics.
@@ -464,9 +454,6 @@ public final class LocalFlashService implements FlashService {
         }
         if (target.readOnly()) {
             return SdkMessages.get("core.flash.refuseReadOnly");
-        }
-        if (!Files.exists(target.path())) {
-            return SdkMessages.get("core.flash.targetMissing", target.path());
         }
         return null;
     }
