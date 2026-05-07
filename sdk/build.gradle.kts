@@ -8,6 +8,8 @@ dependencies {
 
     api("org.slf4j:slf4j-api:2.0.17")
 
+    api(project(":dd-flasher"))
+
     implementation("com.fasterxml.jackson.core:jackson-databind:2.21.2")
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.6.0.202603022253-r")
     implementation("org.glavo.kala:kala-compress-archivers-tar:1.27.1-3")

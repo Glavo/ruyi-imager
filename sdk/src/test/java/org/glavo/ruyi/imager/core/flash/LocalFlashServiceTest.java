@@ -12,6 +12,8 @@ import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
+import org.glavo.ruyi.imager.dd.DdImageWriter;
+import org.glavo.ruyi.imager.dd.DdProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -57,17 +59,17 @@ public final class LocalFlashServiceTest {
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
     }
 
-    /// Writes a local image through an injected block image writer.
+    /// Writes a local image through an injected dd image writer.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when fixture files cannot be written or read.
     @Test
-    public void usesInjectedBlockImageWriter(@TempDir Path temporaryDirectory) throws Exception {
+    public void usesInjectedDdImageWriter(@TempDir Path temporaryDirectory) throws Exception {
         Path image = temporaryDirectory.resolve("image.raw");
         Path target = temporaryDirectory.resolve("target.raw");
         Files.write(image, new byte[]{1, 2, 3, 4});
         Files.write(target, new byte[16]);
-        CapturingBlockImageWriter writer = new CapturingBlockImageWriter(true);
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
 
         OperationResult result = new LocalFlashService(
                 new EmptyImageCatalogService(),
@@ -486,9 +488,9 @@ public final class LocalFlashServiceTest {
         }
     }
 
-    /// Test block image writer that captures write and verification calls.
+    /// Test dd image writer that captures write and verification calls.
     @NotNullByDefault
-    private static final class CapturingBlockImageWriter implements BlockImageWriter {
+    private static final class CapturingDdImageWriter implements DdImageWriter {
         /// Verification result returned by this writer.
         private final boolean verifyResult;
 
@@ -510,7 +512,7 @@ public final class LocalFlashServiceTest {
         /// Creates the capturing writer.
         ///
         /// @param verifyResult verification result returned by this writer.
-        private CapturingBlockImageWriter(boolean verifyResult) {
+        private CapturingDdImageWriter(boolean verifyResult) {
             this.verifyResult = verifyResult;
         }
 
@@ -519,15 +521,13 @@ public final class LocalFlashServiceTest {
         /// @param source source image path.
         /// @param target target path.
         /// @param totalBytes source size.
-        /// @param message progress message.
         /// @param reporter progress reporter.
         @Override
         public void write(
                 Path source,
                 Path target,
                 long totalBytes,
-                String message,
-                ProgressReporter reporter) {
+                DdProgressReporter reporter) {
             this.writeSource = source;
             this.writeTarget = target;
             this.writeTotalBytes = totalBytes;
@@ -538,7 +538,6 @@ public final class LocalFlashServiceTest {
         /// @param source source image path.
         /// @param target target path.
         /// @param totalBytes source size.
-        /// @param message progress message.
         /// @param reporter progress reporter.
         /// @return configured verification result.
         @Override
@@ -546,8 +545,7 @@ public final class LocalFlashServiceTest {
                 Path source,
                 Path target,
                 long totalBytes,
-                String message,
-                ProgressReporter reporter) {
+                DdProgressReporter reporter) {
             this.verifySource = source;
             this.verifyTarget = target;
             return verifyResult;

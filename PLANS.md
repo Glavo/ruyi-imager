@@ -8,17 +8,17 @@
 - GUI 采用类似 Armbian Imager 的流程：目录镜像按 Manufacturer -> Board -> Operating System 选择，本地镜像作为并列二选一入口，然后选择 storage 或 fastboot 目标。
 - 镜像元数据、下载、校验和物化逻辑从 Ruyi 语义移植到 Java；不嵌入 Starlark，不依赖外部 `ruyi` 命令。
 - 默认只执行当前应用明确支持的刷写策略。
-- 将刷写、下载、设备枚举和日志作为内部 SDK 模块沉淀，方便后续独立测试和替换写入后端；本地化资源保留在应用模块。
+- 将 dd 写入、刷写编排、下载、设备枚举和日志拆成可测试的内部模块，方便后续独立测试和替换写入后端；本地化资源保留在应用模块。
 
 ### Implemented
 
 - 工程入口：Java 25 Gradle `application`，无参数或 `gui` 启动 JavaFX，其他参数进入 CLI。
-- 模块化：Gradle 已拆分为 `:sdk` 和 `:app`；`:sdk` 使用 `java-library` 承载 core、logging 和对应单测，不包含本地化资源或 JavaFX 依赖；`:app` 承载 CLI、JavaFX GUI、i18n 资源、发行包和应用层测试。
+- 模块化：Gradle 已拆分为 `:dd-flasher`、`:sdk` 和 `:app`；`:dd-flasher` 独立承载 dd-style raw image 写入/校验和对应单测；`:sdk` 使用 `java-library` 承载 core、logging 和对应单测，不包含本地化资源或 JavaFX 依赖；`:app` 承载 CLI、JavaFX GUI、i18n 资源、发行包和应用层测试。
 - Core service：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FastbootService`、`FlashService` 已由 `AppServices` 统一组装，供 CLI/GUI 共享。
 - Ruyi metadata：支持默认 repo、用户配置覆盖、overlay repo、本地 repo、JGit clone/pull、mirror/dist URL 解析；catalog 支持 `packages/` 和旧 `manifests/`，并解析 provisionable manifest、strategy、partition map、distfiles、checksums、slug、device entity、SemVer/atom 选择。
 - Catalog cache：目录镜像元数据首次读取后缓存在 `ImageCatalogService` 内存快照中，GUI 的 manufacturer/board/OS 多步选择复用同一份 catalog；`repo update` 成功后自动失效缓存。
 - 下载和物化：支持 HTTP/HTTPS、`.part` 续传、缓存复用、大小和 SHA-256/SHA-512 校验、`restrict = ["fetch"]` 和 `fetch_restriction` 手动下载提示；artifact 物化支持 raw、gzip、bzip2、lz4、xz、zstd、zip、tar、常见 tar 压缩组合和 Debian package 的 `data.tar*`，tar 物化支持 `strip_components` 和 `prefixes_to_unpack`，tar 和压缩流使用 `Glavo/kala-compress`。
-- 刷写：支持 `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)`；dd 支持单目标整盘和多分区 target mapping，写入前预校验目标；Windows removable 挂载目标可在写入前通过 PowerShell 卸载卷和访问路径，non-removable 挂载目标保持阻止；raw block 写入已封装为可替换 writer，默认使用 `FileChannel`；fastboot 支持分区级进度、LPi4A reboot 后重连等待、超时/中断清理。
+- 刷写：支持 `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)`；dd 支持单目标整盘和多分区 target mapping，写入前预校验目标；Windows removable 挂载目标可在写入前通过 PowerShell 卸载卷和访问路径，non-removable 挂载目标保持阻止；raw image 写入/校验已拆到 `:dd-flasher` 独立项目，默认使用 `FileChannel` 后端；fastboot 支持分区级进度、LPi4A reboot 后重连等待、超时/中断清理。
 - Bundled fastboot：发行包会下载并携带 Android SDK Platform Tools 中的 Windows/macOS/Linux x86-64 fastboot；运行时优先使用发行目录内的 bundled fastboot，缺失或不支持的平台退回 PATH；平台识别覆盖 Windows、macOS、Darwin、Linux 的 x86-64 别名。
 - 设备枚举：Windows、Linux、macOS 只读块设备枚举已接入，保留挂载点用于 CLI/GUI 展示；三套平台 parser fixture 已覆盖。
 - CLI：支持 `repo update`、`image list/download`、`device list`、`device list --fastboot`、`flash --atom`、`flash --local-image`、多分区 `--partition-device`，主要命令支持 JSON/NDJSON；本地 Ruyi repo fixture 集成测试覆盖 repo update、image list/download 和 unsupported strategy。

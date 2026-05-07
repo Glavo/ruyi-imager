@@ -1,3 +1,3 @@
 rootProject.name = "ruyi-imager"
 
-include("sdk", "app")
+include("dd-flasher", "sdk", "app")

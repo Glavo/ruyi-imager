@@ -1,28 +1,26 @@
 // Copyright (c) 2026 Glavo
 // SPDX-License-Identifier: MPL-2.0
 
-package org.glavo.ruyi.imager.core.flash;
+package org.glavo.ruyi.imager.dd;
 
-import org.glavo.ruyi.imager.core.ProgressEvent;
-import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/// Writes and verifies raw block images.
+/// Writes and verifies raw images with dd-style sequential I/O.
 @NotNullByDefault
-public interface BlockImageWriter {
-    /// Returns the default `FileChannel`-based block image writer.
+public interface DdImageWriter {
+    /// Returns the default `FileChannel`-based raw image writer.
     ///
-    /// @return default block image writer.
-    static BlockImageWriter fileChannel() {
-        return FileChannelBlockImageWriter.INSTANCE;
+    /// @return default raw image writer.
+    static DdImageWriter fileChannel() {
+        return FileChannelDdImageWriter.INSTANCE;
     }
 
     /// Writes a source image to a target path.
@@ -30,22 +28,19 @@ public interface BlockImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
-    /// @param message progress message.
     /// @param reporter progress reporter.
     /// @throws IOException when the image cannot be written.
     void write(
             Path source,
             Path target,
             long totalBytes,
-            String message,
-            ProgressReporter reporter) throws IOException;
+            DdProgressReporter reporter) throws IOException;
 
     /// Verifies target bytes against a source image.
     ///
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
-    /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return whether the target bytes match the source image.
     /// @throws IOException when files cannot be read.
@@ -53,24 +48,23 @@ public interface BlockImageWriter {
             Path source,
             Path target,
             long totalBytes,
-            String message,
-            ProgressReporter reporter) throws IOException;
+            DdProgressReporter reporter) throws IOException;
 }
 
-/// `FileChannel`-based block image writer.
+/// `FileChannel`-based dd image writer.
 @NotNullByDefault
-final class FileChannelBlockImageWriter implements BlockImageWriter {
-    /// Logger for raw block image I/O.
-    private static final Logger LOGGER = LoggerFactory.getLogger(FileChannelBlockImageWriter.class);
+final class FileChannelDdImageWriter implements DdImageWriter {
+    /// Logger for raw image I/O.
+    private static final Logger LOGGER = LoggerFactory.getLogger(FileChannelDdImageWriter.class);
 
     /// Shared writer instance.
-    static final BlockImageWriter INSTANCE = new FileChannelBlockImageWriter();
+    static final DdImageWriter INSTANCE = new FileChannelDdImageWriter();
 
     /// Copy buffer size used for writing and verification.
     private static final int BUFFER_SIZE = 1024 * 1024;
 
     /// Creates the file-channel writer.
-    private FileChannelBlockImageWriter() {
+    private FileChannelDdImageWriter() {
     }
 
     /// Writes a source image to a target path.
@@ -78,7 +72,6 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
-    /// @param message progress message.
     /// @param reporter progress reporter.
     /// @throws IOException when the image cannot be written.
     @Override
@@ -86,9 +79,8 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
             Path source,
             Path target,
             long totalBytes,
-            String message,
-            ProgressReporter reporter) throws IOException {
-        LOGGER.atInfo().log(() -> "Opening block image write channels. source="
+            DdProgressReporter reporter) throws IOException {
+        LOGGER.atInfo().log(() -> "Opening dd write channels. source="
                 + source
                 + ", target="
                 + target
@@ -108,11 +100,11 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
                 while (buffer.hasRemaining()) {
                     writtenBytes += output.write(buffer);
                 }
-                reporter.report(new ProgressEvent("flash", message, writtenBytes, totalBytes));
+                reporter.report(new DdProgressEvent(DdOperation.WRITE, writtenBytes, totalBytes));
             }
             output.force(true);
         }
-        LOGGER.atInfo().log(() -> "Block image write channels closed. target=" + target);
+        LOGGER.atInfo().log(() -> "dd write channels closed. target=" + target);
     }
 
     /// Verifies target bytes against a source image.
@@ -120,7 +112,6 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
-    /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return whether the target bytes match the source image.
     /// @throws IOException when files cannot be read.
@@ -129,9 +120,8 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
             Path source,
             Path target,
             long totalBytes,
-            String message,
-            ProgressReporter reporter) throws IOException {
-        LOGGER.atInfo().log(() -> "Opening block image verify channels. source="
+            DdProgressReporter reporter) throws IOException {
+        LOGGER.atInfo().log(() -> "Opening dd verify channels. source="
                 + source
                 + ", target="
                 + target
@@ -152,7 +142,7 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
                 int expectedRead = readFully(input, inputBuffer);
                 int actualRead = readFully(output, outputBuffer);
                 if (expectedRead != actualRead) {
-                    LOGGER.atWarn().log(() -> "Block image verification length mismatch. target="
+                    LOGGER.atWarn().log(() -> "dd verification length mismatch. target="
                             + target
                             + ", expectedRead="
                             + expectedRead
@@ -168,7 +158,7 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
                 outputBuffer.flip();
                 if (!inputBuffer.equals(outputBuffer)) {
                     long mismatchOffset = verifiedBytes;
-                    LOGGER.atWarn().log(() -> "Block image verification content mismatch. target="
+                    LOGGER.atWarn().log(() -> "dd verification content mismatch. target="
                             + target
                             + ", offset="
                             + mismatchOffset);
@@ -176,9 +166,9 @@ final class FileChannelBlockImageWriter implements BlockImageWriter {
                 }
 
                 verifiedBytes += expectedRead;
-                reporter.report(new ProgressEvent("verify", message, verifiedBytes, totalBytes));
+                reporter.report(new DdProgressEvent(DdOperation.VERIFY, verifiedBytes, totalBytes));
             }
-            LOGGER.atInfo().log(() -> "Block image verification channels closed. target=" + target);
+            LOGGER.atInfo().log(() -> "dd verification channels closed. target=" + target);
             return true;
         }
     }
