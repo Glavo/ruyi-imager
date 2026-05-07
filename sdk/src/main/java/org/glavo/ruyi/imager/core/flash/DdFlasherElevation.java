@@ -66,13 +66,16 @@ final class DdFlasherElevation {
         }
 
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
-        if (normalizedOs.contains("win")) {
+        if (normalizedOs.startsWith("windows")) {
             return windowsRawTarget(target);
         }
         if (normalizedOs.contains("linux")) {
             return linuxRawTarget(target)
                     && !"root".equals(userName)
                     && (nonBlank(display) != null || nonBlank(waylandDisplay) != null);
+        }
+        if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
+            return macOsRawTarget(target) && !"root".equals(userName);
         }
         return false;
     }
@@ -86,7 +89,7 @@ final class DdFlasherElevation {
     /// @throws IOException when the operating system is not supported.
     static List<String> elevatedCommand(String executable, List<String> arguments, String osName) throws IOException {
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
-        if (normalizedOs.contains("win")) {
+        if (normalizedOs.startsWith("windows")) {
             return windowsElevatedCommand(executable, arguments);
         }
         if (normalizedOs.contains("linux")) {
@@ -95,6 +98,9 @@ final class DdFlasherElevation {
             command.add(executable);
             command.addAll(arguments);
             return command;
+        }
+        if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
+            return macOsElevatedCommand(executable, arguments);
         }
         throw new IOException("dd-flasher elevation is not supported on this operating system.");
     }
@@ -138,6 +144,26 @@ final class DdFlasherElevation {
         return builder.toString();
     }
 
+    /// Builds a macOS administrator launcher command.
+    ///
+    /// @param executable helper executable.
+    /// @param arguments helper arguments excluding executable.
+    /// @return osascript command that starts the helper with administrator privileges.
+    static List<String> macOsElevatedCommand(String executable, List<String> arguments) {
+        return List.of("osascript", "-e", macOsElevationScript(executable, arguments));
+    }
+
+    /// Builds the AppleScript used for macOS administrator elevation.
+    ///
+    /// @param executable helper executable.
+    /// @param arguments helper arguments excluding executable.
+    /// @return AppleScript snippet.
+    static String macOsElevationScript(String executable, List<String> arguments) {
+        return "do shell script "
+                + appleScriptString(shellCommand(executable, arguments))
+                + " with administrator privileges";
+    }
+
     /// Returns whether a path identifies a Windows raw device target.
     ///
     /// @param target target path.
@@ -152,6 +178,15 @@ final class DdFlasherElevation {
     /// @return whether this is a Linux raw device path.
     static boolean linuxRawTarget(Path target) {
         return target.toString().replace('\\', '/').startsWith("/dev/");
+    }
+
+    /// Returns whether a path identifies a macOS raw disk target.
+    ///
+    /// @param target target path.
+    /// @return whether this is a macOS raw disk path.
+    static boolean macOsRawTarget(Path target) {
+        String normalized = target.toString().replace('\\', '/');
+        return normalized.startsWith("/dev/disk") || normalized.startsWith("/dev/rdisk");
     }
 
     /// Reads the configured elevation mode.
@@ -187,6 +222,40 @@ final class DdFlasherElevation {
     /// @return quoted PowerShell string literal.
     private static String powerShellString(String value) {
         return "'" + value.replace("'", "''") + "'";
+    }
+
+    /// Builds a shell command with safely quoted arguments.
+    ///
+    /// @param executable executable path.
+    /// @param arguments command arguments.
+    /// @return shell command text.
+    private static String shellCommand(String executable, List<String> arguments) {
+        StringBuilder builder = new StringBuilder(shellString(executable));
+        for (String argument : arguments) {
+            builder.append(' ').append(shellString(argument));
+        }
+        return builder.toString();
+    }
+
+    /// Quotes one shell argument.
+    ///
+    /// @param value raw value.
+    /// @return quoted shell argument.
+    private static String shellString(String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
+    }
+
+    /// Quotes one AppleScript string literal.
+    ///
+    /// @param value raw value.
+    /// @return quoted AppleScript string literal.
+    private static String appleScriptString(String value) {
+        return "\"" + value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                + "\"";
     }
 
     /// Returns trimmed non-blank text.

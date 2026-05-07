@@ -63,6 +63,39 @@ public final class DdFlasherElevationTest {
                 null));
     }
 
+    /// Verifies automatic macOS administrator elevation decisions for raw disk paths.
+    @Test
+    public void elevatesMacOsRawDisks() {
+        assertTrue(DdFlasherElevation.shouldElevate(
+                Path.of("/dev/disk2"),
+                "Mac OS X",
+                null,
+                null,
+                "alice",
+                null));
+        assertTrue(DdFlasherElevation.shouldElevate(
+                Path.of("/dev/rdisk2"),
+                "Darwin",
+                null,
+                null,
+                "alice",
+                null));
+        assertFalse(DdFlasherElevation.shouldElevate(
+                Path.of("/tmp/target.raw"),
+                "Mac OS X",
+                null,
+                null,
+                "alice",
+                null));
+        assertFalse(DdFlasherElevation.shouldElevate(
+                Path.of("/dev/disk2"),
+                "Mac OS X",
+                null,
+                null,
+                "root",
+                null));
+    }
+
     /// Verifies configured elevation modes override automatic decisions.
     @Test
     public void honorsConfiguredElevationModes() {
@@ -109,5 +142,21 @@ public final class DdFlasherElevationTest {
         assertTrue(script.contains("-Verb RunAs"));
         assertTrue(script.contains("'C:\\Tools\\dd-flasher.exe'"));
         assertTrue(script.contains("'C:\\Images\\o''clock.raw'"));
+    }
+
+    /// Verifies macOS elevation uses osascript administrator privileges and shell quoting.
+    @Test
+    public void buildsMacOsAdministratorCommand() {
+        List<String> command = DdFlasherElevation.macOsElevatedCommand(
+                "/Applications/Ruyi Imager.app/Contents/tools/dd-flasher",
+                List.of("write", "--source", "/Users/alice/o'clock.raw"));
+        assertEquals("osascript", command.getFirst());
+        assertEquals("-e", command.get(1));
+
+        String script = command.get(2);
+        assertTrue(script.startsWith("do shell script "));
+        assertTrue(script.endsWith(" with administrator privileges"));
+        assertTrue(script.contains("'/Applications/Ruyi Imager.app/Contents/tools/dd-flasher'"));
+        assertTrue(script.contains("'/Users/alice/o'\\\\''clock.raw'"));
     }
 }
