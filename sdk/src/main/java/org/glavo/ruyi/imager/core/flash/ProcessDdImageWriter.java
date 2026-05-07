@@ -13,12 +13,18 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -106,7 +112,12 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             long totalBytes,
             String message,
             ProgressReporter reporter) throws IOException {
-        List<String> command = command(operation, source, target, totalBytes);
+        List<String> arguments = arguments(operation, source, target, totalBytes);
+        if (DdFlasherElevation.shouldElevate(target)) {
+            return runElevated(operation, stage, arguments, message, reporter);
+        }
+
+        List<String> command = command(arguments);
         LOGGER.atInfo().log(() -> "Running dd-flasher helper. command=" + LogRedactor.redactCommand(command));
         Process process;
         try {
@@ -115,63 +126,118 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw new IOException(SdkMessages.get("core.dd.missingExecutable", executable), exception);
         }
 
-        @Nullable String helperError = null;
-        boolean completed = false;
-        boolean success = false;
+        HelperEventState state = new HelperEventState(stage, message, reporter);
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 process.getInputStream(),
                 StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                JsonNode event = parseEvent(line);
-                String type = event.path("type").asText();
-                switch (type) {
-                    case "progress" -> reporter.report(new ProgressEvent(
-                            stage,
-                            message,
-                            event.path("currentBytes").asLong(),
-                            event.path("totalBytes").asLong()));
-                    case "complete" -> {
-                        completed = true;
-                        success = event.path("success").asBoolean(false);
-                    }
-                    case "error" -> helperError = event.path("message").asText(SdkMessages.get("core.dd.unknownFailure"));
-                    default -> throw new IOException(SdkMessages.get("core.dd.unexpectedEvent", type));
-                }
+                state.accept(line);
             }
         }
 
+        int exitCode = waitFor(process, command);
+        return finish(operation, command, process, state, exitCode);
+    }
+
+    /// Runs one helper operation through a platform elevation launcher.
+    ///
+    /// @param operation helper operation.
+    /// @param stage SDK progress stage.
+    /// @param arguments helper arguments excluding executable.
+    /// @param message progress message.
+    /// @param reporter progress reporter.
+    /// @return operation success result.
+    /// @throws IOException when helper execution or output parsing fails.
+    private boolean runElevated(
+            String operation,
+            String stage,
+            List<String> arguments,
+            String message,
+            ProgressReporter reporter) throws IOException {
+        Path eventLog = Files.createTempFile("ruyi-imager-dd-flasher-", ".ndjson");
+        ArrayList<String> elevatedArguments = new ArrayList<>(arguments.size() + 3);
+        elevatedArguments.addAll(arguments);
+        elevatedArguments.add("--event-log");
+        elevatedArguments.add(eventLog.toString());
+        elevatedArguments.add("--no-stdout");
+
+        List<String> command;
+        try {
+            command = DdFlasherElevation.elevatedCommand(
+                    executable,
+                    elevatedArguments,
+                    System.getProperty("os.name", ""));
+        } catch (IOException exception) {
+            deleteEventLog(eventLog);
+            throw new IOException(SdkMessages.get("core.dd.elevationFailed", executable), exception);
+        }
+        LOGGER.atInfo().log(() -> "Running elevated dd-flasher helper. command=" + LogRedactor.redactCommand(command));
+
+        Process process;
+        try {
+            process = new ProcessBuilder(command).start();
+        } catch (IOException exception) {
+            deleteEventLog(eventLog);
+            throw new IOException(SdkMessages.get("core.dd.elevationFailed", commandText(command)), exception);
+        }
+
+        HelperEventState state = new HelperEventState(stage, message, reporter);
+        long offset = 0L;
         int exitCode;
         try {
-            exitCode = process.waitFor();
+            while (!process.waitFor(100L, TimeUnit.MILLISECONDS)) {
+                offset = readEventLog(eventLog, offset, state);
+            }
+            exitCode = process.exitValue();
+            readEventLog(eventLog, offset, state);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
             throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
+        } finally {
+            deleteEventLog(eventLog);
         }
 
+        return finish(operation, command, process, state, exitCode);
+    }
+
+    /// Finishes one helper run after the process has exited.
+    ///
+    /// @param operation helper operation.
+    /// @param command launcher command.
+    /// @param process exited process.
+    /// @param state parsed helper events.
+    /// @param exitCode process exit code.
+    /// @return operation success result.
+    /// @throws IOException when helper execution failed.
+    private boolean finish(
+            String operation,
+            List<String> command,
+            Process process,
+            HelperEventState state,
+            int exitCode) throws IOException {
         if (exitCode != 0) {
-            String messageText = helperError == null ? readErrorText(process) : helperError;
+            String messageText = state.helperError == null ? readErrorText(process) : state.helperError;
             throw new IOException(SdkMessages.get("core.dd.commandFailed", exitCode, messageText));
         }
-        if (!completed) {
+        if (!state.completed) {
             throw new IOException(SdkMessages.get("core.dd.missingResult"));
         }
-        boolean result = success;
+        boolean result = state.success;
         LOGGER.atInfo().log(() -> "dd-flasher helper completed. operation=" + operation + ", success=" + result);
         return result;
     }
 
-    /// Builds a helper command line.
+    /// Builds helper arguments.
     ///
     /// @param operation helper operation.
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
-    /// @return helper command line.
-    private List<String> command(String operation, Path source, Path target, long totalBytes) {
-        ArrayList<String> command = new ArrayList<>(8);
-        command.add(executable);
+    /// @return helper arguments.
+    private List<String> arguments(String operation, Path source, Path target, long totalBytes) {
+        ArrayList<String> command = new ArrayList<>(7);
         command.add(operation);
         command.add("--source");
         command.add(source.toString());
@@ -179,6 +245,17 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         command.add(target.toString());
         command.add("--total-bytes");
         command.add(Long.toString(totalBytes));
+        return command;
+    }
+
+    /// Builds a helper command line.
+    ///
+    /// @param arguments helper arguments excluding executable.
+    /// @return helper command line.
+    private List<String> command(List<String> arguments) {
+        ArrayList<String> command = new ArrayList<>(arguments.size() + 1);
+        command.add(executable);
+        command.addAll(arguments);
         return command;
     }
 
@@ -192,6 +269,86 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             return MAPPER.readTree(line);
         } catch (IOException exception) {
             throw new IOException(SdkMessages.get("core.dd.invalidOutput", line), exception);
+        }
+    }
+
+    /// Waits for a helper process to exit.
+    ///
+    /// @param process helper process.
+    /// @param command command line.
+    /// @return process exit code.
+    /// @throws IOException when the wait is interrupted.
+    private static int waitFor(Process process, List<String> command) throws IOException {
+        try {
+            return process.waitFor();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            process.destroyForcibly();
+            throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
+        }
+    }
+
+    /// Reads newly appended helper events from an event log.
+    ///
+    /// @param eventLog event log path.
+    /// @param offset byte offset already consumed.
+    /// @param state parsed helper event state.
+    /// @return next byte offset.
+    /// @throws IOException when the event log cannot be read or parsed.
+    private static long readEventLog(Path eventLog, long offset, HelperEventState state) throws IOException {
+        if (!Files.exists(eventLog)) {
+            return offset;
+        }
+
+        try (SeekableByteChannel channel = Files.newByteChannel(eventLog, StandardOpenOption.READ)) {
+            if (offset >= channel.size()) {
+                return offset;
+            }
+            channel.position(offset);
+
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ByteBuffer buffer = ByteBuffer.allocate(8192);
+            while (channel.read(buffer) > 0) {
+                buffer.flip();
+                output.write(buffer.array(), 0, buffer.limit());
+                buffer.clear();
+            }
+
+            byte[] bytes = output.toByteArray();
+            int end = lastLineBreak(bytes);
+            if (end < 0) {
+                return offset;
+            }
+
+            String text = new String(bytes, 0, end + 1, StandardCharsets.UTF_8);
+            for (String line : text.split("\\R")) {
+                state.accept(line);
+            }
+            return offset + end + 1L;
+        }
+    }
+
+    /// Returns the last line-break byte index.
+    ///
+    /// @param bytes byte array.
+    /// @return last line-break index, or -1 when absent.
+    private static int lastLineBreak(byte[] bytes) {
+        for (int index = bytes.length - 1; index >= 0; index--) {
+            if (bytes[index] == '\n') {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    /// Deletes one temporary event log.
+    ///
+    /// @param eventLog temporary event log.
+    private static void deleteEventLog(Path eventLog) {
+        try {
+            Files.deleteIfExists(eventLog);
+        } catch (IOException exception) {
+            LOGGER.debug("Failed to delete dd-flasher event log.", exception);
         }
     }
 
@@ -214,5 +371,63 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @return command text.
     private static String commandText(List<String> command) {
         return String.join(" ", LogRedactor.redactCommand(command));
+    }
+
+    /// Mutable parsed helper event state.
+    private static final class HelperEventState {
+        /// SDK progress stage.
+        private final String stage;
+
+        /// SDK progress message.
+        private final String message;
+
+        /// SDK progress reporter.
+        private final ProgressReporter reporter;
+
+        /// Last helper error.
+        private @Nullable String helperError;
+
+        /// Whether a completion event was received.
+        private boolean completed;
+
+        /// Completion success value.
+        private boolean success;
+
+        /// Creates the event state.
+        ///
+        /// @param stage SDK progress stage.
+        /// @param message SDK progress message.
+        /// @param reporter SDK progress reporter.
+        private HelperEventState(String stage, String message, ProgressReporter reporter) {
+            this.stage = stage;
+            this.message = message;
+            this.reporter = reporter;
+        }
+
+        /// Applies one helper event line.
+        ///
+        /// @param line helper event line.
+        /// @throws IOException when the event cannot be parsed.
+        private void accept(String line) throws IOException {
+            if (line.isBlank()) {
+                return;
+            }
+
+            JsonNode event = parseEvent(line);
+            String type = event.path("type").asText();
+            switch (type) {
+                case "progress" -> reporter.report(new ProgressEvent(
+                        stage,
+                        message,
+                        event.path("currentBytes").asLong(),
+                        event.path("totalBytes").asLong()));
+                case "complete" -> {
+                    completed = true;
+                    success = event.path("success").asBoolean(false);
+                }
+                case "error" -> helperError = event.path("message").asText(SdkMessages.get("core.dd.unknownFailure"));
+                default -> throw new IOException(SdkMessages.get("core.dd.unexpectedEvent", type));
+            }
+        }
     }
 }

@@ -30,30 +30,51 @@ struct Request {
     source: PathBuf,
     target: PathBuf,
     total_bytes: u64,
+    event_log: Option<PathBuf>,
+    stdout: bool,
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(success) => {
-            print_complete(success);
-            ExitCode::SUCCESS
-        }
+    let request = match parse_args(env::args().skip(1)) {
+        Ok(request) => request,
         Err(error) => {
             print_error(&error.to_string());
+            return ExitCode::from(2);
+        }
+    };
+
+    let mut sink = match EventSink::new(request.event_log.as_deref(), request.stdout) {
+        Ok(sink) => sink,
+        Err(error) => {
+            print_error(&error.to_string());
+            return ExitCode::from(2);
+        }
+    };
+
+    match run_request(&request, &mut sink) {
+        Ok(success) => {
+            if let Err(error) = sink.complete(success) {
+                print_error(&error);
+                ExitCode::from(2)
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(error) => {
+            let _ = sink.error(&error.to_string());
             ExitCode::from(2)
         }
     }
 }
 
-fn run() -> Result<bool, String> {
-    let request = parse_args(env::args().skip(1))?;
+fn run_request(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     validate_request(&request)?;
     match request.operation {
         Operation::Write => {
-            write_image(&request)?;
+            write_image(request, sink)?;
             Ok(true)
         }
-        Operation::Verify => verify_image(&request),
+        Operation::Verify => verify_image(request, sink),
     }
 }
 
@@ -72,14 +93,21 @@ where
     let mut source = None;
     let mut target = None;
     let mut total_bytes = None;
+    let mut event_log = None;
+    let mut stdout = true;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--source" => source = Some(PathBuf::from(next_value(&mut args, "--source")?)),
             "--target" => target = Some(PathBuf::from(next_value(&mut args, "--target")?)),
+            "--event-log" => event_log = Some(PathBuf::from(next_value(&mut args, "--event-log")?)),
+            "--no-stdout" => stdout = false,
             "--total-bytes" => {
                 let value = next_value(&mut args, "--total-bytes")?;
-                total_bytes = Some(value.parse::<u64>()
-                    .map_err(|_| format!("invalid --total-bytes value: {value}"))?);
+                total_bytes = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| format!("invalid --total-bytes value: {value}"))?,
+                );
             }
             "--help" | "-h" => return Err(usage()),
             other => return Err(format!("unknown argument: {other}")),
@@ -91,6 +119,8 @@ where
         source: source.ok_or_else(|| "missing --source".to_string())?,
         target: target.ok_or_else(|| "missing --target".to_string())?,
         total_bytes: total_bytes.ok_or_else(|| "missing --total-bytes".to_string())?,
+        event_log,
+        stdout,
     })
 }
 
@@ -98,11 +128,12 @@ fn next_value<I>(args: &mut I, name: &str) -> Result<String, String>
 where
     I: Iterator<Item = String>,
 {
-    args.next().ok_or_else(|| format!("missing value for {name}"))
+    args.next()
+        .ok_or_else(|| format!("missing value for {name}"))
 }
 
 fn usage() -> String {
-    "usage: dd-flasher <write|verify> --source <path> --target <path> --total-bytes <bytes>".to_string()
+    "usage: dd-flasher <write|verify> --source <path> --target <path> --total-bytes <bytes> [--event-log <path>] [--no-stdout]".to_string()
 }
 
 fn validate_request(request: &Request) -> Result<(), String> {
@@ -121,6 +152,9 @@ fn validate_request(request: &Request) -> Result<(), String> {
     if request.total_bytes == 0 {
         return Err("source image is empty".to_string());
     }
+    if !request.stdout && request.event_log.is_none() {
+        return Err("--no-stdout requires --event-log".to_string());
+    }
     if same_path(&request.source, &request.target) {
         return Err("source and target refer to the same path".to_string());
     }
@@ -134,9 +168,9 @@ fn same_path(left: &Path, right: &Path) -> bool {
     }
 }
 
-fn write_image(request: &Request) -> Result<(), String> {
-    let mut source = File::open(&request.source)
-        .map_err(|error| format!("failed to open source: {error}"))?;
+fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
+    let mut source =
+        File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
     let mut target = OpenOptions::new()
         .write(true)
         .open(&request.target)
@@ -155,7 +189,7 @@ fn write_image(request: &Request) -> Result<(), String> {
             .write_all(&buffer[..read])
             .map_err(|error| format!("failed to write target: {error}"))?;
         written += read as u64;
-        print_progress(request.operation, written, request.total_bytes);
+        sink.progress(request.operation, written, request.total_bytes)?;
     }
 
     if written != request.total_bytes {
@@ -170,9 +204,9 @@ fn write_image(request: &Request) -> Result<(), String> {
     Ok(())
 }
 
-fn verify_image(request: &Request) -> Result<bool, String> {
-    let mut source = File::open(&request.source)
-        .map_err(|error| format!("failed to open source: {error}"))?;
+fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
+    let mut source =
+        File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
     let mut target = File::open(&request.target)
         .map_err(|error| format!("failed to open target for reading: {error}"))?;
 
@@ -192,7 +226,7 @@ fn verify_image(request: &Request) -> Result<bool, String> {
             return Ok(false);
         }
         verified += chunk_size as u64;
-        print_progress(request.operation, verified, request.total_bytes);
+        sink.progress(request.operation, verified, request.total_bytes)?;
     }
     Ok(true)
 }
@@ -209,17 +243,66 @@ fn read_exact_or_eof(input: &mut File, buffer: &mut [u8]) -> io::Result<usize> {
     Ok(total)
 }
 
-fn print_progress(operation: Operation, current_bytes: u64, total_bytes: u64) {
-    println!(
-        "{{\"type\":\"progress\",\"operation\":\"{}\",\"currentBytes\":{},\"totalBytes\":{}}}",
-        operation.as_str(),
-        current_bytes,
-        total_bytes
-    );
+struct EventSink {
+    stdout: bool,
+    file: Option<File>,
 }
 
-fn print_complete(success: bool) {
-    println!("{{\"type\":\"complete\",\"success\":{success}}}");
+impl EventSink {
+    fn new(event_log: Option<&Path>, stdout: bool) -> Result<Self, String> {
+        let file = match event_log {
+            Some(path) => Some(
+                OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .map_err(|error| format!("failed to open event log: {error}"))?,
+            ),
+            None => None,
+        };
+        Ok(Self { stdout, file })
+    }
+
+    fn progress(
+        &mut self,
+        operation: Operation,
+        current_bytes: u64,
+        total_bytes: u64,
+    ) -> Result<(), String> {
+        self.emit(&format!(
+            "{{\"type\":\"progress\",\"operation\":\"{}\",\"currentBytes\":{},\"totalBytes\":{}}}",
+            operation.as_str(),
+            current_bytes,
+            total_bytes
+        ))
+    }
+
+    fn complete(&mut self, success: bool) -> Result<(), String> {
+        self.emit(&format!("{{\"type\":\"complete\",\"success\":{success}}}"))
+    }
+
+    fn error(&mut self, message: &str) -> Result<(), String> {
+        self.emit(&format!(
+            "{{\"type\":\"error\",\"message\":\"{}\"}}",
+            json_escape(message)
+        ))
+    }
+
+    fn emit(&mut self, line: &str) -> Result<(), String> {
+        if self.stdout {
+            println!("{line}");
+            io::stdout()
+                .flush()
+                .map_err(|error| format!("failed to flush stdout: {error}"))?;
+        }
+        if let Some(file) = &mut self.file {
+            writeln!(file, "{line}")
+                .map_err(|error| format!("failed to write event log: {error}"))?;
+            file.flush()
+                .map_err(|error| format!("failed to flush event log: {error}"))?;
+        }
+        Ok(())
+    }
 }
 
 fn print_error(message: &str) {
@@ -266,9 +349,12 @@ mod tests {
             source: source.clone(),
             target: target.clone(),
             total_bytes: image.len() as u64,
+            event_log: None,
+            stdout: true,
         };
         validate_request(&write_request).unwrap();
-        write_image(&write_request).unwrap();
+        let mut sink = EventSink::new(None, true).unwrap();
+        write_image(&write_request, &mut sink).unwrap();
         assert_eq!(&fs::read(&target).unwrap()[..image.len()], image.as_slice());
 
         let verify_request = Request {
@@ -276,8 +362,10 @@ mod tests {
             source,
             target,
             total_bytes: image.len() as u64,
+            event_log: None,
+            stdout: true,
         };
-        assert!(verify_image(&verify_request).unwrap());
+        assert!(verify_image(&verify_request, &mut sink).unwrap());
     }
 
     #[test]
@@ -293,8 +381,11 @@ mod tests {
             source,
             target,
             total_bytes: 4,
+            event_log: None,
+            stdout: true,
         };
-        assert!(!verify_image(&request).unwrap());
+        let mut sink = EventSink::new(None, true).unwrap();
+        assert!(!verify_image(&request, &mut sink).unwrap());
     }
 
     #[test]
@@ -310,10 +401,14 @@ mod tests {
             source,
             target,
             total_bytes: 3,
+            event_log: None,
+            stdout: true,
         };
-        assert!(validate_request(&request)
-            .unwrap_err()
-            .contains("source size mismatch"));
+        assert!(
+            validate_request(&request)
+                .unwrap_err()
+                .contains("source size mismatch")
+        );
     }
 
     #[test]
@@ -327,10 +422,40 @@ mod tests {
             source: source.clone(),
             target: source,
             total_bytes: 4,
+            event_log: None,
+            stdout: true,
         };
-        assert!(validate_request(&request)
-            .unwrap_err()
-            .contains("same path"));
+        assert!(
+            validate_request(&request)
+                .unwrap_err()
+                .contains("same path")
+        );
+    }
+
+    #[test]
+    fn writes_events_to_event_log_only() {
+        let temp = TempDirectory::new("writes_events_to_event_log_only");
+        let source = temp.path().join("source.raw");
+        let target = temp.path().join("target.raw");
+        let event_log = temp.path().join("events.ndjson");
+        fs::write(&source, [1u8, 2, 3, 4]).unwrap();
+        fs::write(&target, [0u8; 8]).unwrap();
+
+        let request = Request {
+            operation: Operation::Write,
+            source,
+            target,
+            total_bytes: 4,
+            event_log: Some(event_log.clone()),
+            stdout: false,
+        };
+        let mut sink = EventSink::new(request.event_log.as_deref(), request.stdout).unwrap();
+        write_image(&request, &mut sink).unwrap();
+        sink.complete(true).unwrap();
+
+        let events = fs::read_to_string(event_log).unwrap();
+        assert!(events.contains("\"type\":\"progress\""));
+        assert!(events.contains("\"type\":\"complete\""));
     }
 
     fn image_bytes(size: usize) -> Vec<u8> {

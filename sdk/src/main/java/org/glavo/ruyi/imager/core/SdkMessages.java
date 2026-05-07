@@ -55,6 +55,7 @@ public final class SdkMessages {
             Map.entry("core.dd.missingExecutable", "dd-flasher executable was not found: {0}"),
             Map.entry("core.dd.interrupted", "Interrupted while running dd-flasher command: {0}"),
             Map.entry("core.dd.commandFailed", "dd-flasher exited with code {0}: {1}"),
+            Map.entry("core.dd.elevationFailed", "Failed to start elevated dd-flasher command: {0}"),
             Map.entry("core.dd.writeFailed", "dd-flasher did not complete the write operation."),
             Map.entry("core.dd.invalidOutput", "Invalid dd-flasher output: {0}"),
             Map.entry("core.dd.unexpectedEvent", "Unexpected dd-flasher event type: {0}"),
