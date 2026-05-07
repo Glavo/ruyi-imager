@@ -38,6 +38,7 @@ public final class WindowsBlockDevicePreparerTest {
         });
         BlockDevice target = device("windows-disk-2", Path.of("\\\\.\\PHYSICALDRIVE2"), true);
 
+        assertTrue(preparer.canPrepareMounted(target));
         BlockDevice prepared = preparer.prepare(target, NO_PROGRESS);
 
         assertFalse(prepared.mounted());
@@ -59,6 +60,7 @@ public final class WindowsBlockDevicePreparerTest {
         });
         BlockDevice target = device("linux-disk-sdb", Path.of("/dev/sdb"), true);
 
+        assertFalse(preparer.canPrepareMounted(target));
         assertSame(target, preparer.prepare(target, NO_PROGRESS));
     }
 
@@ -72,6 +74,7 @@ public final class WindowsBlockDevicePreparerTest {
         });
         BlockDevice target = device("windows-disk-2", Path.of("\\\\.\\PHYSICALDRIVE2"), true, false);
 
+        assertFalse(preparer.canPrepareMounted(target));
         assertSame(target, preparer.prepare(target, NO_PROGRESS));
     }
 

@@ -92,6 +92,15 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
         this.runner = runner;
     }
 
+    /// Returns whether a mounted Windows disk can be automatically dismounted before writing.
+    ///
+    /// @param target target block device.
+    /// @return whether this target can be prepared.
+    @Override
+    public boolean canPrepareMounted(BlockDevice target) {
+        return target.mounted() && target.removable() && diskNumber(target) != null;
+    }
+
     /// Prepares a mounted Windows physical disk for writing.
     ///
     /// @param target target block device.

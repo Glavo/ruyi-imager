@@ -153,7 +153,10 @@ public final class LocalFlashService implements FlashService {
             return OperationResult.failure(SdkMessages.get("core.flash.blockTargetRequired"));
         }
 
-        @Nullable String validationError = validateBlockImage(source, blockDevice, true);
+        @Nullable String validationError = validateBlockImage(
+                source,
+                blockDevice,
+                blockDevicePreparer.canPrepareMounted(blockDevice));
         if (validationError != null) {
             String message = validationError;
             LOGGER.atWarn().log(() -> "Block target validation failed before preparation. source="
@@ -229,7 +232,10 @@ public final class LocalFlashService implements FlashService {
                 return OperationResult.failure(SdkMessages.get("core.flash.duplicatePartitionTarget", normalizedTargetPath));
             }
 
-            @Nullable String validationError = validateBlockImage(entry.getValue(), blockDevice, true);
+            @Nullable String validationError = validateBlockImage(
+                    entry.getValue(),
+                    blockDevice,
+                    blockDevicePreparer.canPrepareMounted(blockDevice));
             if (validationError != null) {
                 String message = validationError;
                 LOGGER.atWarn().log(() -> "Partition target validation failed before preparation. partition="
@@ -450,12 +456,23 @@ public final class LocalFlashService implements FlashService {
             return SdkMessages.get("core.flash.refuseSystem");
         }
         if (target.mounted() && !allowMounted) {
-            return SdkMessages.get("core.flash.refuseMounted");
+            return mountedTargetMessage(target);
         }
         if (target.readOnly()) {
             return SdkMessages.get("core.flash.refuseReadOnly");
         }
         return null;
+    }
+
+    /// Builds a refusal message for mounted targets.
+    ///
+    /// @param target mounted target.
+    /// @return refusal message.
+    private static String mountedTargetMessage(BlockDevice target) {
+        if (!target.mountPoints().isEmpty()) {
+            return SdkMessages.get("core.flash.refuseMountedWithPoints", String.join(", ", target.mountPoints()));
+        }
+        return SdkMessages.get("core.flash.refuseMounted");
     }
 
     /// Resolves materialized partition paths.

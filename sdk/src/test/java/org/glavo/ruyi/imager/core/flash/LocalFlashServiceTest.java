@@ -259,10 +259,22 @@ public final class LocalFlashServiceTest {
         Files.write(target, new byte[8]);
 
         OperationResult result = new LocalFlashService(new EmptyImageCatalogService()).flash(
-                new FlashRequest(null, image, target(target, 8, false, true, false), false),
+                new FlashRequest(null, image, new BlockDevice(
+                        "test",
+                        "Test Target",
+                        target,
+                        8L,
+                        true,
+                        false,
+                        true,
+                        false,
+                        "Test",
+                        "file",
+                        List.of("/mnt/test")), false),
                 NO_PROGRESS);
 
         assertFalse(result.success());
+        assertEquals("Refusing to write to a mounted device: /mnt/test", result.message());
     }
 
     /// Prepares a mounted target before writing when the preparer clears the mount state.
@@ -499,6 +511,15 @@ public final class LocalFlashServiceTest {
         public BlockDevice prepare(BlockDevice target, ProgressReporter reporter) {
             calls++;
             return clearMounted ? unmounted(target) : target;
+        }
+
+        /// Returns whether this test preparer accepts mounted targets.
+        ///
+        /// @param target target block device.
+        /// @return always true.
+        @Override
+        public boolean canPrepareMounted(BlockDevice target) {
+            return true;
         }
     }
 

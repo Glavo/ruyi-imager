@@ -19,6 +19,14 @@ public interface BlockDevicePreparer {
         return NoOpBlockDevicePreparer.INSTANCE;
     }
 
+    /// Returns whether this preparer can safely prepare a mounted target before writing.
+    ///
+    /// @param target target block device.
+    /// @return whether mounted target preparation is supported.
+    default boolean canPrepareMounted(BlockDevice target) {
+        return false;
+    }
+
     /// Prepares a target block device for writing.
     ///
     /// @param target target block device.
