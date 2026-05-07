@@ -18,13 +18,15 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 /// Tests for bundled fastboot executable resolution.
 @NotNullByDefault
 public final class FastbootExecutableLocatorTest {
-    /// Verifies supported x86-64 platform mappings.
+    /// Verifies supported platform mappings.
     @Test
-    public void mapsSupportedX8664Platforms() {
+    public void mapsSupportedPlatforms() {
         assertPlatform("windows-x86_64", "fastboot.exe", "Windows 11", "amd64");
         assertPlatform("macos-x86_64", "fastboot", "Mac OS X", "x86_64");
         assertPlatform("macos-x86_64", "fastboot", "Darwin", "x86-64");
         assertPlatform("linux-x86_64", "fastboot", "Linux", "x64");
+        assertPlatform("linux-riscv64", "fastboot", "Linux", "riscv64");
+        assertPlatform("linux-riscv64", "fastboot", "Linux", "riscv64gc");
     }
 
     /// Verifies unsupported architectures do not map to bundled binaries.

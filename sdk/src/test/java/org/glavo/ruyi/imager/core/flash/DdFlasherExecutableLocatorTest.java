@@ -26,12 +26,14 @@ public final class DdFlasherExecutableLocatorTest {
         assertPlatform("macos-aarch64", "dd-flasher", "Darwin", "arm64");
         assertPlatform("linux-x86_64", "dd-flasher", "Linux", "x64");
         assertPlatform("linux-aarch64", "dd-flasher", "Linux", "aarch64");
+        assertPlatform("linux-riscv64", "dd-flasher", "Linux", "riscv64");
+        assertPlatform("linux-riscv64", "dd-flasher", "Linux", "riscv64gc");
     }
 
     /// Verifies unsupported architectures do not map to bundled binaries.
     @Test
     public void ignoresUnsupportedArchitectures() {
-        assertNull(DdFlasherExecutableLocator.platform("Linux", "riscv64"));
+        assertNull(DdFlasherExecutableLocator.platform("Linux", "sparc64"));
         assertNull(DdFlasherExecutableLocator.platform("Plan 9", "amd64"));
     }
 

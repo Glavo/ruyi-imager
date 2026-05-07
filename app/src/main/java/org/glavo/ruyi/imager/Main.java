@@ -3,7 +3,6 @@
 
 package org.glavo.ruyi.imager;
 
-import javafx.application.Application;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.cli.CliApplication;
 import org.glavo.ruyi.imager.core.AppServices;
@@ -32,7 +31,7 @@ public final class Main {
         LOGGER.info("Starting Ruyi Imager.");
         if (shouldLaunchGui(args)) {
             LOGGER.info("Launching JavaFX GUI.");
-            Application.launch(RuyiImager.class, args);
+            JavaFxLauncher.launch(args);
             return;
         }
 

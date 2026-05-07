@@ -93,31 +93,39 @@ public final class FastbootExecutableLocator {
     /// @param osArch operating system architecture.
     /// @return supported platform, or null when no bundled binary is available.
     static @Nullable FastbootPlatform platform(String osName, String osArch) {
-        if (!isX8664(osArch)) {
+        @Nullable String arch = normalizedArch(osArch);
+        if (arch == null) {
             return null;
         }
 
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
         if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
+            if (!"x86_64".equals(arch)) {
+                return null;
+            }
             return new FastbootPlatform("macos-x86_64", "fastboot", false);
         }
         if (normalizedOs.startsWith("windows")) {
+            if (!"x86_64".equals(arch)) {
+                return null;
+            }
             return new FastbootPlatform("windows-x86_64", "fastboot.exe", true);
         }
         if (normalizedOs.contains("linux")) {
-            return new FastbootPlatform("linux-x86_64", "fastboot", false);
+            return new FastbootPlatform("linux-" + arch, "fastboot", false);
         }
         return null;
     }
 
-    /// Returns whether an architecture string identifies x86-64.
+    /// Resolves a normalized architecture token.
     ///
     /// @param osArch operating system architecture.
-    /// @return whether this is an x86-64 architecture alias.
-    private static boolean isX8664(String osArch) {
+    /// @return normalized architecture token, or null when unsupported.
+    private static @Nullable String normalizedArch(String osArch) {
         return switch (osArch.toLowerCase(Locale.ROOT)) {
-            case "amd64", "x86_64", "x86-64", "x64" -> true;
-            default -> false;
+            case "amd64", "x86_64", "x86-64", "x64" -> "x86_64";
+            case "riscv64", "risc-v64", "riscv64gc" -> "riscv64";
+            default -> null;
         };
     }
 

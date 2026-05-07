@@ -119,6 +119,7 @@ public final class DdFlasherExecutableLocator {
         return switch (osArch.toLowerCase(Locale.ROOT)) {
             case "amd64", "x86_64", "x86-64", "x64" -> "x86_64";
             case "aarch64", "arm64" -> "aarch64";
+            case "riscv64", "risc-v64", "riscv64gc" -> "riscv64";
             default -> null;
         };
     }

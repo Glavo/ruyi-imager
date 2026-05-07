@@ -22,6 +22,7 @@ fun currentPlatformDirectory(): String? {
     val arch = when (osArch) {
         "amd64", "x86_64", "x86-64", "x64" -> "x86_64"
         "aarch64", "arm64" -> "aarch64"
+        "riscv64", "risc-v64", "riscv64gc" -> "riscv64"
         else -> null
     }
     return if (os == null || arch == null) null else "$os-$arch"

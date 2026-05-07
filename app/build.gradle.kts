@@ -46,6 +46,8 @@ val bundledDdFlasherDirectory = project(":dd-flasher").layout.buildDirectory.dir
 val ddFlasherExecutableName =
     if (isWindowsOs(System.getProperty("os.name").lowercase())) "dd-flasher.exe" else "dd-flasher"
 val testDdFlasherExecutable = project(":dd-flasher").layout.buildDirectory.file("cargo-target/release/$ddFlasherExecutableName")
+val javafxModules = listOf("base", "controls", "graphics")
+val javafxRuntimeAvailable = javafxRuntimePlatform() != null
 
 val alibabaPuhuitiFontUrl =
     "https://registry.npmmirror.com/@fontpkg/alibaba-puhuiti-3-0/-/alibaba-puhuiti-3-0-0.0.0.tgz"
@@ -140,9 +142,17 @@ dependencies {
     implementation("io.github.palexdev:materialfx:21.18.0-alpha")
     runtimeOnly("org.slf4j:slf4j-jdk14:2.0.17")
 
-    javafx("base")?.let { implementation(it) }
-    javafx("controls")?.let { implementation(it) }
-    javafx("graphics")?.let { implementation(it) }
+    javafxModules.forEach { module ->
+        val runtimeDependency = javafxRuntime(module)
+        if (runtimeDependency != null) {
+            implementation(runtimeDependency)
+        } else {
+            javafxCompileOnly(module)?.let {
+                compileOnly(it)
+                testCompileOnly(it)
+            }
+        }
+    }
 
     testImplementation(platform("org.junit:junit-bom:6.0.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
@@ -193,37 +203,71 @@ tasks.test {
     jvmArgs("--enable-native-access=ALL-UNNAMED,javafx.graphics")
     dependsOn(":dd-flasher:cargoBuild")
     systemProperty("ruyi.imager.test.ddFlasher.executable", testDdFlasherExecutable.get().asFile.absolutePath)
+    if (!javafxRuntimeAvailable) {
+        exclude("**/MainWindowJavaFxSmokeTest.class")
+    }
 }
 
 tasks.processResources {
     dependsOn(extractAlibabaPuhuitiMediumFont)
 }
 
-/// Returns the JavaFX dependency notation for the current build platform.
+/// Returns the JavaFX runtime dependency notation for the current build platform.
 ///
 /// @param module JavaFX module name.
-/// @return dependency notation, or null when the platform is unsupported.
-fun javafx(module: String): String? {
-    val osName = System.getProperty("os.name").lowercase()
-    val osArch = System.getProperty("os.arch").lowercase()
-    val javafxOS = when {
-        isWindowsOs(osName) -> "win"
-        osName.contains("mac") -> "mac"
-        osName.contains("linux") -> "linux"
-        else -> null
-    }
-    val javafxArch = when (osArch) {
-        "amd64", "x86-64", "x64" -> ""
-        "aarch64", "arm64" -> "-aarch64"
-        else -> null
-    }
+/// @return dependency notation, or null when no matching runtime is available from Maven Central.
+fun javafxRuntime(module: String): String? =
+    javafxRuntimePlatform()?.let { "org.openjfx:javafx-$module:25.0.2:$it" }
 
-    return if (javafxOS == null || javafxArch == null) {
-        null
-    } else {
-        "org.openjfx:javafx-$module:25.0.2:${javafxOS}${javafxArch}"
+/// Returns the JavaFX compile-only dependency notation for the current build platform.
+///
+/// @param module JavaFX module name.
+/// @return dependency notation, or null when no compile fallback is available.
+fun javafxCompileOnly(module: String): String? =
+    javafxCompilePlatform()?.let { "org.openjfx:javafx-$module:25.0.2:$it" }
+
+/// Returns the JavaFX runtime classifier for the current build platform.
+///
+/// @return runtime classifier, or null when no matching runtime is available from Maven Central.
+fun javafxRuntimePlatform(): String? {
+    val osName = System.getProperty("os.name").lowercase()
+    val arch = normalizedArch(System.getProperty("os.arch"))
+    return when {
+        isWindowsOs(osName) && arch == "x86_64" -> "win"
+        (osName.contains("mac") || osName.contains("darwin")) && arch == "x86_64" -> "mac"
+        (osName.contains("mac") || osName.contains("darwin")) && arch == "aarch64" -> "mac-aarch64"
+        osName.contains("linux") && arch == "x86_64" -> "linux"
+        osName.contains("linux") && arch == "aarch64" -> "linux-aarch64"
+        else -> null
     }
 }
+
+/// Returns the JavaFX compile-only classifier for the current build platform.
+///
+/// @return compile-only classifier, or null when no compile fallback is available.
+fun javafxCompilePlatform(): String? {
+    val runtimePlatform = javafxRuntimePlatform()
+    if (runtimePlatform != null) {
+        return runtimePlatform
+    }
+
+    val osName = System.getProperty("os.name").lowercase()
+    val arch = normalizedArch(System.getProperty("os.arch"))
+    // OpenJFX 25.0.2 does not publish a Linux RISC-V runtime classifier, but the Linux API jar can compile the app.
+    return if (osName.contains("linux") && arch == "riscv64") "linux" else null
+}
+
+/// Resolves a normalized architecture token.
+///
+/// @param osArch operating system architecture.
+/// @return normalized architecture token, or null when unsupported.
+fun normalizedArch(osArch: String): String? =
+    when (osArch.lowercase()) {
+        "amd64", "x86_64", "x86-64", "x64" -> "x86_64"
+        "aarch64", "arm64" -> "aarch64"
+        "riscv64", "risc-v64", "riscv64gc" -> "riscv64"
+        else -> null
+    }
 
 /// Returns whether an OS name identifies Windows.
 ///
