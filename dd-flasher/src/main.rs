@@ -7,15 +7,21 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+/// Size of each read/write buffer used for streaming image data.
 const BUFFER_SIZE: usize = 1024 * 1024;
 
+/// Operation requested by the Java SDK process adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Operation {
+    /// Copy bytes from the source image to the target device or file.
     Write,
+
+    /// Compare target bytes with the source image without modifying the target.
     Verify,
 }
 
 impl Operation {
+    /// Returns the stable wire-format operation name.
     fn as_str(self) -> &'static str {
         match self {
             Operation::Write => "write",
@@ -24,16 +30,29 @@ impl Operation {
     }
 }
 
+/// Parsed dd-flasher command request.
 #[derive(Debug)]
 struct Request {
+    /// Operation to execute.
     operation: Operation,
+
+    /// Source image path.
     source: PathBuf,
+
+    /// Target raw device or file path.
     target: PathBuf,
+
+    /// Exact number of bytes expected in the source image.
     total_bytes: u64,
+
+    /// Optional NDJSON event log used when stdout is not available.
     event_log: Option<PathBuf>,
+
+    /// Whether NDJSON events should be written to stdout.
     stdout: bool,
 }
 
+/// Parses CLI arguments, runs the requested operation, and emits a final NDJSON event.
 fn main() -> ExitCode {
     let request = match parse_args(env::args().skip(1)) {
         Ok(request) => request,
@@ -67,6 +86,7 @@ fn main() -> ExitCode {
     }
 }
 
+/// Validates and dispatches one request.
 fn run_request(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     validate_request(&request)?;
     match request.operation {
@@ -78,6 +98,7 @@ fn run_request(request: &Request, sink: &mut EventSink) -> Result<bool, String> 
     }
 }
 
+/// Parses command-line arguments into a request.
 fn parse_args<I>(args: I) -> Result<Request, String>
 where
     I: IntoIterator<Item = String>,
@@ -124,6 +145,7 @@ where
     })
 }
 
+/// Reads the next option value.
 fn next_value<I>(args: &mut I, name: &str) -> Result<String, String>
 where
     I: Iterator<Item = String>,
@@ -132,10 +154,12 @@ where
         .ok_or_else(|| format!("missing value for {name}"))
 }
 
+/// Returns the CLI usage text.
 fn usage() -> String {
     "usage: dd-flasher <write|verify> --source <path> --target <path> --total-bytes <bytes> [--event-log <path>] [--no-stdout]".to_string()
 }
 
+/// Validates source metadata, event sink configuration, and self-write safety.
 fn validate_request(request: &Request) -> Result<(), String> {
     let source_metadata = fs::metadata(&request.source)
         .map_err(|error| format!("failed to read source metadata: {error}"))?;
@@ -161,6 +185,7 @@ fn validate_request(request: &Request) -> Result<(), String> {
     Ok(())
 }
 
+/// Returns whether two paths resolve to the same filesystem object.
 fn same_path(left: &Path, right: &Path) -> bool {
     match (fs::canonicalize(left), fs::canonicalize(right)) {
         (Ok(left), Ok(right)) => left == right,
@@ -168,6 +193,7 @@ fn same_path(left: &Path, right: &Path) -> bool {
     }
 }
 
+/// Streams source image bytes to the target and fsyncs before returning.
 fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
@@ -204,6 +230,7 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
     Ok(())
 }
 
+/// Compares target bytes with the source image and reports progress snapshots.
 fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
@@ -231,6 +258,7 @@ fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String>
     Ok(true)
 }
 
+/// Fills a buffer unless EOF is reached first.
 fn read_exact_or_eof(input: &mut File, buffer: &mut [u8]) -> io::Result<usize> {
     let mut total = 0;
     while total < buffer.len() {
@@ -243,12 +271,17 @@ fn read_exact_or_eof(input: &mut File, buffer: &mut [u8]) -> io::Result<usize> {
     Ok(total)
 }
 
+/// Emits dd-flasher events to stdout, an event log file, or both.
 struct EventSink {
+    /// Whether events should be emitted to stdout.
     stdout: bool,
+
+    /// Optional append-only event log file.
     file: Option<File>,
 }
 
 impl EventSink {
+    /// Creates an event sink.
     fn new(event_log: Option<&Path>, stdout: bool) -> Result<Self, String> {
         let file = match event_log {
             Some(path) => Some(
@@ -263,6 +296,7 @@ impl EventSink {
         Ok(Self { stdout, file })
     }
 
+    /// Emits a progress event for the current byte position.
     fn progress(
         &mut self,
         operation: Operation,
@@ -277,10 +311,12 @@ impl EventSink {
         ))
     }
 
+    /// Emits the final completion event.
     fn complete(&mut self, success: bool) -> Result<(), String> {
         self.emit(&format!("{{\"type\":\"complete\",\"success\":{success}}}"))
     }
 
+    /// Emits an error event.
     fn error(&mut self, message: &str) -> Result<(), String> {
         self.emit(&format!(
             "{{\"type\":\"error\",\"message\":\"{}\"}}",
@@ -288,6 +324,7 @@ impl EventSink {
         ))
     }
 
+    /// Writes one NDJSON event line to every configured destination.
     fn emit(&mut self, line: &str) -> Result<(), String> {
         if self.stdout {
             println!("{line}");
@@ -305,6 +342,7 @@ impl EventSink {
     }
 }
 
+/// Prints an error event to stdout before an event sink exists.
 fn print_error(message: &str) {
     println!(
         "{{\"type\":\"error\",\"message\":\"{}\"}}",
@@ -312,6 +350,7 @@ fn print_error(message: &str) {
     );
 }
 
+/// Escapes a string for the small JSON event subset emitted by this helper.
 fn json_escape(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for ch in value.chars() {
@@ -335,6 +374,7 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// Verifies a successful write and verification cycle against temporary files.
     #[test]
     fn writes_and_verifies_raw_image() {
         let temp = TempDirectory::new("writes_and_verifies_raw_image");
@@ -368,6 +408,7 @@ mod tests {
         assert!(verify_image(&verify_request, &mut sink).unwrap());
     }
 
+    /// Verifies byte mismatches are reported as verification failures.
     #[test]
     fn rejects_mismatched_target() {
         let temp = TempDirectory::new("rejects_mismatched_target");
@@ -388,6 +429,7 @@ mod tests {
         assert!(!verify_image(&request, &mut sink).unwrap());
     }
 
+    /// Verifies source size mismatches are rejected before writing.
     #[test]
     fn rejects_source_size_mismatch() {
         let temp = TempDirectory::new("rejects_source_size_mismatch");
@@ -411,6 +453,7 @@ mod tests {
         );
     }
 
+    /// Verifies self-writes are rejected before opening the target for writing.
     #[test]
     fn rejects_source_target_self_write() {
         let temp = TempDirectory::new("rejects_source_target_self_write");
@@ -432,6 +475,7 @@ mod tests {
         );
     }
 
+    /// Verifies elevated-mode event logging can run without stdout events.
     #[test]
     fn writes_events_to_event_log_only() {
         let temp = TempDirectory::new("writes_events_to_event_log_only");
@@ -458,6 +502,7 @@ mod tests {
         assert!(events.contains("\"type\":\"complete\""));
     }
 
+    /// Creates deterministic image bytes for tests.
     fn image_bytes(size: usize) -> Vec<u8> {
         let mut bytes = vec![0u8; size];
         for (index, byte) in bytes.iter_mut().enumerate() {
@@ -466,11 +511,14 @@ mod tests {
         bytes
     }
 
+    /// Temporary test directory removed when dropped.
     struct TempDirectory {
+        /// Filesystem path to the temporary directory.
         path: PathBuf,
     }
 
     impl TempDirectory {
+        /// Creates a temporary directory name unique to this process and timestamp.
         fn new(name: &str) -> Self {
             let nanos = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -484,6 +532,7 @@ mod tests {
             Self { path }
         }
 
+        /// Returns the temporary directory path.
         fn path(&self) -> &Path {
             &self.path
         }
