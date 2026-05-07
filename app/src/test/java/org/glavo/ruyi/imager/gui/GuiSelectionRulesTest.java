@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -107,6 +108,26 @@ public final class GuiSelectionRulesTest {
                 false,
                 false)));
         assertFalse(GuiSelectionRules.targetWritable(device("readonly", Path.of("readonly.raw"), false, false, true)));
+    }
+
+    /// Verifies default GUI target selectors hide unsupported block targets.
+    @Test
+    public void filtersUnsupportedBlockTargets() {
+        BlockDevice ready = device("ready", Path.of("ready.raw"), false, false, false);
+        BlockDevice system = device("system", Path.of("system.raw"), true, false, false);
+        BlockDevice mounted = device("mounted", Path.of("mounted.raw"), false, true, false);
+        BlockDevice preparableMounted = device(
+                "windows-disk-2",
+                Path.of("\\\\.\\PHYSICALDRIVE2"),
+                false,
+                true,
+                false,
+                true);
+        BlockDevice readonly = device("readonly", Path.of("readonly.raw"), false, false, true);
+
+        assertEquals(
+                List.of(ready, preparableMounted),
+                GuiSelectionRules.supportedTargets(List.of(ready, system, mounted, preparableMounted, readonly)));
     }
 
     /// Creates a test image entry.

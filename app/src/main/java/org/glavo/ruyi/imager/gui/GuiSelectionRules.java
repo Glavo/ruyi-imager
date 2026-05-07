@@ -9,9 +9,11 @@ import org.glavo.ruyi.imager.core.flash.FlashTarget;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /// Pure GUI selection rules shared by the JavaFX window and unit tests.
@@ -117,6 +119,16 @@ final class GuiSelectionRules {
     /// @return whether the target is not blocked by safety flags.
     static boolean targetWritable(BlockDevice target) {
         return !target.system() && !target.readOnly() && (!target.mounted() || targetPreparablyMounted(target));
+    }
+
+    /// Returns the block targets shown by default in GUI target selectors.
+    ///
+    /// @param targets detected target devices.
+    /// @return supported target devices.
+    static @Unmodifiable List<BlockDevice> supportedTargets(List<BlockDevice> targets) {
+        return targets.stream()
+                .filter(GuiSelectionRules::targetWritable)
+                .toList();
     }
 
     /// Returns whether a mounted target can be prepared by the current writer.

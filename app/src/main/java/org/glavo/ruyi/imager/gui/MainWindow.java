@@ -80,6 +80,7 @@ import static org.glavo.ruyi.imager.gui.GuiSelectionRules.compatibleTarget;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.fastbootStrategy;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetKeysMatch;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetsReady;
+import static org.glavo.ruyi.imager.gui.GuiSelectionRules.supportedTargets;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetPreparablyMounted;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetWritable;
 
@@ -1186,15 +1187,23 @@ public final class MainWindow {
             return;
         }
 
+        @Unmodifiable List<BlockDevice> supportedDevices = supportedTargets(devices);
+        if (supportedDevices.isEmpty()) {
+            showInfo(
+                    Messages.get("gui.dialog.noSupportedStorageDevices"),
+                    Messages.get("gui.dialog.noSupportedStorageDevices.message"));
+            return;
+        }
+
         @Nullable ImageEntry image = state.image();
         if (GuiSelectionRules.requiresPartitionTargets(image)) {
-            showPartitionStorageDialog(devices, image);
+            showPartitionStorageDialog(supportedDevices, image);
             return;
         }
 
         ListView<BlockDevice> listView = selectionListView();
         String header = Messages.get("gui.dialog.chooseStorageDevice.header");
-        Node content = searchableSelectionContent(header, listView, devices, MainWindow::targetMatches);
+        Node content = searchableSelectionContent(header, listView, supportedDevices, MainWindow::targetMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one target list cell.
             ///
@@ -1212,7 +1221,7 @@ public final class MainWindow {
 
                 setText(null);
                 setGraphic(targetCellContent(item));
-                getStyleClass().add(targetWritable(item) ? "safe-target-cell" : "blocked-target-cell");
+                getStyleClass().add("safe-target-cell");
             }
         });
         selectCurrentBlockTarget(listView, state.target());
