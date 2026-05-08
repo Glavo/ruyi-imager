@@ -1,6 +1,5 @@
 import de.undercouch.gradle.tasks.download.Download
 import org.gradle.api.file.RelativePath
-import java.net.URI
 
 plugins {
     application
@@ -56,6 +55,12 @@ val fastbootBundles = listOf(
     ),
 )
 
+val downloadRetries = providers.gradleProperty("download.retries")
+    .map { it.toInt() }
+    .orElse(3)
+val fastbootDownloadRetries = providers.gradleProperty("fastboot.download.retries")
+    .map { it.toInt() }
+    .orElse(downloadRetries)
 val bundledFastbootDirectory = layout.buildDirectory.dir("bundled-fastboot")
 val bundledDdFlasherDirectory = project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher")
 val ddFlasherExecutableName =
@@ -120,19 +125,16 @@ val generatedResourcesDirectory = layout.buildDirectory.dir("generated/resources
 val alibabaPuhuitiMediumFont =
     generatedResourcesDirectory.map { it.file("org/glavo/ruyi/imager/fonts/AlibabaPuHuiTi-3-65-Medium.ttf") }
 
-tasks.register("downloadAlibabaPuhuitiFont") {
+tasks.register<Download>("downloadAlibabaPuhuitiFont") {
     group = "assets"
     description = "Downloads the Alibaba PuHuiTi 3.0 font package."
+    src(alibabaPuhuitiFontUrl)
+    dest(alibabaPuhuitiFontArchive.get().asFile)
+    overwrite(false)
+    onlyIfModified(true)
+    tempAndMove(true)
+    retries(downloadRetries.get())
     outputs.file(alibabaPuhuitiFontArchive)
-    doLast {
-        val target = alibabaPuhuitiFontArchive.get().asFile
-        target.parentFile.mkdirs()
-        URI(alibabaPuhuitiFontUrl).toURL().openStream().use { input ->
-            target.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-    }
 }
 
 val extractAlibabaPuhuitiMediumFont = tasks.register<Copy>("extractAlibabaPuhuitiMediumFont") {
@@ -152,23 +154,26 @@ val extractAlibabaPuhuitiMediumFont = tasks.register<Copy>("extractAlibabaPuhuit
 
 val extractFastbootTasks = fastbootBundles.map { bundle ->
     val archive = layout.buildDirectory.file("downloads/platform-tools-${bundle.platformDirectory}.zip")
+    val configuredUrl = providers.gradleProperty("fastboot.${bundle.platformDirectory}.url").orElse(bundle.url)
     val outputFiles = bundle.archiveEntries.map { archiveEntry ->
         val fileName = archiveEntry.substringAfterLast('/')
         bundledFastbootDirectory.map { it.file("${bundle.platformDirectory}/$fileName") }
     }
     val executable = bundledFastbootDirectory.map { it.file("${bundle.platformDirectory}/${bundle.executableName}") }
 
-    val downloadTask = tasks.register("download${bundle.taskSuffix}Fastboot") {
+    val downloadTask = tasks.register<Download>("download${bundle.taskSuffix}Fastboot") {
+        group = "distribution"
+        description = "Downloads Android Platform Tools for ${bundle.platformDirectory}."
+        src(configuredUrl.get())
+        dest(archive.get().asFile)
+        overwrite(false)
+        onlyIfModified(true)
+        tempAndMove(true)
+        retries(fastbootDownloadRetries.get())
+        header("User-Agent", "Ruyi-Imager-Gradle/1.0")
+        connectTimeout(30_000)
+        readTimeout(120_000)
         outputs.file(archive)
-        doLast {
-            val target = archive.get().asFile
-            target.parentFile.mkdirs()
-            URI(bundle.url).toURL().openStream().use { input ->
-                target.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
     }
 
     tasks.register<Copy>("extract${bundle.taskSuffix}Fastboot") {
@@ -201,6 +206,8 @@ val downloadJlinkJdk = tasks.register<Download>("downloadJlinkJdk") {
     dest(jlinkJdkArchive.get().asFile)
     overwrite(false)
     onlyIfModified(true)
+    tempAndMove(true)
+    retries(downloadRetries.get())
     outputs.file(jlinkJdkArchive)
 }
 
