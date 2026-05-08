@@ -48,6 +48,19 @@ val ddFlasherExecutableName =
 val testDdFlasherExecutable = project(":dd-flasher").layout.buildDirectory.file("cargo-target/release/$ddFlasherExecutableName")
 val javafxModules = listOf("base", "controls", "graphics")
 val javafxRuntimeAvailable = javafxRuntimePlatform() != null
+val applicationJvmArgs = listOf("--enable-native-access=ALL-UNNAMED,javafx.graphics")
+val jlinkJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/runtime")
+val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/launchers")
+val jlinkImageDirectory = layout.buildDirectory.dir("jlink/ruyi-imager")
+val jlinkModules = providers.gradleProperty("jlink.modules").orElse(defaultJlinkModules().joinToString(","))
+val java25Launcher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(25)
+}
+val jlinkExecutable = java25Launcher.map {
+    val executable = if (isWindowsOs(System.getProperty("os.name").lowercase())) "jlink.exe" else "jlink"
+    it.metadata.installationPath.file("bin/$executable")
+}
 
 val alibabaPuhuitiFontUrl =
     "https://registry.npmmirror.com/@fontpkg/alibaba-puhuiti-3-0/-/alibaba-puhuiti-3-0-0.0.0.tgz"
@@ -168,7 +181,7 @@ sourceSets {
 
 application {
     mainClass = "org.glavo.ruyi.imager.Main"
-    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED,javafx.graphics")
+    applicationDefaultJvmArgs = applicationJvmArgs
 }
 
 distributions {
@@ -210,6 +223,99 @@ tasks.test {
 
 tasks.processResources {
     dependsOn(extractAlibabaPuhuitiMediumFont)
+}
+
+tasks.register<Exec>("jlinkRuntime") {
+    group = "distribution"
+    description = "Builds a custom Java runtime image for the current platform."
+    inputs.property("modules", jlinkModules)
+    outputs.dir(jlinkRuntimeDirectory)
+    doFirst {
+        delete(jlinkRuntimeDirectory)
+    }
+    executable = jlinkExecutable.get().asFile.absolutePath
+    args(
+        "--strip-debug",
+        "--no-header-files",
+        "--no-man-pages",
+        "--add-modules",
+        jlinkModules.get(),
+        "--output",
+        jlinkRuntimeDirectory.get().asFile.absolutePath,
+    )
+}
+
+tasks.register("writeJlinkLaunchers") {
+    group = "distribution"
+    description = "Writes launch scripts for the jlink application image."
+    inputs.property("mainClass", application.mainClass)
+    inputs.property("jvmArgs", jlinkJvmArgs.joinToString(" "))
+    outputs.dir(jlinkLaunchersDirectory)
+    doLast {
+        val outputDirectory = jlinkLaunchersDirectory.get().asFile
+        delete(outputDirectory)
+        outputDirectory.mkdirs()
+
+        val unixLauncher = outputDirectory.resolve("ruyi-imager")
+        unixLauncher.writeText(
+            """
+            |#!/bin/sh
+            |APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+            |exec "${'$'}APP_HOME/runtime/bin/java" ${jlinkJvmArgs.joinToString(" ")} -cp "${'$'}APP_HOME/lib/*" ${application.mainClass.get()} "$@"
+            |
+            """.trimMargin(),
+        )
+        unixLauncher.setExecutable(true, false)
+
+        outputDirectory.resolve("ruyi-imager.bat").writeText(
+            """
+            |@echo off
+            |set "APP_HOME=%~dp0.."
+            |"%APP_HOME%\runtime\bin\java.exe" ${jlinkJvmArgs.joinToString(" ")} -cp "%APP_HOME%\lib\*" ${application.mainClass.get()} %*
+            |
+            """.trimMargin(),
+        )
+    }
+}
+
+tasks.register<Sync>("installJlinkDist") {
+    group = "distribution"
+    description = "Installs a jlink application image with runtime, libraries, launchers, and bundled tools."
+    dependsOn("jar")
+    dependsOn("jlinkRuntime")
+    dependsOn("writeJlinkLaunchers")
+    dependsOn("prepareBundledFastboot")
+    dependsOn(":dd-flasher:prepareBundledDdFlasher")
+
+    into(jlinkImageDirectory)
+    from(jlinkRuntimeDirectory) {
+        into("runtime")
+    }
+    from(tasks.named("jar")) {
+        into("lib")
+    }
+    from(configurations.runtimeClasspath) {
+        into("lib")
+    }
+    from(jlinkLaunchersDirectory) {
+        into("bin")
+    }
+    from(bundledFastbootDirectory) {
+        into("tools/fastboot")
+    }
+    from(bundledDdFlasherDirectory) {
+        into("tools/dd-flasher")
+    }
+}
+
+tasks.register<Zip>("jlinkZip") {
+    group = "distribution"
+    description = "Archives the jlink application image."
+    dependsOn("installJlinkDist")
+    archiveClassifier = "jlink"
+    from(jlinkImageDirectory) {
+        into("ruyi-imager")
+    }
 }
 
 /// Returns the JavaFX runtime dependency notation for the current build platform.
@@ -275,3 +381,27 @@ fun normalizedArch(osArch: String): String? =
 /// @return whether the OS is Windows.
 fun isWindowsOs(osName: String): Boolean =
     osName.startsWith("windows")
+
+/// Returns the default Java modules included in the jlink runtime image.
+///
+/// @return default module names.
+fun defaultJlinkModules(): List<String> =
+    listOf(
+        "java.base",
+        "java.compiler",
+        "java.datatransfer",
+        "java.desktop",
+        "java.logging",
+        "java.management",
+        "java.naming",
+        "java.net.http",
+        "java.prefs",
+        "java.scripting",
+        "java.security.jgss",
+        "java.sql",
+        "java.xml",
+        "jdk.charsets",
+        "jdk.crypto.ec",
+        "jdk.localedata",
+        "jdk.unsupported",
+    )
