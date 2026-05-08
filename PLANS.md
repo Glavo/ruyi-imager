@@ -14,6 +14,7 @@
 - Ruyi catalog/repo、下载缓存、校验、artifact 物化和内存 catalog cache 已接入，压缩包/ tar / Debian `data.tar*` 物化使用 `Glavo/kala-compress`。
 - `dd-v1`、`fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度。
 - Rust `dd-flasher` 写入路径已限制最多写入声明的镜像字节数，并覆盖源文件变大时不越界写目标的回归测试。
+- Java `ProcessDdImageWriter` 已并发消费 helper 诊断输出，避免异常 helper 写满 stdout/stderr 管道后卡住 CLI/GUI。
 - Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
 - GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒和目标确认。
@@ -35,6 +36,8 @@
   - `./gradlew -g .gradle-user-home test`
   - `./gradlew -g .gradle-user-home :dd-flasher:test`
   - `./gradlew -g .gradle-user-home :dd-flasher:cargoBuild`
+  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.*`
+  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.cli.CliApplicationTest.flashLocalImageWritesSimulatedTarget`
   - `cargo fmt --check` in `dd-flasher`
   - `./gradlew -g .gradle-user-home :app:jlinkRuntime --info`
   - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkRuntime --info`
