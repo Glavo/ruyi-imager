@@ -21,7 +21,7 @@
 - 刷写：支持 `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)`；dd 支持单目标整盘和多分区 target mapping，写入前预校验目标；Windows removable 挂载目标可在写入前通过 PowerShell 卸载卷和访问路径，non-removable 挂载目标保持阻止；Linux/macOS 等无自动卸载 preparer 的已挂载目标会在准备动作前拒绝写入，并在错误中显示挂载点；raw image 写入/校验已改为 SDK 进程适配器调用 Rust `dd-flasher` helper，helper 输出 NDJSON 进度并由 SDK 转发；Windows raw device 默认通过 UAC 启动 helper，Linux GUI 会话 raw device 默认通过 `pkexec` 启动 helper，macOS raw disk 默认通过 `osascript` administrator privileges 启动 helper，并通过 helper event log 保持进度回传；fastboot 支持分区级进度、LPi4A reboot 后重连等待、超时/中断清理。
 - Bundled fastboot：发行包会下载并携带 Android SDK Platform Tools 中的 Windows/macOS/Linux x86-64 fastboot；运行时优先使用发行目录内的 bundled fastboot，缺失或不支持的平台退回 PATH；平台识别覆盖 Windows、macOS、Darwin、Linux 的 x86-64 别名，并支持 Linux riscv64 自定义 bundled fastboot 或 PATH fastboot。
 - Bundled dd-flasher：发行包会携带当前或指定平台 Rust `dd-flasher` helper；运行时优先使用 `ruyi.imager.ddFlasher.executable` / `RUYI_IMAGER_DD_FLASHER` 配置，其次使用发行目录 bundled helper，最后退回 PATH；平台识别和本机打包支持 riscv64 / riscv64gc；Gradle 支持通过 `-PddFlasher.targetPlatform=<platform>` 和 `-PddFlasher.rustTarget=<triple>` 进行交叉编译。
-- JLink packaging：`app` 模块提供 `jlinkRuntime`、`installJlinkDist` 和 `jlinkZip` 任务，生成裁剪 runtime、classpath 应用库、启动脚本以及 bundled fastboot/dd-flasher；`jlinkRuntime` 通过 Gradle Download Task 下载 Liberica Full JDK 25.0.3+11 并只使用其内置 `jmods`/`jlink`，非 RISC-V 平台默认把 `javafx.base`、`javafx.graphics` 和 `javafx.controls` 链接进 runtime，RISC-V 使用 Standard JDK 并保持 CLI 可用但不内置 JavaFX；可通过 `-Pjlink.modules=<modules>`、`-Pjlink.jdk.platform=<platform>`、`-Pjlink.jdk.version=<version>` 和 `-Pjlink.jdk.url=<url>` 覆盖默认配置。
+- JLink packaging：`app` 模块提供 `jlinkRuntime`、`installJlinkDist` 和 `jlinkZip` 任务，生成裁剪 runtime、classpath 应用库、启动脚本以及 bundled fastboot/dd-flasher；`jlinkRuntime` 通过 Gradle Download Task 下载目标平台 Liberica Full JDK 25.0.3+11，并使用主机 JDK 25 的 `jlink` 链接目标 JDK 内置 `jmods`，非 RISC-V 平台默认把 `javafx.base`、`javafx.graphics` 和 `javafx.controls` 链接进 runtime，RISC-V 使用 Standard JDK 并保持 CLI 可用但不内置 JavaFX；jlink runtime、launcher 和 image 输出按目标平台隔离，zip classifier 包含目标平台；可通过 `-Pjlink.modules=<modules>`、`-Pjlink.jdk.platform=<platform>`、`-Pjlink.jdk.version=<version>` 和 `-Pjlink.jdk.url=<url>` 覆盖默认配置。
 - RISC-V：CLI bootstrap 不再直接链接 JavaFX 类，RISC-V Linux 上缺少 JavaFX runtime 时仍可运行 CLI；Linux riscv64 GUI 构建使用 JavaFX Linux API jar 编译，运行 GUI 仍需要平台提供 JavaFX runtime。
 - 设备枚举：Windows、Linux、macOS 只读块设备枚举已接入，保留挂载点用于 CLI/GUI 展示；三套平台 parser fixture 已覆盖。
 - CLI：支持 `repo update`、`image list/download`、`device list`、`device list --fastboot`、`flash --atom`、`flash --local-image`、多分区 `--partition-device`，主要命令支持 JSON/NDJSON；本地 Ruyi repo fixture 集成测试覆盖 repo update、image list/download 和 unsupported strategy。
@@ -33,6 +33,9 @@
 - 设备后端：
   - 在真实 Linux/macOS 设备上做只读枚举 smoke test。
   - 在可擦写 Windows removable 设备上做挂载目标写入准备 smoke test，确认卸载卷和移除访问路径行为。
+- 交叉发行包：
+  - 为 `dd-flasher` 非本机目标配置可用 linker 或 `cross` 构建环境；当前 Windows 沙箱已安装 Rust targets，但 Windows ARM64 缺 `link.exe`，Linux RISC-V 缺 `cc`/交叉 linker。
+  - 为 Android Platform Tools 下载增加 mirror/cache/retry 策略，避免 `jlinkZip` 因 Google 下载源 HTTP 429 中断。
 
 ### Verification
 
@@ -43,6 +46,8 @@
   - `./gradlew -g .gradle-user-home run --args='device list --json'`
   - `./gradlew -g .gradle-user-home run --args='--verbose --log-file build/tmp/ruyi-imager.log image list --json'`
   - `./gradlew -g .gradle-user-home :app:jlinkRuntime --info`
-  - `app/build/jlink/runtime/bin/java --list-modules`
+  - `app/build/jlink/windows-x86_64/runtime/bin/java --list-modules`
+  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkRuntime --info`
+  - `app/build/jlink/linux-x86_64/runtime/release`
   - `git diff --check`
 - 注意：Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝；需要沙箱外只读运行验证。

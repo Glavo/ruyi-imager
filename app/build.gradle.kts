@@ -65,13 +65,13 @@ val javafxModules = listOf("base", "controls", "graphics")
 val javafxModuleNames = javafxModules.map { "javafx.$it" }
 val javafxRuntimeAvailable = javafxRuntimePlatform() != null
 val applicationJvmArgs = listOf("--enable-native-access=ALL-UNNAMED,javafx.graphics")
-val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/runtime")
-val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/launchers")
-val jlinkImageDirectory = layout.buildDirectory.dir("jlink/ruyi-imager")
 val jlinkJdkVersion = providers.gradleProperty("jlink.jdk.version").orElse("25.0.3+11").get()
 val jlinkJdkPlatform = providers.gradleProperty("jlink.jdk.platform")
     .orElse(currentJlinkPlatform() ?: error("Unsupported platform for jlink JDK bundle"))
     .get()
+val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/runtime")
+val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/launchers")
+val jlinkImageDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/ruyi-imager")
 val jlinkJavafxModuleNames = if (jlinkJdkPlatform == "linux-riscv64") emptyList() else javafxModuleNames
 val jlinkDefaultModules = defaultJlinkModules() + jlinkJavafxModuleNames
 val jlinkModules = providers.gradleProperty("jlink.modules").orElse(jlinkDefaultModules.joinToString(","))
@@ -103,7 +103,14 @@ val jlinkJdkBundle = defaultJlinkJdkBundle.copy(
 val jlinkJdkArchive = layout.buildDirectory.file("downloads/jdks/${jlinkJdkBundle.fileName}")
 val jlinkJdkDirectory = layout.buildDirectory.dir("jdks/${jlinkJdkBundle.platform}")
 val jlinkJmodsDirectory = jlinkJdkDirectory.map { it.dir("jmods") }
-val jlinkExecutable = jlinkJdkDirectory.map { it.file("bin/${jlinkJdkBundle.executableName}") }
+val targetJlinkExecutable = jlinkJdkDirectory.map { it.file("bin/${jlinkJdkBundle.executableName}") }
+val java25Launcher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(25)
+}
+val hostJlinkExecutable = java25Launcher.map {
+    val executable = if (isWindowsOs(System.getProperty("os.name").lowercase())) "jlink.exe" else "jlink"
+    it.metadata.installationPath.file("bin/$executable")
+}
 
 val alibabaPuhuitiFontUrl =
     "https://registry.npmmirror.com/@fontpkg/alibaba-puhuiti-3-0/-/alibaba-puhuiti-3-0-0.0.0.tgz"
@@ -226,10 +233,10 @@ tasks.register<Copy>("extractJlinkJdk") {
         includeEmptyDirs = false
     }
     into(jlinkJdkDirectory)
-    outputs.file(jlinkExecutable)
+    outputs.file(targetJlinkExecutable)
     outputs.file(jlinkJmodsDirectory.map { it.file("java.base.jmod") })
     doLast {
-        val executable = jlinkExecutable.get().asFile
+        val executable = targetJlinkExecutable.get().asFile
         if (executable.isFile && jlinkJdkBundle.executableName == "jlink") {
             executable.setExecutable(true, false)
         }
@@ -328,9 +335,9 @@ tasks.register<Exec>("jlinkRuntime") {
     outputs.dir(jlinkRuntimeDirectory)
     doFirst {
         delete(jlinkRuntimeDirectory)
-        val executable = jlinkExecutable.get().asFile
+        val executable = hostJlinkExecutable.get().asFile
         val javaBaseJmod = jlinkJmodsDirectory.get().asFile.resolve("java.base.jmod")
-        check(executable.isFile) { "Missing jlink executable: $executable" }
+        check(executable.isFile) { "Missing host jlink executable: $executable" }
         check(javaBaseJmod.isFile) { "Missing java.base.jmod in downloaded JDK: $javaBaseJmod" }
         if (jlinkRuntimeIncludesJavafx.get()) {
             jlinkJavafxModuleNames.forEach { moduleName ->
@@ -355,7 +362,7 @@ tasks.register<Exec>("jlinkRuntime") {
             ),
         )
     }
-    executable = jlinkExecutable.get().asFile.absolutePath
+    executable = hostJlinkExecutable.get().asFile.absolutePath
 }
 
 tasks.register("writeJlinkLaunchers") {
@@ -429,7 +436,7 @@ tasks.register<Zip>("jlinkZip") {
     group = "distribution"
     description = "Archives the jlink application image."
     dependsOn("installJlinkDist")
-    archiveClassifier = "jlink"
+    archiveClassifier = "$jlinkJdkPlatform-jlink"
     from(jlinkImageDirectory) {
         into("ruyi-imager")
     }
