@@ -62,17 +62,37 @@ val ddFlasherExecutableName =
     if (isWindowsOs(System.getProperty("os.name").lowercase())) "dd-flasher.exe" else "dd-flasher"
 val testDdFlasherExecutable = project(":dd-flasher").layout.buildDirectory.file("cargo-target/release/$ddFlasherExecutableName")
 val javafxModules = listOf("base", "controls", "graphics")
+val javafxModuleNames = javafxModules.map { "javafx.$it" }
 val javafxRuntimeAvailable = javafxRuntimePlatform() != null
 val applicationJvmArgs = listOf("--enable-native-access=ALL-UNNAMED,javafx.graphics")
-val jlinkJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/runtime")
 val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/launchers")
 val jlinkImageDirectory = layout.buildDirectory.dir("jlink/ruyi-imager")
-val jlinkModules = providers.gradleProperty("jlink.modules").orElse(defaultJlinkModules().joinToString(","))
 val jlinkJdkVersion = providers.gradleProperty("jlink.jdk.version").orElse("25.0.3+11").get()
 val jlinkJdkPlatform = providers.gradleProperty("jlink.jdk.platform")
     .orElse(currentJlinkPlatform() ?: error("Unsupported platform for jlink JDK bundle"))
     .get()
+val jlinkJavafxModuleNames = if (jlinkJdkPlatform == "linux-riscv64") emptyList() else javafxModuleNames
+val jlinkDefaultModules = defaultJlinkModules() + jlinkJavafxModuleNames
+val jlinkModules = providers.gradleProperty("jlink.modules").orElse(jlinkDefaultModules.joinToString(","))
+val jlinkRuntimeIncludesJavafx = providers.provider {
+    val moduleSet = jlinkModules.get()
+        .split(',')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .toSet()
+    jlinkJavafxModuleNames.isNotEmpty() && moduleSet.containsAll(jlinkJavafxModuleNames)
+}
+val jlinkLauncherJvmArgs = providers.provider {
+    if (jlinkRuntimeIncludesJavafx.get()) {
+        listOf(
+            "--enable-native-access=ALL-UNNAMED,javafx.graphics",
+            "--add-modules=${jlinkJavafxModuleNames.joinToString(",")}",
+        )
+    } else {
+        listOf("--enable-native-access=ALL-UNNAMED")
+    }
+}
 val defaultJlinkJdkBundle = libericaJdkBundle(jlinkJdkPlatform, jlinkJdkVersion)
 val jlinkJdkUrl = providers.gradleProperty("jlink.jdk.url").orElse(defaultJlinkJdkBundle.url).get()
 val jlinkJdkBundle = defaultJlinkJdkBundle.copy(
@@ -302,6 +322,8 @@ tasks.register<Exec>("jlinkRuntime") {
     description = "Builds a custom Java runtime image for the current platform."
     dependsOn("extractJlinkJdk")
     inputs.property("modules", jlinkModules)
+    inputs.property("javafxModules", jlinkJavafxModuleNames.joinToString(","))
+    inputs.property("javafxLinked", jlinkRuntimeIncludesJavafx.map { it.toString() })
     inputs.dir(jlinkJmodsDirectory)
     outputs.dir(jlinkRuntimeDirectory)
     doFirst {
@@ -310,29 +332,41 @@ tasks.register<Exec>("jlinkRuntime") {
         val javaBaseJmod = jlinkJmodsDirectory.get().asFile.resolve("java.base.jmod")
         check(executable.isFile) { "Missing jlink executable: $executable" }
         check(javaBaseJmod.isFile) { "Missing java.base.jmod in downloaded JDK: $javaBaseJmod" }
+        if (jlinkRuntimeIncludesJavafx.get()) {
+            jlinkJavafxModuleNames.forEach { moduleName ->
+                val jmod = jlinkJmodsDirectory.get().asFile.resolve("$moduleName.jmod")
+                check(jmod.isFile) {
+                    "Missing $moduleName.jmod in downloaded Liberica Full JDK: $jmod"
+                }
+            }
+        }
+
+        setArgs(
+            listOf(
+                "--strip-debug",
+                "--no-header-files",
+                "--no-man-pages",
+                "--module-path",
+                jlinkJmodsDirectory.get().asFile.absolutePath,
+                "--add-modules",
+                jlinkModules.get(),
+                "--output",
+                jlinkRuntimeDirectory.get().asFile.absolutePath,
+            ),
+        )
     }
     executable = jlinkExecutable.get().asFile.absolutePath
-    args(
-        "--strip-debug",
-        "--no-header-files",
-        "--no-man-pages",
-        "--module-path",
-        jlinkJmodsDirectory.get().asFile.absolutePath,
-        "--add-modules",
-        jlinkModules.get(),
-        "--output",
-        jlinkRuntimeDirectory.get().asFile.absolutePath,
-    )
 }
 
 tasks.register("writeJlinkLaunchers") {
     group = "distribution"
     description = "Writes launch scripts for the jlink application image."
     inputs.property("mainClass", application.mainClass)
-    inputs.property("jvmArgs", jlinkJvmArgs.joinToString(" "))
+    inputs.property("jvmArgs", jlinkLauncherJvmArgs.map { it.joinToString(" ") })
     outputs.dir(jlinkLaunchersDirectory)
     doLast {
         val outputDirectory = jlinkLaunchersDirectory.get().asFile
+        val launcherJvmArgs = jlinkLauncherJvmArgs.get().joinToString(" ")
         delete(outputDirectory)
         outputDirectory.mkdirs()
 
@@ -341,7 +375,7 @@ tasks.register("writeJlinkLaunchers") {
             """
             |#!/bin/sh
             |APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-            |exec "${'$'}APP_HOME/runtime/bin/java" ${jlinkJvmArgs.joinToString(" ")} -cp "${'$'}APP_HOME/lib/*" ${application.mainClass.get()} "$@"
+            |exec "${'$'}APP_HOME/runtime/bin/java" $launcherJvmArgs -cp "${'$'}APP_HOME/lib/*" ${application.mainClass.get()} "$@"
             |
             """.trimMargin(),
         )
@@ -351,7 +385,7 @@ tasks.register("writeJlinkLaunchers") {
             """
             |@echo off
             |set "APP_HOME=%~dp0.."
-            |"%APP_HOME%\runtime\bin\java.exe" ${jlinkJvmArgs.joinToString(" ")} -cp "%APP_HOME%\lib\*" ${application.mainClass.get()} %*
+            |"%APP_HOME%\runtime\bin\java.exe" $launcherJvmArgs -cp "%APP_HOME%\lib\*" ${application.mainClass.get()} %*
             |
             """.trimMargin(),
         )
@@ -376,6 +410,9 @@ tasks.register<Sync>("installJlinkDist") {
     }
     from(configurations.runtimeClasspath) {
         into("lib")
+        exclude {
+            jlinkRuntimeIncludesJavafx.get() && it.file.name.startsWith("javafx-")
+        }
     }
     from(jlinkLaunchersDirectory) {
         into("bin")
@@ -486,7 +523,7 @@ fun currentJlinkPlatform(): String? {
 /// @param version Liberica JDK version string.
 /// @return Liberica JDK bundle descriptor.
 fun libericaJdkBundle(platform: String, version: String): JlinkJdkBundle {
-    val archive = when (platform) {
+    val platformArchive = when (platform) {
         "windows-x86_64" -> "windows-amd64.zip"
         "windows-aarch64" -> "windows-aarch64.zip"
         "macos-x86_64" -> "macos-amd64.tar.gz"
@@ -496,7 +533,10 @@ fun libericaJdkBundle(platform: String, version: String): JlinkJdkBundle {
         "linux-riscv64" -> "linux-riscv64.tar.gz"
         else -> error("Unsupported jlink target platform: $platform")
     }
-    val fileName = "bellsoft-jdk$version-$archive"
+    val archiveExtension = if (platformArchive.endsWith(".tar.gz")) ".tar.gz" else ".zip"
+    val platformName = platformArchive.removeSuffix(archiveExtension)
+    val bundleSuffix = if (platform == "linux-riscv64") "" else "-full"
+    val fileName = "bellsoft-jdk$version-$platformName$bundleSuffix$archiveExtension"
     val executableName = if (platform.startsWith("windows-")) "jlink.exe" else "jlink"
     return JlinkJdkBundle(
         platform = platform,
