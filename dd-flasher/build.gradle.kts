@@ -4,6 +4,9 @@ plugins {
 
 val cargoExecutable = providers.gradleProperty("cargo.executable").orElse("cargo")
 val rustTargetDirectory = layout.buildDirectory.dir("cargo-target")
+val rustSourceFiles = fileTree(layout.projectDirectory.dir("src")) {
+    include("**/*.rs")
+}
 val currentBundledPlatform = currentPlatform()
     ?: throw GradleException("Unsupported dd-flasher build platform: ${System.getProperty("os.name")} ${System.getProperty("os.arch")}")
 val requestedTargetPlatform = providers.gradleProperty("ddFlasher.targetPlatform").orNull
@@ -92,6 +95,18 @@ tasks.register<Exec>("cargoBuild") {
     group = "build"
     description = "Builds the Rust dd-flasher helper."
     workingDir = projectDir
+    inputs.file(layout.projectDirectory.file("Cargo.toml"))
+        .withPropertyName("cargoManifest")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(layout.projectDirectory.file("Cargo.lock"))
+        .withPropertyName("cargoLock")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(rustSourceFiles)
+        .withPropertyName("rustSources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property("cargoExecutable", cargoExecutable)
+    inputs.property("cargoRustTarget", cargoRustTarget ?: "")
+    inputs.property("selectedPlatform", selectedPlatform.directory)
     val command = mutableListOf(cargoExecutable.get(), "build", "--release", "--target-dir", cargoTargetDirectoryPath.get())
     if (cargoRustTarget != null) {
         command.addAll(listOf("--target", cargoRustTarget))

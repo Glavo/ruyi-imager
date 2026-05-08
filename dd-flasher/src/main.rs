@@ -204,9 +204,15 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
 
     let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut written = 0u64;
-    loop {
+    while written < request.total_bytes {
+        let remaining = request.total_bytes - written;
+        let chunk_size = if remaining < BUFFER_SIZE as u64 {
+            remaining as usize
+        } else {
+            BUFFER_SIZE
+        };
         let read = source
-            .read(&mut buffer)
+            .read(&mut buffer[..chunk_size])
             .map_err(|error| format!("failed to read source: {error}"))?;
         if read == 0 {
             break;
@@ -222,6 +228,16 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
         return Err(format!(
             "write length mismatch: expected {}, actual {}",
             request.total_bytes, written
+        ));
+    }
+    let mut extra = [0u8; 1];
+    let extra_read = source
+        .read(&mut extra)
+        .map_err(|error| format!("failed to read source: {error}"))?;
+    if extra_read != 0 {
+        return Err(format!(
+            "source size changed during write: expected {} bytes",
+            request.total_bytes
         ));
     }
     target
@@ -451,6 +467,36 @@ mod tests {
                 .unwrap_err()
                 .contains("source size mismatch")
         );
+    }
+
+    /// Verifies source growth after validation does not write extra bytes to the target.
+    #[test]
+    fn rejects_source_growth_without_writing_extra_bytes() {
+        let temp = TempDirectory::new("rejects_source_growth_without_writing_extra_bytes");
+        let source = temp.path().join("source.raw");
+        let target = temp.path().join("target.raw");
+        let image = [1u8, 2, 3, 4];
+        fs::write(&source, image).unwrap();
+        fs::write(&target, [0u8; 8]).unwrap();
+
+        let request = Request {
+            operation: Operation::Write,
+            source: source.clone(),
+            target: target.clone(),
+            total_bytes: image.len() as u64,
+            event_log: None,
+            stdout: true,
+        };
+        validate_request(&request).unwrap();
+        fs::write(&source, [1u8, 2, 3, 4, 5, 6]).unwrap();
+
+        let mut sink = EventSink::new(None, true).unwrap();
+        assert!(
+            write_image(&request, &mut sink)
+                .unwrap_err()
+                .contains("source size changed")
+        );
+        assert_eq!(fs::read(target).unwrap(), [1u8, 2, 3, 4, 0, 0, 0, 0]);
     }
 
     /// Verifies self-writes are rejected before opening the target for writing.
