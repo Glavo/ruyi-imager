@@ -1,8 +1,10 @@
+import de.undercouch.gradle.tasks.download.Download
 import org.gradle.api.file.RelativePath
 import java.net.URI
 
 plugins {
     application
+    id("de.undercouch.download") version "5.7.0"
 }
 
 data class FastbootBundle(
@@ -12,6 +14,19 @@ data class FastbootBundle(
     val archiveEntries: List<String>,
     val executableName: String,
 )
+
+data class JlinkJdkBundle(
+    val platform: String,
+    val url: String,
+    val fileName: String,
+    val archiveType: JlinkJdkArchiveType,
+    val executableName: String,
+)
+
+enum class JlinkJdkArchiveType {
+    ZIP,
+    TAR_GZ,
+}
 
 val fastbootBundles = listOf(
     FastbootBundle(
@@ -54,13 +69,21 @@ val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/runtime")
 val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/launchers")
 val jlinkImageDirectory = layout.buildDirectory.dir("jlink/ruyi-imager")
 val jlinkModules = providers.gradleProperty("jlink.modules").orElse(defaultJlinkModules().joinToString(","))
-val java25Launcher = javaToolchains.launcherFor {
-    languageVersion = JavaLanguageVersion.of(25)
-}
-val jlinkExecutable = java25Launcher.map {
-    val executable = if (isWindowsOs(System.getProperty("os.name").lowercase())) "jlink.exe" else "jlink"
-    it.metadata.installationPath.file("bin/$executable")
-}
+val jlinkJdkVersion = providers.gradleProperty("jlink.jdk.version").orElse("25.0.3+11").get()
+val jlinkJdkPlatform = providers.gradleProperty("jlink.jdk.platform")
+    .orElse(currentJlinkPlatform() ?: error("Unsupported platform for jlink JDK bundle"))
+    .get()
+val defaultJlinkJdkBundle = libericaJdkBundle(jlinkJdkPlatform, jlinkJdkVersion)
+val jlinkJdkUrl = providers.gradleProperty("jlink.jdk.url").orElse(defaultJlinkJdkBundle.url).get()
+val jlinkJdkBundle = defaultJlinkJdkBundle.copy(
+    url = jlinkJdkUrl,
+    fileName = jlinkJdkUrl.substringAfterLast('/'),
+    archiveType = jlinkJdkArchiveType(jlinkJdkUrl),
+)
+val jlinkJdkArchive = layout.buildDirectory.file("downloads/jdks/${jlinkJdkBundle.fileName}")
+val jlinkJdkDirectory = layout.buildDirectory.dir("jdks/${jlinkJdkBundle.platform}")
+val jlinkJmodsDirectory = jlinkJdkDirectory.map { it.dir("jmods") }
+val jlinkExecutable = jlinkJdkDirectory.map { it.file("bin/${jlinkJdkBundle.executableName}") }
 
 val alibabaPuhuitiFontUrl =
     "https://registry.npmmirror.com/@fontpkg/alibaba-puhuiti-3-0/-/alibaba-puhuiti-3-0-0.0.0.tgz"
@@ -142,6 +165,55 @@ val extractFastbootTasks = fastbootBundles.map { bundle ->
 
 tasks.register("prepareBundledFastboot") {
     dependsOn(extractFastbootTasks)
+}
+
+val downloadJlinkJdk = tasks.register<Download>("downloadJlinkJdk") {
+    group = "distribution"
+    description = "Downloads the Liberica JDK archive used by jlink packaging."
+    src(jlinkJdkBundle.url)
+    dest(jlinkJdkArchive.get().asFile)
+    overwrite(false)
+    onlyIfModified(true)
+    outputs.file(jlinkJdkArchive)
+}
+
+tasks.register<Copy>("extractJlinkJdk") {
+    group = "distribution"
+    description = "Extracts jlink and jmods from the downloaded Liberica JDK archive."
+    dependsOn(downloadJlinkJdk)
+    from({
+        when (jlinkJdkBundle.archiveType) {
+            JlinkJdkArchiveType.ZIP -> zipTree(jlinkJdkArchive.get().asFile)
+            JlinkJdkArchiveType.TAR_GZ -> tarTree(resources.gzip(jlinkJdkArchive.get().asFile))
+        }
+    }) {
+        include("**/bin/jlink")
+        include("**/bin/jlink.exe")
+        include("**/jmods/**")
+        eachFile {
+            val segments = relativePath.segments
+            val jmodsIndex = segments.indexOf("jmods")
+            val binIndex = segments.indexOf("bin")
+            when {
+                jmodsIndex >= 0 -> {
+                    relativePath = RelativePath(true, *segments.copyOfRange(jmodsIndex, segments.size))
+                }
+                binIndex >= 0 && segments.lastOrNull() == jlinkJdkBundle.executableName -> {
+                    relativePath = RelativePath(true, "bin", jlinkJdkBundle.executableName)
+                }
+            }
+        }
+        includeEmptyDirs = false
+    }
+    into(jlinkJdkDirectory)
+    outputs.file(jlinkExecutable)
+    outputs.file(jlinkJmodsDirectory.map { it.file("java.base.jmod") })
+    doLast {
+        val executable = jlinkExecutable.get().asFile
+        if (executable.isFile && jlinkJdkBundle.executableName == "jlink") {
+            executable.setExecutable(true, false)
+        }
+    }
 }
 
 dependencies {
@@ -228,16 +300,24 @@ tasks.processResources {
 tasks.register<Exec>("jlinkRuntime") {
     group = "distribution"
     description = "Builds a custom Java runtime image for the current platform."
+    dependsOn("extractJlinkJdk")
     inputs.property("modules", jlinkModules)
+    inputs.dir(jlinkJmodsDirectory)
     outputs.dir(jlinkRuntimeDirectory)
     doFirst {
         delete(jlinkRuntimeDirectory)
+        val executable = jlinkExecutable.get().asFile
+        val javaBaseJmod = jlinkJmodsDirectory.get().asFile.resolve("java.base.jmod")
+        check(executable.isFile) { "Missing jlink executable: $executable" }
+        check(javaBaseJmod.isFile) { "Missing java.base.jmod in downloaded JDK: $javaBaseJmod" }
     }
     executable = jlinkExecutable.get().asFile.absolutePath
     args(
         "--strip-debug",
         "--no-header-files",
         "--no-man-pages",
+        "--module-path",
+        jlinkJmodsDirectory.get().asFile.absolutePath,
         "--add-modules",
         jlinkModules.get(),
         "--output",
@@ -381,6 +461,62 @@ fun normalizedArch(osArch: String): String? =
 /// @return whether the OS is Windows.
 fun isWindowsOs(osName: String): Boolean =
     osName.startsWith("windows")
+
+/// Returns the jlink target platform token for the current build host.
+///
+/// @return current jlink platform token, or null when unsupported.
+fun currentJlinkPlatform(): String? {
+    val osName = System.getProperty("os.name").lowercase()
+    val arch = normalizedArch(System.getProperty("os.arch"))
+    return when {
+        isWindowsOs(osName) && arch == "x86_64" -> "windows-x86_64"
+        isWindowsOs(osName) && arch == "aarch64" -> "windows-aarch64"
+        (osName.contains("mac") || osName.contains("darwin")) && arch == "x86_64" -> "macos-x86_64"
+        (osName.contains("mac") || osName.contains("darwin")) && arch == "aarch64" -> "macos-aarch64"
+        osName.contains("linux") && arch == "x86_64" -> "linux-x86_64"
+        osName.contains("linux") && arch == "aarch64" -> "linux-aarch64"
+        osName.contains("linux") && arch == "riscv64" -> "linux-riscv64"
+        else -> null
+    }
+}
+
+/// Creates the default Liberica JDK bundle descriptor for a jlink JDK platform.
+///
+/// @param platform jlink JDK platform token.
+/// @param version Liberica JDK version string.
+/// @return Liberica JDK bundle descriptor.
+fun libericaJdkBundle(platform: String, version: String): JlinkJdkBundle {
+    val archive = when (platform) {
+        "windows-x86_64" -> "windows-amd64.zip"
+        "windows-aarch64" -> "windows-aarch64.zip"
+        "macos-x86_64" -> "macos-amd64.tar.gz"
+        "macos-aarch64" -> "macos-aarch64.tar.gz"
+        "linux-x86_64" -> "linux-amd64.tar.gz"
+        "linux-aarch64" -> "linux-aarch64.tar.gz"
+        "linux-riscv64" -> "linux-riscv64.tar.gz"
+        else -> error("Unsupported jlink target platform: $platform")
+    }
+    val fileName = "bellsoft-jdk$version-$archive"
+    val executableName = if (platform.startsWith("windows-")) "jlink.exe" else "jlink"
+    return JlinkJdkBundle(
+        platform = platform,
+        url = "https://download.bell-sw.com/java/$version/$fileName",
+        fileName = fileName,
+        archiveType = jlinkJdkArchiveType(fileName),
+        executableName = executableName,
+    )
+}
+
+/// Determines the archive type from a JDK archive URL or file name.
+///
+/// @param archiveName JDK archive URL or file name.
+/// @return archive type.
+fun jlinkJdkArchiveType(archiveName: String): JlinkJdkArchiveType =
+    when {
+        archiveName.endsWith(".zip", ignoreCase = true) -> JlinkJdkArchiveType.ZIP
+        archiveName.endsWith(".tar.gz", ignoreCase = true) -> JlinkJdkArchiveType.TAR_GZ
+        else -> error("Unsupported JDK archive type: $archiveName")
+    }
 
 /// Returns the default Java modules included in the jlink runtime image.
 ///
