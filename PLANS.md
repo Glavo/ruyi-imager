@@ -42,6 +42,7 @@
   - `./gradlew -g .gradle-user-home run --args='image list --json'`
   - `./gradlew -g .gradle-user-home run --args='device list --json'`
   - `./gradlew -g .gradle-user-home run --args='--verbose --log-file build/tmp/ruyi-imager.log image list --json'`
-  - `./gradlew -g .gradle-user-home :app:jlinkRuntime --dry-run`
+  - `./gradlew -g .gradle-user-home :app:jlinkRuntime --info`
+  - `app/build/jlink/runtime/bin/java --list-modules`
   - `git diff --check`
 - 注意：Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝；需要沙箱外只读运行验证。
