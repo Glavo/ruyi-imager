@@ -4,50 +4,39 @@
 
 ### Goal
 
-- 构建一个 Java 25 应用，通过共享 core service 同时支持 CLI 和 JavaFX GUI 刷写镜像。
-- GUI 采用类似 Armbian Imager 的流程：目录镜像按 Manufacturer -> Board -> Operating System 选择，本地镜像作为并列二选一入口，然后选择 storage 或 fastboot 目标。
-- 镜像元数据、下载、校验和物化逻辑从 Ruyi 语义移植到 Java；不嵌入 Starlark，不依赖外部 `ruyi` 命令。
-- 默认只执行当前应用明确支持的刷写策略。
-- 将 dd 写入、刷写编排、下载、设备枚举和日志拆成可测试的内部模块，方便后续独立测试和替换写入后端；本地化资源保留在应用模块。
+- 构建 Java 25 的 CLI/JavaFX GUI 镜像刷写应用，目录镜像按 Manufacturer -> Board -> Operating System 选择，本地镜像作为并列入口。
+- 从 Ruyi 语义移植镜像元数据、下载、校验、物化和刷写流程，不依赖外部 `ruyi` 命令。
+- 支持 `dd-v1` 和 `fastboot-v1` 刷写，并把刷写、下载、设备枚举、日志等能力拆成可测试模块。
 
 ### Implemented
 
-- 工程入口：Java 25 Gradle `application`，无参数或 `gui` 启动 JavaFX，其他参数进入 CLI。
-- 模块化：Gradle 已拆分为 `:dd-flasher`、`:sdk` 和 `:app`；`:dd-flasher` 已迁移为 Rust helper crate，通过 Cargo 构建、测试和拷贝当前平台二进制；`:sdk` 使用 `java-library` 承载 core、logging 和对应单测，不包含本地化资源或 JavaFX 依赖；`:app` 承载 CLI、JavaFX GUI、i18n 资源、发行包和应用层测试。
-- Core service：`RepositoryService`、`ImageCatalogService`、`BlockDeviceService`、`FastbootService`、`FlashService` 已由 `AppServices` 统一组装，供 CLI/GUI 共享。
-- Ruyi metadata：支持默认 repo、用户配置覆盖、overlay repo、本地 repo、JGit clone/pull、mirror/dist URL 解析；catalog 支持 `packages/` 和旧 `manifests/`，并解析 provisionable manifest、strategy、partition map、distfiles、checksums、slug、device entity、SemVer/atom 选择。
-- Catalog cache：目录镜像元数据首次读取后缓存在 `ImageCatalogService` 内存快照中，GUI 的 manufacturer/board/OS 多步选择复用同一份 catalog；`repo update` 成功后自动失效缓存。
-- 下载和物化：支持 HTTP/HTTPS、`.part` 续传、缓存复用、大小和 SHA-256/SHA-512 校验、`restrict = ["fetch"]` 和 `fetch_restriction` 手动下载提示；artifact 物化支持 raw、gzip、bzip2、lz4、xz、zstd、zip、tar、常见 tar 压缩组合和 Debian package 的 `data.tar*`，tar 物化支持 `strip_components` 和 `prefixes_to_unpack`，tar 和压缩流使用 `Glavo/kala-compress`。
-- 刷写：支持 `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)`；dd 支持单目标整盘和多分区 target mapping，写入前预校验目标；Windows removable 挂载目标可在写入前通过 PowerShell 卸载卷和访问路径，non-removable 挂载目标保持阻止；Linux/macOS 等无自动卸载 preparer 的已挂载目标会在准备动作前拒绝写入，并在错误中显示挂载点；raw image 写入/校验已改为 SDK 进程适配器调用 Rust `dd-flasher` helper，helper 输出 NDJSON 进度并由 SDK 转发；Windows raw device 默认通过 UAC 启动 helper，Linux GUI 会话 raw device 默认通过 `pkexec` 启动 helper，macOS raw disk 默认通过 `osascript` administrator privileges 启动 helper，并通过 helper event log 保持进度回传；fastboot 支持分区级进度、LPi4A reboot 后重连等待、超时/中断清理。
-- Bundled fastboot：发行包会下载并携带 Android SDK Platform Tools 中的 Windows/macOS/Linux x86-64 fastboot；运行时优先使用发行目录内的 bundled fastboot，缺失或不支持的平台退回 PATH；平台识别覆盖 Windows、macOS、Darwin、Linux 的 x86-64 别名，并支持 Linux riscv64 自定义 bundled fastboot 或 PATH fastboot。
-- Bundled dd-flasher：发行包会携带当前或指定平台 Rust `dd-flasher` helper；运行时优先使用 `ruyi.imager.ddFlasher.executable` / `RUYI_IMAGER_DD_FLASHER` 配置，其次使用发行目录 bundled helper，最后退回 PATH；平台识别和本机打包支持 riscv64 / riscv64gc；Gradle 支持通过 `-PddFlasher.targetPlatform=<platform>` 和 `-PddFlasher.rustTarget=<triple>` 进行交叉编译。
-- JLink packaging：`app` 模块提供 `jlinkRuntime`、`installJlinkDist` 和 `jlinkZip` 任务，生成裁剪 runtime、classpath 应用库、启动脚本以及 bundled fastboot/dd-flasher；`jlinkRuntime` 通过 Gradle Download Task 下载目标平台 Liberica Full JDK 25.0.3+11，并使用主机 JDK 25 的 `jlink` 链接目标 JDK 内置 `jmods`，非 RISC-V 平台默认把 `javafx.base`、`javafx.graphics` 和 `javafx.controls` 链接进 runtime，RISC-V 使用 Standard JDK 并保持 CLI 可用但不内置 JavaFX；jlink runtime、launcher 和 image 输出按目标平台隔离，zip classifier 包含目标平台；可通过 `-Pjlink.modules=<modules>`、`-Pjlink.jdk.platform=<platform>`、`-Pjlink.jdk.version=<version>` 和 `-Pjlink.jdk.url=<url>` 覆盖默认配置。
-- RISC-V：CLI bootstrap 不再直接链接 JavaFX 类，RISC-V Linux 上缺少 JavaFX runtime 时仍可运行 CLI；Linux riscv64 GUI 构建使用 JavaFX Linux API jar 编译，运行 GUI 仍需要平台提供 JavaFX runtime。
-- 设备枚举：Windows、Linux、macOS 只读块设备枚举已接入，保留挂载点用于 CLI/GUI 展示；三套平台 parser fixture 已覆盖。
-- CLI：支持 `repo update`、`image list/download`、`device list`、`device list --fastboot`、`flash --atom`、`flash --local-image`、多分区 `--partition-device`，主要命令支持 JSON/NDJSON；本地 Ruyi repo fixture 集成测试覆盖 repo update、image list/download 和 unsupported strategy。
-- GUI：MaterialFX 主窗口、默认使用 Alibaba PuHuiTi 3.0 Medium 字体、首次启动安全提醒、运行时中英文切换、语言偏好持久化、调整后的默认窗口尺寸、目录镜像/本地镜像二选一、渐进式步骤启用、源选择区本地镜像卡片右侧对齐和分隔符居中、按钮和选择列表项 hover 手型光标、默认隐藏不支持的存储目标、树形操作系统分类选择及 MaterialFX 风格滚动条、可搜索选择弹窗标题与搜索框同一行布局、storage/fastboot 目标切换、多分区 `dd-v1` 目标映射、策略/缓存/目标风险标记、最终确认弹窗；选择规则已拆出为可单测逻辑；JavaFX smoke test 覆盖 OS 树选择和多分区存储选择控件。
-- 日志：业务代码通过 SLF4J API 记录日志，运行时使用 `slf4j-jdk14` 接入现有 JUL 文件后端；默认轮转日志文件、CLI `--log-level`、`--verbose`、`--log-file`、JVM/env 配置、CLI JSON 错误和 GUI 错误弹窗的日志路径提示保持不变；日志脱敏 URL query/fragment、常见 secret 字段和截断外部命令输出；repo、catalog、download、materialize、device、fastboot、flash 和 GUI 后台任务边界已记录关键诊断信息。
+- 项目已拆分为 `:sdk`、`:app` 和 Rust `:dd-flasher`；CLI/GUI 共用 SDK service graph，i18n 和 JavaFX 资源保留在 app。
+- Ruyi catalog/repo、下载缓存、校验、artifact 物化和内存 catalog cache 已接入，压缩包/ tar / Debian `data.tar*` 物化使用 `Glavo/kala-compress`。
+- `dd-v1`、`fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度。
+- Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
+- Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
+- GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒和目标确认。
+- 日志已改用 SLF4J API，运行时接 JUL 文件后端；CLI/GUI 错误都会暴露日志路径，日志默认脱敏和截断敏感外部输出。
+- 打包支持 bundled fastboot、bundled `dd-flasher`、JLink runtime 和 JLink zip；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。
 
 ### Remaining
 
-- 设备后端：
-  - 在真实 Linux/macOS 设备上做只读枚举 smoke test。
-  - 在可擦写 Windows removable 设备上做挂载目标写入准备 smoke test，确认卸载卷和移除访问路径行为。
+- 真实设备验证：
+  - 在真实 Linux/macOS 机器上做只读块设备枚举 smoke test。
+  - 在可擦写 Windows removable 设备上测试挂载目标准备流程，确认卸载卷和移除访问路径行为。
 - 交叉发行包：
-  - 为 `dd-flasher` 非本机目标配置可用 linker 或 `cross` 构建环境；当前 Windows 沙箱已安装 Rust targets，但 Windows ARM64 缺 `link.exe`，Linux RISC-V 缺 `cc`/交叉 linker。
+  - 为 `dd-flasher` 非本机目标配置 linker 或 `cross` 构建环境；当前 Windows 沙箱已安装 Rust targets，但 Windows ARM64 缺 `link.exe`，Linux RISC-V 缺 `cc`/交叉 linker。
   - 为 Android Platform Tools 下载增加 mirror/cache/retry 策略，避免 `jlinkZip` 因 Google 下载源 HTTP 429 中断。
 
 ### Verification
 
-- 常规验证：
+- 已通过：
   - `./gradlew -g .gradle-user-home test`
-  - `./gradlew -g .gradle-user-home :dd-flasher:prepareBundledDdFlasher`
-  - `./gradlew -g .gradle-user-home run --args='image list --json'`
-  - `./gradlew -g .gradle-user-home run --args='device list --json'`
-  - `./gradlew -g .gradle-user-home run --args='--verbose --log-file build/tmp/ruyi-imager.log image list --json'`
   - `./gradlew -g .gradle-user-home :app:jlinkRuntime --info`
-  - `app/build/jlink/windows-x86_64/runtime/bin/java --list-modules`
   - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkRuntime --info`
+  - `app/build/jlink/windows-x86_64/runtime/bin/java --list-modules`
   - `app/build/jlink/linux-x86_64/runtime/release`
   - `git diff --check`
-- 注意：Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝；需要沙箱外只读运行验证。
+- 已知限制：
+  - Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝，需要沙箱外只读运行验证。
+  - `:app:jlinkZip` 最近一次失败在 `downloadLinuxX8664Fastboot`，Google Platform Tools 返回 HTTP 429。
