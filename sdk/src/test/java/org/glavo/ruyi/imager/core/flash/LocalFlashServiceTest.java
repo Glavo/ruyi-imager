@@ -24,7 +24,10 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -88,6 +91,60 @@ public final class LocalFlashServiceTest {
         assertEquals(target, writer.verifyTarget);
     }
 
+    /// Writes a local image through a fake writer without verifying.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the source fixture cannot be written.
+    @Test
+    public void skipsVerificationWhenRequested(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1, 2, 3, 4});
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(null, image, target(target, 16, false, false), false),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(1, writer.writeCalls.size());
+        assertEquals(0, writer.verifyCalls.size());
+        assertEquals(image, writer.writeCalls.getFirst().source());
+        assertEquals(target, writer.writeCalls.getFirst().target());
+        assertEquals(4L, writer.writeCalls.getFirst().totalBytes());
+    }
+
+    /// Reports a failed post-write verification without touching the target file in the writer.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the source fixture cannot be written.
+    @Test
+    public void reportsVerificationFailureFromDdWriter(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1, 2, 3, 4});
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(false);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(null, image, target(target, 16, false, false), true),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+        assertEquals("Written image failed verification.", result.message());
+        assertEquals(1, writer.writeCalls.size());
+        assertEquals(1, writer.verifyCalls.size());
+        assertEquals(image, writer.verifyCalls.getFirst().source());
+        assertEquals(target, writer.verifyCalls.getFirst().target());
+    }
+
     /// Writes a materialized Ruyi dd-v1 image into a simulated target file.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -139,6 +196,48 @@ public final class LocalFlashServiceTest {
         assertArrayEquals(rootBytes, Arrays.copyOf(Files.readAllBytes(rootTarget), rootBytes.length));
     }
 
+    /// Writes a multi-partition image through a fake writer in partition-map order.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void multiPartitionDdImageUsesFakeWriterInPartitionOrder(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Path boot = artifactDirectory.resolve("boot.img");
+        Path root = artifactDirectory.resolve("root.img");
+        Files.write(boot, new byte[]{1, 2, 3});
+        Files.write(root, new byte[]{4, 5, 6, 7});
+
+        Path bootTarget = temporaryDirectory.resolve("boot-target.raw");
+        Path rootTarget = temporaryDirectory.resolve("root-target.raw");
+        LinkedHashMap<String, String> partitionMap = new LinkedHashMap<>();
+        partitionMap.put("boot", "boot.img");
+        partitionMap.put("root", "root.img");
+        LinkedHashMap<String, BlockDevice> targetMap = new LinkedHashMap<>();
+        targetMap.put("boot", target(bootTarget, 32, false, false));
+        targetMap.put("root", target(rootTarget, 32, false, false));
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new FixedImageCatalogService(artifactDirectory),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(
+                        imageEntry("dd-v1", Collections.unmodifiableMap(partitionMap)),
+                        null,
+                        FlashTarget.blockDevices(Collections.unmodifiableMap(targetMap)),
+                        true),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(List.of(boot, root), writer.writeCalls.stream().map(DdCall::source).toList());
+        assertEquals(List.of(bootTarget, rootTarget), writer.writeCalls.stream().map(DdCall::target).toList());
+        assertEquals(List.of(3L, 4L), writer.writeCalls.stream().map(DdCall::totalBytes).toList());
+        assertEquals(List.of(boot, root), writer.verifyCalls.stream().map(DdCall::source).toList());
+    }
+
     /// Refuses a multi-partition Ruyi dd-v1 image when only a single block target is provided.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -159,6 +258,101 @@ public final class LocalFlashServiceTest {
                 NO_PROGRESS);
 
         assertFalse(result.success());
+    }
+
+    /// Refuses a partition target assigned to an unknown partition before invoking the writer.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesUnknownPartitionTargetBeforeWriting(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Files.write(artifactDirectory.resolve("boot.img"), new byte[]{1});
+        ImageEntry image = imageEntry("dd-v1", Map.of("boot", "boot.img"));
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new FixedImageCatalogService(artifactDirectory),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(
+                        image,
+                        null,
+                        FlashTarget.blockDevices(Map.of(
+                                "boot", target(temporaryDirectory.resolve("boot.raw"), 8, false, false),
+                                "root", target(temporaryDirectory.resolve("root.raw"), 8, false, false))),
+                        false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+        assertEquals("Partition target was provided for an unknown partition: root", result.message());
+        assertEquals(0, writer.writeCalls.size());
+    }
+
+    /// Refuses a missing partition target before invoking the writer.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesMissingPartitionTargetBeforeWriting(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Files.write(artifactDirectory.resolve("boot.img"), new byte[]{1});
+        Files.write(artifactDirectory.resolve("root.img"), new byte[]{2});
+        ImageEntry image = imageEntry("dd-v1", Map.of("boot", "boot.img", "root", "root.img"));
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new FixedImageCatalogService(artifactDirectory),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(
+                        image,
+                        null,
+                        FlashTarget.blockDevices(Map.of(
+                                "boot", target(temporaryDirectory.resolve("boot.raw"), 8, false, false))),
+                        false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+        assertEquals("Missing target device for partition: root", result.message());
+        assertEquals(0, writer.writeCalls.size());
+    }
+
+    /// Refuses duplicate partition target paths before invoking the writer.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesDuplicatePartitionTargetBeforeWriting(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Files.write(artifactDirectory.resolve("boot.img"), new byte[]{1});
+        Files.write(artifactDirectory.resolve("root.img"), new byte[]{2});
+        ImageEntry image = imageEntry("dd-v1", Map.of("boot", "boot.img", "root", "root.img"));
+        Path duplicatedTarget = temporaryDirectory.resolve("shared.raw");
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new FixedImageCatalogService(artifactDirectory),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(
+                        image,
+                        null,
+                        FlashTarget.blockDevices(Map.of(
+                                "boot", target(duplicatedTarget, 8, false, false),
+                                "root", target(duplicatedTarget, 8, false, false))),
+                        false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+        assertTrue(result.message().startsWith("Partition target is assigned more than once:"));
+        assertEquals(0, writer.writeCalls.size());
     }
 
     /// Flashes a materialized Ruyi fastboot image through a fastboot backend.
@@ -529,6 +723,12 @@ public final class LocalFlashServiceTest {
         /// Verification result returned by this writer.
         private final boolean verifyResult;
 
+        /// Captured write calls.
+        private final ArrayList<DdCall> writeCalls = new ArrayList<>();
+
+        /// Captured verification calls.
+        private final ArrayList<DdCall> verifyCalls = new ArrayList<>();
+
         /// Captured write source.
         private @Nullable Path writeSource;
 
@@ -567,6 +767,7 @@ public final class LocalFlashServiceTest {
             this.writeSource = source;
             this.writeTarget = target;
             this.writeTotalBytes = totalBytes;
+            this.writeCalls.add(new DdCall(source, target, totalBytes, message));
         }
 
         /// Captures one block-image verification.
@@ -585,8 +786,19 @@ public final class LocalFlashServiceTest {
                 ProgressReporter reporter) {
             this.verifySource = source;
             this.verifyTarget = target;
+            this.verifyCalls.add(new DdCall(source, target, totalBytes, message));
             return verifyResult;
         }
+    }
+
+    /// Captured dd writer call.
+    ///
+    /// @param source source image path.
+    /// @param target target path.
+    /// @param totalBytes source size.
+    /// @param message progress message.
+    @NotNullByDefault
+    private record DdCall(Path source, Path target, long totalBytes, String message) {
     }
 
     /// Test dd writer that copies bytes inside the JVM.
