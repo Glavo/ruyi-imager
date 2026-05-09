@@ -74,6 +74,10 @@ val jlinkJdkVersion = providers.gradleProperty("jlink.jdk.version").orElse("25.0
 val jlinkJdkPlatform = providers.gradleProperty("jlink.jdk.platform")
     .orElse(currentJlinkPlatform() ?: error("Unsupported platform for jlink JDK bundle"))
     .get()
+val jlinkDdFlasherPlatformDirectory =
+    project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher/$jlinkJdkPlatform")
+val prepareJlinkBundledDdFlasherTask =
+    ":dd-flasher:prepareBundledDdFlasher${platformTaskSuffix(jlinkJdkPlatform)}"
 val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/runtime")
 val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/launchers")
 val jlinkImageDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/ruyi-imager")
@@ -413,7 +417,7 @@ tasks.register<Sync>("installJlinkDist") {
     dependsOn("jlinkRuntime")
     dependsOn("writeJlinkLaunchers")
     dependsOn("prepareBundledFastboot")
-    dependsOn(":dd-flasher:prepareBundledDdFlasher")
+    dependsOn(prepareJlinkBundledDdFlasherTask)
 
     into(jlinkImageDirectory)
     from(jlinkRuntimeDirectory) {
@@ -434,8 +438,8 @@ tasks.register<Sync>("installJlinkDist") {
     from(bundledFastbootDirectory) {
         into("tools/fastboot")
     }
-    from(bundledDdFlasherDirectory) {
-        into("tools/dd-flasher")
+    from(jlinkDdFlasherPlatformDirectory) {
+        into("tools/dd-flasher/$jlinkJdkPlatform")
     }
 }
 
@@ -570,6 +574,15 @@ fun jlinkJdkArchiveType(archiveName: String): JlinkJdkArchiveType =
         archiveName.endsWith(".zip", ignoreCase = true) -> JlinkJdkArchiveType.ZIP
         archiveName.endsWith(".tar.gz", ignoreCase = true) -> JlinkJdkArchiveType.TAR_GZ
         else -> error("Unsupported JDK archive type: $archiveName")
+    }
+
+/// Converts a platform directory name into a Gradle task suffix.
+///
+/// @param platformDirectory distribution platform directory.
+/// @return Gradle task suffix.
+fun platformTaskSuffix(platformDirectory: String): String =
+    platformDirectory.split('-', '_').joinToString("") { token ->
+        token.replaceFirstChar { it.uppercaseChar() }
     }
 
 /// Returns the default Java modules included in the jlink runtime image.

@@ -22,6 +22,7 @@
 - 日志已改用 SLF4J API，运行时接 JUL 文件后端；CLI/GUI 错误都会暴露日志路径，日志默认脱敏和截断敏感外部输出。
 - 打包支持 bundled fastboot、bundled `dd-flasher`、JLink runtime 和 JLink zip；`dd-flasher` release 构建会追踪 Cargo manifest/lockfile/Rust 源码输入；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。
 - Android Platform Tools 下载已迁移到 `gradle-download-task`，支持本地缓存复用、临时文件落盘、重试和主 URL 覆盖，避免临时限流直接阻断 `jlinkZip`。
+- `dd-flasher` 已提供每个发行平台的 Gradle 构建/打包任务，可通过 `ddFlasher.buildTool=cross` 切换到 `cross`；JLink 包会自动依赖与 `jlink.jdk.platform` 匹配的 helper，并只打入对应平台目录。
 
 ### Remaining
 
@@ -29,7 +30,7 @@
   - 在真实 Linux/macOS 机器上做只读块设备枚举 smoke test。
   - 在可擦写 Windows removable 设备上测试挂载目标准备流程，确认卸载卷和移除访问路径行为。
 - 交叉发行包：
-  - 为 `dd-flasher` 非本机目标配置 linker 或 `cross` 构建环境；当前 Windows 沙箱已安装 Rust targets，但 Windows ARM64 缺 `link.exe`，Linux RISC-V 缺 `cc`/交叉 linker。
+  - 为 `dd-flasher` 非本机目标安装并验证 linker 或 `cross` 运行环境；当前 Windows 沙箱不跳出沙箱，未配置外部交叉 linker/Docker。
 
 ### Verification
 
@@ -44,8 +45,13 @@
   - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkRuntime --info`
   - `./gradlew -g .gradle-user-home :app:tasks --group distribution`
   - `./gradlew -g .gradle-user-home :app:jlinkZip --info`
+  - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group build`
+  - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group distribution`
+  - `./gradlew -g .gradle-user-home :dd-flasher:printDdFlasherTargets`
+  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkZip --dry-run`
   - `app/build/jlink/windows-x86_64/runtime/bin/java --list-modules`
   - `app/build/jlink/linux-x86_64/runtime/release`
+  - `jar tf app/build/distributions/app-1.0-SNAPSHOT-windows-x86_64-jlink.zip`
   - `git diff --check`
 - 已知限制：
   - Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝，需要沙箱外只读运行验证。

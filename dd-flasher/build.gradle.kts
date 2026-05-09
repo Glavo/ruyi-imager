@@ -3,6 +3,8 @@ plugins {
 }
 
 val cargoExecutable = providers.gradleProperty("cargo.executable").orElse("cargo")
+val crossExecutable = providers.gradleProperty("cross.executable").orElse("cross")
+val ddFlasherBuildTool = providers.gradleProperty("ddFlasher.buildTool").orElse("cargo")
 val rustTargetDirectory = layout.buildDirectory.dir("cargo-target")
 val rustSourceFiles = fileTree(layout.projectDirectory.dir("src")) {
     include("**/*.rs")
@@ -82,37 +84,40 @@ fun isWindowsOs(osName: String): Boolean =
     osName.startsWith("windows")
 
 val cargoTargetDirectoryPath = rustTargetDirectory.map { it.asFile.absolutePath }
-val releaseExecutable = rustTargetDirectory.map {
-    if (cargoRustTarget == null) {
-        it.file("release/${selectedPlatform.executableName}")
-    } else {
-        it.file("$cargoRustTarget/release/${selectedPlatform.executableName}")
-    }
-}
-val bundledExecutable = layout.buildDirectory.file("bundled-dd-flasher/${selectedPlatform.directory}/${selectedPlatform.executableName}")
+val releaseExecutable = releaseExecutable(selectedPlatform, cargoRustTarget)
+val bundledExecutable = bundledExecutable(selectedPlatform)
 
 tasks.register<Exec>("cargoBuild") {
     group = "build"
     description = "Builds the Rust dd-flasher helper."
-    workingDir = projectDir
-    inputs.file(layout.projectDirectory.file("Cargo.toml"))
-        .withPropertyName("cargoManifest")
-        .withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.file(layout.projectDirectory.file("Cargo.lock"))
-        .withPropertyName("cargoLock")
-        .withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.files(rustSourceFiles)
-        .withPropertyName("rustSources")
-        .withPathSensitivity(PathSensitivity.RELATIVE)
-    inputs.property("cargoExecutable", cargoExecutable)
-    inputs.property("cargoRustTarget", cargoRustTarget ?: "")
-    inputs.property("selectedPlatform", selectedPlatform.directory)
-    val command = mutableListOf(cargoExecutable.get(), "build", "--release", "--target-dir", cargoTargetDirectoryPath.get())
-    if (cargoRustTarget != null) {
-        command.addAll(listOf("--target", cargoRustTarget))
-    }
-    commandLine(command)
+    configureRustBuild(selectedPlatform, cargoRustTarget)
     outputs.file(releaseExecutable)
+}
+
+val platformPrepareTasks = supportedPlatforms().map { platform ->
+    val taskSuffix = platformTaskSuffix(platform.directory)
+    val platformReleaseExecutable = releaseExecutable(platform, platform.rustTarget)
+    val platformBundledExecutable = bundledExecutable(platform)
+    val buildTask = tasks.register<Exec>("cargoBuild$taskSuffix") {
+        group = "build"
+        description = "Builds the Rust dd-flasher helper for ${platform.directory}."
+        configureRustBuild(platform, platform.rustTarget)
+        outputs.file(platformReleaseExecutable)
+    }
+
+    tasks.register<Copy>("prepareBundledDdFlasher$taskSuffix") {
+        group = "distribution"
+        description = "Copies the ${platform.directory} Rust dd-flasher helper into the application distribution layout."
+        dependsOn(buildTask)
+        from(platformReleaseExecutable)
+        into(layout.buildDirectory.dir("bundled-dd-flasher/${platform.directory}"))
+        rename { platform.executableName }
+        doLast {
+            if (!platform.directory.startsWith("windows-")) {
+                platformBundledExecutable.get().asFile.setExecutable(true, false)
+            }
+        }
+    }
 }
 
 tasks.register<Exec>("cargoTest") {
@@ -136,12 +141,19 @@ val prepareBundledDdFlasher = tasks.register<Copy>("prepareBundledDdFlasher") {
     }
 }
 
+tasks.register("prepareAllBundledDdFlashers") {
+    group = "distribution"
+    description = "Copies all supported-platform Rust dd-flasher helpers into the application distribution layout."
+    dependsOn(platformPrepareTasks)
+}
+
 tasks.register("printDdFlasherTargets") {
     group = "help"
     description = "Prints supported dd-flasher target platforms and Rust target triples."
     doLast {
         for (platform in supportedPlatforms()) {
-            println("${platform.directory} -> ${platform.rustTarget}")
+            val taskSuffix = platformTaskSuffix(platform.directory)
+            println("${platform.directory} -> ${platform.rustTarget} (cargoBuild$taskSuffix)")
         }
     }
 }
@@ -159,3 +171,70 @@ tasks.named("assemble") {
 tasks.named("check") {
     dependsOn("cargoTest")
 }
+
+/// Returns the selected Rust build executable.
+///
+/// @return executable name or path.
+fun rustBuildExecutable(): String =
+    when (val buildTool = ddFlasherBuildTool.get()) {
+        "cargo" -> cargoExecutable.get()
+        "cross" -> crossExecutable.get()
+        else -> throw GradleException("Unsupported dd-flasher build tool: $buildTool. Supported: cargo, cross")
+    }
+
+/// Configures one Rust release build task.
+///
+/// @param platform target platform metadata.
+/// @param rustTarget Rust target triple, or null for the host default target.
+fun Exec.configureRustBuild(platform: DdFlasherPlatform, rustTarget: String?) {
+    workingDir = projectDir
+    inputs.file(layout.projectDirectory.file("Cargo.toml"))
+        .withPropertyName("cargoManifest")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(layout.projectDirectory.file("Cargo.lock"))
+        .withPropertyName("cargoLock")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(rustSourceFiles)
+        .withPropertyName("rustSources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property("cargoExecutable", cargoExecutable)
+    inputs.property("crossExecutable", crossExecutable)
+    inputs.property("ddFlasherBuildTool", ddFlasherBuildTool)
+    inputs.property("rustTarget", rustTarget ?: "")
+    inputs.property("platform", platform.directory)
+    val command = mutableListOf(rustBuildExecutable(), "build", "--release", "--target-dir", cargoTargetDirectoryPath.get())
+    if (rustTarget != null) {
+        command.addAll(listOf("--target", rustTarget))
+    }
+    commandLine(command)
+}
+
+/// Returns the release executable path for a platform build.
+///
+/// @param platform target platform metadata.
+/// @param rustTarget Rust target triple, or null for the host default target.
+/// @return release executable provider.
+fun releaseExecutable(platform: DdFlasherPlatform, rustTarget: String?) =
+    rustTargetDirectory.map {
+        if (rustTarget == null) {
+            it.file("release/${platform.executableName}")
+        } else {
+            it.file("$rustTarget/release/${platform.executableName}")
+        }
+    }
+
+/// Returns the bundled executable path for a platform.
+///
+/// @param platform target platform metadata.
+/// @return bundled executable provider.
+fun bundledExecutable(platform: DdFlasherPlatform) =
+    layout.buildDirectory.file("bundled-dd-flasher/${platform.directory}/${platform.executableName}")
+
+/// Converts a platform directory name into a Gradle task suffix.
+///
+/// @param platformDirectory distribution platform directory.
+/// @return Gradle task suffix.
+fun platformTaskSuffix(platformDirectory: String): String =
+    platformDirectory.split('-', '_').joinToString("") { token ->
+        token.replaceFirstChar { it.uppercaseChar() }
+    }
