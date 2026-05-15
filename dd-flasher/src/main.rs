@@ -88,7 +88,7 @@ fn main() -> ExitCode {
 
 /// Validates and dispatches one request.
 fn run_request(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
-    validate_request(&request)?;
+    validate_request(request)?;
     match request.operation {
         Operation::Write => {
             write_image(request, sink)?;

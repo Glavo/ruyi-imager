@@ -64,6 +64,56 @@ public final class RuyiImageMaterializerTest {
         assertArrayEquals(content, Files.readAllBytes(result));
     }
 
+    /// Verifies successful materialization replaces stale files from previous runs.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void replacesExistingArtifactDirectory(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "new raw image".getBytes(StandardCharsets.UTF_8);
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.raw");
+        Files.createDirectories(source.getParent());
+        Files.write(source, content);
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        Files.createDirectories(artifactDirectory);
+        Files.writeString(artifactDirectory.resolve("stale.raw"), "stale");
+        ImageEntry image = image("image.raw", null, "image.raw");
+
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+
+        assertEquals(artifactDirectory.resolve("image.raw").toAbsolutePath().normalize(), result);
+        assertArrayEquals(content, Files.readAllBytes(result));
+        assertFalse(Files.exists(artifactDirectory.resolve("stale.raw")));
+    }
+
+    /// Verifies stale partition files are not accepted when the current materialization does not produce them.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsMissingPartitionEvenWhenOldArtifactExists(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.zip");
+        Files.createDirectories(source.getParent());
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(source))) {
+            output.putNextEntry(new ZipEntry("other.raw"));
+            output.write("other".getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        Files.createDirectories(artifactDirectory);
+        Files.writeString(artifactDirectory.resolve("image.raw"), "stale");
+        ImageEntry image = image("image.zip", null, "image.raw");
+
+        assertThrows(IOException.class, () -> new RuyiImageMaterializer().materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertEquals("stale", Files.readString(artifactDirectory.resolve("image.raw")));
+    }
+
     /// Verifies bare gzip distfiles are decompressed.
     ///
     /// @param temporaryDirectory temporary test directory.

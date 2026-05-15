@@ -12,9 +12,11 @@
 
 - 项目已拆分为 `:sdk`、`:app` 和 Rust `:dd-flasher`；CLI/GUI 共用 SDK service graph，i18n 和 JavaFX 资源保留在 app。
 - Ruyi catalog/repo、下载缓存、校验、artifact 物化和内存 catalog cache 已接入，压缩包/ tar / Debian `data.tar*` 物化使用 `Glavo/kala-compress`。
+- Distfile 下载和物化路径已加固：拒绝不安全 distfile 文件名，自动丢弃校验失败的完整 `.part`，并在干净 staging 目录物化成功后替换 artifact cache，避免路径逃逸和旧分区产物复用。
 - `dd-v1`、`fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度。
 - Rust `dd-flasher` 写入路径已限制最多写入声明的镜像字节数，并覆盖源文件变大时不越界写目标的回归测试。
 - Java `ProcessDdImageWriter` 已并发消费 helper 诊断输出，避免异常 helper 写满 stdout/stderr 管道后卡住 CLI/GUI。
+- 平台设备枚举和 Windows 目标准备命令已改为并发消费 stdout/stderr，避免外部命令输出填满管道导致误超时。
 - Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
 - GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒和目标确认。
@@ -36,6 +38,8 @@
 
 - 已通过：
   - `./gradlew -g .gradle-user-home test`
+  - `./gradlew -g .gradle-user-home check`
+  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiDistfileDownloaderTest --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
   - `./gradlew -g .gradle-user-home :dd-flasher:test`
   - `./gradlew -g .gradle-user-home :dd-flasher:cargoBuild`
   - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.*`
@@ -53,5 +57,6 @@
   - `app/build/jlink/linux-x86_64/runtime/release`
   - `jar tf app/build/distributions/app-1.0-SNAPSHOT-windows-x86_64-jlink.zip`
   - `git diff --check`
+  - `cargo clippy --all-targets -- -D warnings` in `dd-flasher`
 - 已知限制：
   - Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝，需要沙箱外只读运行验证。

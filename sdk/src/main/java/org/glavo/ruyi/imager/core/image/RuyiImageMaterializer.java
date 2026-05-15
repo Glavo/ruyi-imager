@@ -18,10 +18,13 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -87,48 +90,60 @@ public final class RuyiImageMaterializer {
             @Unmodifiable List<Path> downloadedDistfiles,
             Path artifactDirectory,
             ProgressReporter reporter) throws IOException {
-        Files.createDirectories(artifactDirectory);
+        Path stagingDirectory = createStagingDirectory(artifactDirectory);
+        boolean stagingMoved = false;
         LOGGER.atInfo().log(() -> "Materializing image. atom="
                 + image.atom()
                 + ", distfiles="
                 + downloadedDistfiles.size()
                 + ", artifactDirectory="
                 + artifactDirectory);
-        if (downloadedDistfiles.size() != image.distfiles().size()) {
-            LOGGER.atWarn().log(() -> "Materialized distfile count mismatch. atom="
-                    + image.atom()
-                    + ", expected="
-                    + image.distfiles().size()
-                    + ", actual="
-                    + downloadedDistfiles.size());
-            throw new IOException(SdkMessages.get("core.materialize.countMismatch"));
-        }
-
-        for (int i = 0; i < image.distfiles().size(); i++) {
-            RuyiDistfile distfile = image.distfiles().get(i);
-            Path source = downloadedDistfiles.get(i);
-            reporter.report(ProgressEvent.indeterminate("materialize", SdkMessages.get("core.materialize.materializing", distfile.name())));
-            materializeDistfile(distfile, source, artifactDirectory);
-        }
-
-        List<Path> partitions = resolvePartitionPaths(image.partitionMap(), artifactDirectory);
-        if (partitions.isEmpty()) {
-            throw new IOException(SdkMessages.get("core.materialize.noPartitionMap", image.atom()));
-        }
-
-        for (Path partition : partitions) {
-            if (!Files.isRegularFile(partition)) {
-                LOGGER.atWarn().log(() -> "Materialized partition is missing. atom="
+        try {
+            if (downloadedDistfiles.size() != image.distfiles().size()) {
+                LOGGER.atWarn().log(() -> "Materialized distfile count mismatch. atom="
                         + image.atom()
-                        + ", partition="
-                        + partition);
-                throw new IOException(SdkMessages.get("core.materialize.partitionMissing", partition));
+                        + ", expected="
+                        + image.distfiles().size()
+                        + ", actual="
+                        + downloadedDistfiles.size());
+                throw new IOException(SdkMessages.get("core.materialize.countMismatch"));
+            }
+
+            for (int i = 0; i < image.distfiles().size(); i++) {
+                RuyiDistfile distfile = image.distfiles().get(i);
+                Path source = downloadedDistfiles.get(i);
+                reporter.report(ProgressEvent.indeterminate("materialize", SdkMessages.get("core.materialize.materializing", distfile.name())));
+                materializeDistfile(distfile, source, stagingDirectory);
+            }
+
+            List<Path> partitions = resolvePartitionPaths(image.partitionMap(), stagingDirectory);
+            if (partitions.isEmpty()) {
+                throw new IOException(SdkMessages.get("core.materialize.noPartitionMap", image.atom()));
+            }
+
+            for (Path partition : partitions) {
+                if (!Files.isRegularFile(partition)) {
+                    LOGGER.atWarn().log(() -> "Materialized partition is missing. atom="
+                            + image.atom()
+                            + ", partition="
+                            + partition);
+                    throw new IOException(SdkMessages.get("core.materialize.partitionMissing", partition));
+                }
+            }
+
+            Path normalizedStagingDirectory = stagingDirectory.toAbsolutePath().normalize();
+            Path result = partitions.size() == 1
+                    ? artifactDirectory.resolve(normalizedStagingDirectory.relativize(partitions.getFirst())).normalize()
+                    : artifactDirectory;
+            replaceDirectory(stagingDirectory, artifactDirectory);
+            stagingMoved = true;
+            LOGGER.atInfo().log(() -> "Image materialized. atom=" + image.atom() + ", result=" + result);
+            return result;
+        } finally {
+            if (!stagingMoved) {
+                deleteRecursively(stagingDirectory);
             }
         }
-
-        Path result = partitions.size() == 1 ? partitions.getFirst() : artifactDirectory;
-        LOGGER.atInfo().log(() -> "Image materialized. atom=" + image.atom() + ", result=" + result);
-        return result;
     }
 
     /// Materializes one distfile.
@@ -812,6 +827,130 @@ public final class RuyiImageMaterializer {
             result.add(path);
         }
         return List.copyOf(result);
+    }
+
+    /// Creates a temporary artifact directory beside the final artifact directory.
+    ///
+    /// @param artifactDirectory final artifact directory.
+    /// @return empty staging directory.
+    /// @throws IOException when the staging directory cannot be created.
+    private static Path createStagingDirectory(Path artifactDirectory) throws IOException {
+        @Nullable Path parent = artifactDirectory.getParent();
+        String prefix = artifactDirectory.getFileName() + ".tmp-";
+        if (parent == null) {
+            return Files.createTempDirectory(prefix);
+        }
+
+        Files.createDirectories(parent);
+        return Files.createTempDirectory(parent, prefix);
+    }
+
+    /// Replaces an artifact directory with a fully materialized staging directory.
+    ///
+    /// @param stagingDirectory source staging directory.
+    /// @param artifactDirectory final artifact directory.
+    /// @throws IOException when the replacement fails.
+    private static void replaceDirectory(Path stagingDirectory, Path artifactDirectory) throws IOException {
+        @Nullable Path parent = artifactDirectory.getParent();
+        @Nullable Path backupDirectory = null;
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
+        if (Files.exists(artifactDirectory)) {
+            backupDirectory = createBackupDirectory(artifactDirectory);
+            moveDirectory(artifactDirectory, backupDirectory);
+        }
+
+        boolean moved = false;
+        try {
+            moveDirectory(stagingDirectory, artifactDirectory);
+            moved = true;
+        } catch (IOException exception) {
+            if (backupDirectory != null && Files.exists(backupDirectory) && !Files.exists(artifactDirectory)) {
+                try {
+                    moveDirectory(backupDirectory, artifactDirectory);
+                    backupDirectory = null;
+                } catch (IOException restoreException) {
+                    exception.addSuppressed(restoreException);
+                }
+            }
+            throw exception;
+        } finally {
+            if (moved && backupDirectory != null) {
+                deleteRecursively(backupDirectory);
+            }
+        }
+    }
+
+    /// Creates an empty backup path beside the artifact directory.
+    ///
+    /// @param artifactDirectory final artifact directory.
+    /// @return backup directory path that does not currently exist.
+    /// @throws IOException when the backup path cannot be created.
+    private static Path createBackupDirectory(Path artifactDirectory) throws IOException {
+        @Nullable Path parent = artifactDirectory.getParent();
+        String prefix = artifactDirectory.getFileName() + ".old-";
+        Path backupDirectory = parent == null
+                ? Files.createTempDirectory(prefix)
+                : Files.createTempDirectory(parent, prefix);
+        Files.delete(backupDirectory);
+        return backupDirectory;
+    }
+
+    /// Moves one directory, using an atomic move when the filesystem supports it.
+    ///
+    /// @param source source path.
+    /// @param target target path.
+    /// @throws IOException when the directory cannot be moved.
+    private static void moveDirectory(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException atomicException) {
+            try {
+                Files.move(source, target);
+            } catch (IOException fallbackException) {
+                fallbackException.addSuppressed(atomicException);
+                throw fallbackException;
+            }
+        }
+    }
+
+    /// Deletes one directory tree when it exists.
+    ///
+    /// @param directory directory to delete.
+    /// @throws IOException when deletion fails.
+    private static void deleteRecursively(Path directory) throws IOException {
+        if (!Files.exists(directory)) {
+            return;
+        }
+
+        Files.walkFileTree(directory, new SimpleFileVisitor<>() {
+            /// Deletes one file in the tree.
+            ///
+            /// @param file file path.
+            /// @param attrs file attributes.
+            /// @return traversal continuation.
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            /// Deletes a directory after its children have been deleted.
+            ///
+            /// @param dir directory path.
+            /// @param exc traversal failure, or null.
+            /// @return traversal continuation.
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, @Nullable IOException exc) throws IOException {
+                if (exc != null) {
+                    throw exc;
+                }
+                Files.delete(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     /// Removes the final file extension from a file name.

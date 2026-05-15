@@ -4,6 +4,7 @@
 package org.glavo.ruyi.imager.core.device;
 
 import org.glavo.ruyi.imager.core.SdkMessages;
+import org.glavo.ruyi.imager.core.ProcessOutputCapture;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -18,7 +19,6 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import java.io.IOException;
 import java.io.StringReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -27,7 +27,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -171,35 +170,31 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
         command.add("diskutil");
         command.addAll(List.of(arguments));
         LOGGER.atDebug().log(() -> "Running diskutil command. command=" + LogRedactor.redactCommand(command));
-        Process process = new ProcessBuilder(command).start();
 
-        boolean completed;
+        ProcessOutputCapture.Result result;
         try {
-            completed = process.waitFor(COMMAND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            result = ProcessOutputCapture.run(command, COMMAND_TIMEOUT);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            process.destroyForcibly();
             LOGGER.atWarn().log(() -> "diskutil command interrupted. command=" + LogRedactor.redactCommand(command));
             throw new IOException(SdkMessages.get("core.device.enumerationInterrupted", "macOS"), e);
         }
 
-        if (!completed) {
-            process.destroyForcibly();
+        if (result.timedOut()) {
             LOGGER.atWarn().log(() -> "diskutil command timed out. command=" + LogRedactor.redactCommand(command));
             throw new IOException(SdkMessages.get("core.device.enumerationTimedOut", "macOS"));
         }
 
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        int exitCode = process.exitValue();
-        if (exitCode != 0) {
+        String output = result.output();
+        String error = result.error();
+        if (result.exitCode() != 0) {
             String message = error.isBlank()
-                    ? SdkMessages.get("core.device.commandExit", "diskutil", exitCode)
+                    ? SdkMessages.get("core.device.commandExit", "diskutil", result.exitCode())
                     : error.strip();
             LOGGER.atWarn().log(() -> "diskutil command failed. command="
                     + LogRedactor.redactCommand(command)
                     + ", exitCode="
-                    + exitCode
+                    + result.exitCode()
                     + ", error="
                     + LogRedactor.redactOutput(error, 1000));
             throw new IOException(SdkMessages.get("core.device.enumerationFailed", "macOS", message));

@@ -136,66 +136,93 @@ public final class RuyiDistfileDownloader {
             throw new IOException(SdkMessages.get("core.download.unsupportedScheme", sourceUri));
         }
 
-        long existingBytes = Files.isRegularFile(partial) ? Files.size(partial) : 0L;
-        Long expectedSize = distfile.sizeBytes();
-        if (expectedSize != null && existingBytes > expectedSize) {
-            long oversizedBytes = existingBytes;
-            LOGGER.atInfo().log(() -> "Discarding oversized partial download. name="
+        for (int attempt = 0; attempt < 2; attempt++) {
+            long existingBytes = preparePartial(distfile, partial);
+            Long expectedSize = distfile.sizeBytes();
+
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(sourceUri)
+                    .timeout(Duration.ofMinutes(10))
+                    .GET();
+            if (existingBytes > 0L) {
+                requestBuilder.header("Range", "bytes=" + existingBytes + "-");
+            }
+
+            long resumeBytes = existingBytes;
+            LOGGER.atInfo().log(() -> "Requesting distfile source. name="
                     + distfile.name()
-                    + ", partial="
-                    + partial
-                    + ", partialBytes="
-                    + oversizedBytes
-                    + ", expectedBytes="
-                    + expectedSize);
-            Files.deleteIfExists(partial);
-            existingBytes = 0L;
-        }
-
-        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(sourceUri)
-                .timeout(Duration.ofMinutes(10))
-                .GET();
-        if (existingBytes > 0L) {
-            requestBuilder.header("Range", "bytes=" + existingBytes + "-");
-        }
-
-        long resumeBytes = existingBytes;
-        LOGGER.atInfo().log(() -> "Requesting distfile source. name="
-                + distfile.name()
-                + ", uri="
-                + LogRedactor.redactUri(sourceUri)
-                + ", resumeBytes="
-                + resumeBytes);
-        reporter.report(new ProgressEvent("download", SdkMessages.get("core.download.downloading", distfile.name()), existingBytes, expectedSize));
-        HttpResponse<InputStream> response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
-        int statusCode = response.statusCode();
-        LOGGER.atInfo().log(() -> "Distfile source responded. name="
-                + distfile.name()
-                + ", uri="
-                + LogRedactor.redactUri(sourceUri)
-                + ", status="
-                + statusCode);
-        boolean append = existingBytes > 0L && statusCode == 206;
-        if (existingBytes > 0L && statusCode == 416 && verify(partial, distfile)) {
-            response.body().close();
-            return;
-        }
-        if (statusCode != 200 && statusCode != 206) {
-            response.body().close();
-            LOGGER.atWarn().log(() -> "Unexpected distfile source status. name="
+                    + ", uri="
+                    + LogRedactor.redactUri(sourceUri)
+                    + ", resumeBytes="
+                    + resumeBytes);
+            reporter.report(new ProgressEvent("download", SdkMessages.get("core.download.downloading", distfile.name()), existingBytes, expectedSize));
+            HttpResponse<InputStream> response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
+            int statusCode = response.statusCode();
+            LOGGER.atInfo().log(() -> "Distfile source responded. name="
                     + distfile.name()
                     + ", uri="
                     + LogRedactor.redactUri(sourceUri)
                     + ", status="
                     + statusCode);
-            throw new IOException(SdkMessages.get("core.download.unexpectedStatus", statusCode, sourceUri));
-        }
-        if (existingBytes > 0L && statusCode == 200) {
-            LOGGER.atInfo().log(() -> "Source ignored range request; restarting partial download. name=" + distfile.name());
-            existingBytes = 0L;
+            boolean append = existingBytes > 0L && statusCode == 206;
+            if (existingBytes > 0L && statusCode == 416) {
+                response.body().close();
+                if (verify(partial, distfile)) {
+                    return;
+                }
+                LOGGER.atInfo().log(() -> "Discarding invalid complete partial download. name=" + distfile.name());
+                Files.deleteIfExists(partial);
+                continue;
+            }
+            if (statusCode != 200 && statusCode != 206) {
+                response.body().close();
+                LOGGER.atWarn().log(() -> "Unexpected distfile source status. name="
+                        + distfile.name()
+                        + ", uri="
+                        + LogRedactor.redactUri(sourceUri)
+                        + ", status="
+                        + statusCode);
+                throw new IOException(SdkMessages.get("core.download.unexpectedStatus", statusCode, sourceUri));
+            }
+            if (existingBytes > 0L && statusCode == 200) {
+                LOGGER.atInfo().log(() -> "Source ignored range request; restarting partial download. name=" + distfile.name());
+                existingBytes = 0L;
+            }
+
+            writeResponse(response.body(), partial, distfile, reporter, existingBytes, append);
+            return;
         }
 
-        writeResponse(response.body(), partial, distfile, reporter, existingBytes, append);
+        throw new IOException(SdkMessages.get("core.download.verifyFailed", distfile.name()));
+    }
+
+    /// Prepares an existing partial download for a resumed request.
+    ///
+    /// @param distfile distfile declaration.
+    /// @param partial partial output path.
+    /// @return existing bytes that may be resumed.
+    /// @throws IOException when the partial file cannot be inspected or deleted.
+    private static long preparePartial(RuyiDistfile distfile, Path partial) throws IOException {
+        long existingBytes = Files.isRegularFile(partial) ? Files.size(partial) : 0L;
+        Long expectedSize = distfile.sizeBytes();
+        if (expectedSize != null && existingBytes >= expectedSize) {
+            if (existingBytes == expectedSize && verify(partial, distfile)) {
+                return existingBytes;
+            }
+
+            long partialBytes = existingBytes;
+            LOGGER.atInfo().log(() -> "Discarding invalid partial download. name="
+                    + distfile.name()
+                    + ", partial="
+                    + partial
+                    + ", partialBytes="
+                    + partialBytes
+                    + ", expectedBytes="
+                    + expectedSize);
+            Files.deleteIfExists(partial);
+            return 0L;
+        }
+
+        return existingBytes;
     }
 
     /// Writes an HTTP response body into the partial file.

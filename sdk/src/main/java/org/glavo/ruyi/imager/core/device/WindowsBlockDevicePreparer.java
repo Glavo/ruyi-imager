@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.core.device;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.flash.BlockDevicePreparer;
+import org.glavo.ruyi.imager.core.ProcessOutputCapture;
 import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -13,10 +14,8 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -194,16 +193,8 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
     private static CommandResult runProcess(
             @Unmodifiable List<String> command,
             Duration timeout) throws IOException, InterruptedException {
-        Process process = new ProcessBuilder(command).start();
-        boolean completed = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
-        if (!completed) {
-            process.destroyForcibly();
-            return new CommandResult(-1, "", "", true);
-        }
-
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        return new CommandResult(process.exitValue(), output, error, false);
+        ProcessOutputCapture.Result result = ProcessOutputCapture.run(command, timeout);
+        return new CommandResult(result.exitCode(), result.output(), result.error(), result.timedOut());
     }
 
     /// Returns target metadata with mounted state and mount points cleared.

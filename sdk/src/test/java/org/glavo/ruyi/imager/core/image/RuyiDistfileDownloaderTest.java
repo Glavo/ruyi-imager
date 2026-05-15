@@ -100,6 +100,50 @@ public final class RuyiDistfileDownloaderTest {
         }
     }
 
+    /// Verifies that a corrupt full-size partial file is discarded and downloaded from the beginning.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the fixture server or filesystem fails.
+    @Test
+    public void restartsInvalidCompletePartialDownload(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "complete image".getBytes(StandardCharsets.UTF_8);
+        Files.write(temporaryDirectory.resolve("image.raw.part"), new byte[content.length]);
+        try (TinyHttpServer server = new TinyHttpServer(content)) {
+            RuyiDistfile distfile = new RuyiDistfile(
+                    "image.raw",
+                    List.of(server.uri("/image.raw")),
+                    (long) content.length,
+                    Map.of("sha256", sha256(content)),
+                    false,
+                    true,
+                    null,
+                    0,
+                    List.of(),
+                    "raw");
+
+            Path result = new RuyiDistfileDownloader().download(distfile, temporaryDirectory, NO_PROGRESS);
+
+            assertArrayEquals(content, Files.readAllBytes(result));
+            assertEquals(List.of(), server.rangeRequests());
+        }
+    }
+
+    /// Verifies unsafe distfile names are rejected before they can be resolved against cache directories.
+    @Test
+    public void rejectsUnsafeDistfileName() {
+        assertThrows(IllegalArgumentException.class, () -> new RuyiDistfile(
+                "../image.raw",
+                List.of(URI.create("https://example.invalid/image.raw")),
+                null,
+                Map.of(),
+                false,
+                true,
+                null,
+                0,
+                List.of(),
+                "raw"));
+    }
+
     /// Verifies that fetch-restricted distfiles report rendered manual instructions.
     ///
     /// @param temporaryDirectory temporary test directory.

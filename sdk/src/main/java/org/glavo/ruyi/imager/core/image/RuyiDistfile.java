@@ -8,6 +8,8 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.net.URI;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -37,8 +39,35 @@ public record RuyiDistfile(
         @Nullable String unpack) {
     /// Copies collections into immutable instances.
     public RuyiDistfile {
+        name = validateName(name);
         sourceUris = List.copyOf(sourceUris);
         checksums = Map.copyOf(checksums);
         prefixesToUnpack = List.copyOf(prefixesToUnpack);
+    }
+
+    /// Validates that a distfile name is a single safe cache file name.
+    ///
+    /// @param value distfile name from repository metadata.
+    /// @return validated distfile name.
+    private static String validateName(String value) {
+        if (value.isBlank()) {
+            throw new IllegalArgumentException("Distfile name must not be blank.");
+        }
+        if (value.indexOf('/') >= 0 || value.indexOf('\\') >= 0) {
+            throw new IllegalArgumentException("Distfile name must not contain path separators: " + value);
+        }
+        if (value.indexOf(':') >= 0 || ".".equals(value) || "..".equals(value)) {
+            throw new IllegalArgumentException("Distfile name is not safe: " + value);
+        }
+
+        try {
+            Path path = Path.of(value);
+            if (path.isAbsolute() || path.getNameCount() != 1) {
+                throw new IllegalArgumentException("Distfile name is not relative: " + value);
+            }
+        } catch (InvalidPathException exception) {
+            throw new IllegalArgumentException("Distfile name is not a valid file name: " + value, exception);
+        }
+        return value;
     }
 }

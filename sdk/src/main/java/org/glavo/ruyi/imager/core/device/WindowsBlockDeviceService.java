@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.device;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.glavo.ruyi.imager.core.ProcessOutputCapture;
 import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -12,14 +13,12 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -111,38 +110,35 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
     @Override
     public @Unmodifiable List<BlockDevice> listDevices() throws IOException {
         LOGGER.info("Enumerating Windows block devices with PowerShell CIM.");
-        Process process = new ProcessBuilder(
+        List<String> command = List.of(
                 "powershell.exe",
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                ENUMERATION_SCRIPT).start();
+                ENUMERATION_SCRIPT);
 
-        boolean completed;
+        ProcessOutputCapture.Result result;
         try {
-            completed = process.waitFor(ENUMERATION_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            result = ProcessOutputCapture.run(command, ENUMERATION_TIMEOUT);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            process.destroyForcibly();
             LOGGER.warn("Windows block-device enumeration interrupted.");
             throw new IOException(SdkMessages.get("core.device.windowsInterrupted"), e);
         }
 
-        if (!completed) {
-            process.destroyForcibly();
+        if (result.timedOut()) {
             LOGGER.warn("Windows block-device enumeration timed out.");
             throw new IOException(SdkMessages.get("core.device.windowsTimedOut"));
         }
 
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        int exitCode = process.exitValue();
-        if (exitCode != 0) {
-            String message = error.isBlank() ? SdkMessages.get("core.device.powershellExit", exitCode) : error.strip();
+        String output = result.output();
+        String error = result.error();
+        if (result.exitCode() != 0) {
+            String message = error.isBlank() ? SdkMessages.get("core.device.powershellExit", result.exitCode()) : error.strip();
             LOGGER.atWarn().log(() -> "Windows block-device enumeration failed. exitCode="
-                    + exitCode
+                    + result.exitCode()
                     + ", error="
                     + LogRedactor.redactOutput(error, 1000));
             throw new IOException(SdkMessages.get("core.device.windowsEnumerationFailed", message));
