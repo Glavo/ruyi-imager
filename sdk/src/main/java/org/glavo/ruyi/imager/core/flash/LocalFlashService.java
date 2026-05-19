@@ -369,12 +369,18 @@ public final class LocalFlashService implements FlashService {
                 + verify);
 
         reporter.report(new ProgressEvent("flash", writeMessage, 0L, sourceSize));
-        ddImageWriter.write(source, blockDevice.path(), sourceSize, writeMessage, reporter);
+        ddImageWriter.write(source, blockDevice.path(), sourceSize, blockDevice.removable(), writeMessage, reporter);
         LOGGER.atInfo().log(() -> "Block image write completed. target=" + blockDevice.path());
 
         if (verify) {
             reporter.report(new ProgressEvent("verify", verifyMessage, 0L, sourceSize));
-            if (!ddImageWriter.verify(source, blockDevice.path(), sourceSize, verifyMessage, reporter)) {
+            if (!ddImageWriter.verify(
+                    source,
+                    blockDevice.path(),
+                    sourceSize,
+                    blockDevice.removable(),
+                    verifyMessage,
+                    reporter)) {
                 LOGGER.atWarn().log(() -> "Block image verification failed. target=" + blockDevice.path());
                 return OperationResult.failure(SdkMessages.get("core.flash.verifyFailed"));
             }
@@ -454,6 +460,9 @@ public final class LocalFlashService implements FlashService {
     private static @Nullable String validateTarget(BlockDevice target, boolean allowMounted) {
         if (target.system()) {
             return SdkMessages.get("core.flash.refuseSystem");
+        }
+        if (!target.removable()) {
+            return SdkMessages.get("core.flash.refuseNonRemovable");
         }
         if (target.mounted() && !allowMounted) {
             return mountedTargetMessage(target);

@@ -78,6 +78,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @throws IOException when the image cannot be written.
@@ -86,9 +87,10 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             Path source,
             Path target,
             long totalBytes,
+            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
-        if (!run("write", "flash", source, target, totalBytes, message, reporter)) {
+        if (!run("write", "flash", source, target, totalBytes, targetRemovable, message, reporter)) {
             throw new IOException(SdkMessages.get("core.dd.writeFailed"));
         }
     }
@@ -98,6 +100,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return whether the target bytes match the source image.
@@ -107,9 +110,10 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             Path source,
             Path target,
             long totalBytes,
+            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
-        return run("verify", "verify", source, target, totalBytes, message, reporter);
+        return run("verify", "verify", source, target, totalBytes, targetRemovable, message, reporter);
     }
 
     /// Runs one helper operation.
@@ -119,6 +123,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return operation success result.
@@ -129,9 +134,10 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             Path source,
             Path target,
             long totalBytes,
+            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
-        List<String> arguments = arguments(operation, source, target, totalBytes);
+        List<String> arguments = arguments(operation, source, target, totalBytes, targetRemovable);
         if (DdFlasherElevation.shouldElevate(target)) {
             return runElevated(operation, stage, arguments, message, reporter);
         }
@@ -267,9 +273,15 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
     /// @return helper arguments.
-    private List<String> arguments(String operation, Path source, Path target, long totalBytes) {
-        ArrayList<String> command = new ArrayList<>(7);
+    private List<String> arguments(
+            String operation,
+            Path source,
+            Path target,
+            long totalBytes,
+            boolean targetRemovable) {
+        ArrayList<String> command = new ArrayList<>(9);
         command.add(operation);
         command.add("--source");
         command.add(source.toString());
@@ -277,6 +289,8 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         command.add(target.toString());
         command.add("--total-bytes");
         command.add(Long.toString(totalBytes));
+        command.add("--removable");
+        command.add(Boolean.toString(targetRemovable));
         return command;
     }
 

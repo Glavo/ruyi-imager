@@ -118,7 +118,10 @@ final class GuiSelectionRules {
     /// @param target target device.
     /// @return whether the target is not blocked by safety flags.
     static boolean targetWritable(BlockDevice target) {
-        return !target.system() && !target.readOnly() && (!target.mounted() || targetPreparablyMounted(target));
+        return target.removable()
+                && !target.system()
+                && !target.readOnly()
+                && (!target.mounted() || targetPreparablyMounted(target));
     }
 
     /// Returns the block targets shown by default in GUI target selectors.

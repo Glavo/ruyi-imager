@@ -1,4 +1,5 @@
 import de.undercouch.gradle.tasks.download.Download
+import de.undercouch.gradle.tasks.download.Verify
 import org.gradle.api.file.RelativePath
 
 plugins {
@@ -9,7 +10,10 @@ plugins {
 data class FastbootBundle(
     val taskSuffix: String,
     val platformDirectory: String,
+    val archiveFileName: String,
     val url: String,
+    val sha256: String,
+    val sizeBytes: Long,
     val archiveEntries: List<String>,
     val executableName: String,
 )
@@ -27,11 +31,15 @@ enum class JlinkJdkArchiveType {
     TAR_GZ,
 }
 
+val fastbootPlatformToolsVersion = "37.0.0"
 val fastbootBundles = listOf(
     FastbootBundle(
         taskSuffix = "WindowsX8664",
         platformDirectory = "windows-x86_64",
-        url = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
+        archiveFileName = "platform-tools_r$fastbootPlatformToolsVersion-win.zip",
+        url = "https://dl.google.com/android/repository/platform-tools_r$fastbootPlatformToolsVersion-win.zip",
+        sha256 = "4fe305812db074cea32903a489d061eb4454cbc90a49e8fea677f4b7af764918",
+        sizeBytes = 8_092_164L,
         archiveEntries = listOf(
             "platform-tools/fastboot.exe",
             "platform-tools/AdbWinApi.dll",
@@ -42,14 +50,20 @@ val fastbootBundles = listOf(
     FastbootBundle(
         taskSuffix = "MacOSX8664",
         platformDirectory = "macos-x86_64",
-        url = "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
+        archiveFileName = "platform-tools_r$fastbootPlatformToolsVersion-darwin.zip",
+        url = "https://dl.google.com/android/repository/platform-tools_r$fastbootPlatformToolsVersion-darwin.zip",
+        sha256 = "094a1395683c509fd4d48667da0d8b5ef4d42b2abfcd29f2e8149e2f989357c7",
+        sizeBytes = 16_442_240L,
         archiveEntries = listOf("platform-tools/fastboot"),
         executableName = "fastboot",
     ),
     FastbootBundle(
         taskSuffix = "LinuxX8664",
         platformDirectory = "linux-x86_64",
-        url = "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
+        archiveFileName = "platform-tools_r$fastbootPlatformToolsVersion-linux.zip",
+        url = "https://dl.google.com/android/repository/platform-tools_r$fastbootPlatformToolsVersion-linux.zip",
+        sha256 = "198ae156ab285fa555987219af237b31102fefe8b9d2bc274708a8d4f2865a07",
+        sizeBytes = 9_167_924L,
         archiveEntries = listOf("platform-tools/fastboot"),
         executableName = "fastboot",
     ),
@@ -157,8 +171,12 @@ val extractAlibabaPuhuitiMediumFont = tasks.register<Copy>("extractAlibabaPuhuit
 }
 
 val extractFastbootTasks = fastbootBundles.map { bundle ->
-    val archive = layout.buildDirectory.file("downloads/platform-tools-${bundle.platformDirectory}.zip")
+    val archive = layout.buildDirectory.file("downloads/${bundle.archiveFileName}")
     val configuredUrl = providers.gradleProperty("fastboot.${bundle.platformDirectory}.url").orElse(bundle.url)
+    val configuredSha256 = providers.gradleProperty("fastboot.${bundle.platformDirectory}.sha256").orElse(bundle.sha256)
+    val configuredSizeBytes = providers.gradleProperty("fastboot.${bundle.platformDirectory}.sizeBytes")
+        .map { it.toLong() }
+        .orElse(bundle.sizeBytes)
     val outputFiles = bundle.archiveEntries.map { archiveEntry ->
         val fileName = archiveEntry.substringAfterLast('/')
         bundledFastbootDirectory.map { it.file("${bundle.platformDirectory}/$fileName") }
@@ -180,8 +198,25 @@ val extractFastbootTasks = fastbootBundles.map { bundle ->
         outputs.file(archive)
     }
 
-    tasks.register<Copy>("extract${bundle.taskSuffix}Fastboot") {
+    val verifyTask = tasks.register<Verify>("verify${bundle.taskSuffix}Fastboot") {
+        group = "distribution"
+        description = "Verifies Android Platform Tools for ${bundle.platformDirectory}."
         dependsOn(downloadTask)
+        src(archive.get().asFile)
+        algorithm("SHA-256")
+        checksum(configuredSha256.get())
+        inputs.property("expectedSizeBytes", configuredSizeBytes)
+        doLast {
+            val expectedSizeBytes = configuredSizeBytes.get()
+            val actualSizeBytes = archive.get().asFile.length()
+            check(actualSizeBytes == expectedSizeBytes) {
+                "Expected ${bundle.archiveFileName} to be $expectedSizeBytes bytes, but was $actualSizeBytes bytes"
+            }
+        }
+    }
+
+    tasks.register<Copy>("extract${bundle.taskSuffix}Fastboot") {
+        dependsOn(verifyTask)
         from({ zipTree(archive.get().asFile) }) {
             include(bundle.archiveEntries)
             eachFile {

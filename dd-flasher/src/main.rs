@@ -45,6 +45,9 @@ struct Request {
     /// Exact number of bytes expected in the source image.
     total_bytes: u64,
 
+    /// Whether the target was identified as removable by the caller.
+    removable: bool,
+
     /// Optional NDJSON event log used when stdout is not available.
     event_log: Option<PathBuf>,
 
@@ -114,6 +117,7 @@ where
     let mut source = None;
     let mut target = None;
     let mut total_bytes = None;
+    let mut removable = None;
     let mut event_log = None;
     let mut stdout = true;
     while let Some(arg) = args.next() {
@@ -130,6 +134,10 @@ where
                         .map_err(|_| format!("invalid --total-bytes value: {value}"))?,
                 );
             }
+            "--removable" => {
+                let value = next_value(&mut args, "--removable")?;
+                removable = Some(parse_bool(&value, "--removable")?);
+            }
             "--help" | "-h" => return Err(usage()),
             other => return Err(format!("unknown argument: {other}")),
         }
@@ -140,6 +148,7 @@ where
         source: source.ok_or_else(|| "missing --source".to_string())?,
         target: target.ok_or_else(|| "missing --target".to_string())?,
         total_bytes: total_bytes.ok_or_else(|| "missing --total-bytes".to_string())?,
+        removable: removable.ok_or_else(|| "missing --removable".to_string())?,
         event_log,
         stdout,
     })
@@ -154,9 +163,18 @@ where
         .ok_or_else(|| format!("missing value for {name}"))
 }
 
+/// Parses one boolean option value.
+fn parse_bool(value: &str, name: &str) -> Result<bool, String> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(format!("invalid {name} value: {value}")),
+    }
+}
+
 /// Returns the CLI usage text.
 fn usage() -> String {
-    "usage: dd-flasher <write|verify> --source <path> --target <path> --total-bytes <bytes> [--event-log <path>] [--no-stdout]".to_string()
+    "usage: dd-flasher <write|verify> --source <path> --target <path> --total-bytes <bytes> --removable <true|false> [--event-log <path>] [--no-stdout]".to_string()
 }
 
 /// Validates source metadata, event sink configuration, and self-write safety.
@@ -175,6 +193,9 @@ fn validate_request(request: &Request) -> Result<(), String> {
     }
     if request.total_bytes == 0 {
         return Err("source image is empty".to_string());
+    }
+    if !request.removable {
+        return Err("target is not removable".to_string());
     }
     if !request.stdout && request.event_log.is_none() {
         return Err("--no-stdout requires --event-log".to_string());
@@ -390,6 +411,43 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// Verifies the helper wire contract carries target removability.
+    #[test]
+    fn parses_removable_argument() {
+        let request = parse_args([
+            "write".to_string(),
+            "--source".to_string(),
+            "source.raw".to_string(),
+            "--target".to_string(),
+            "target.raw".to_string(),
+            "--total-bytes".to_string(),
+            "4".to_string(),
+            "--removable".to_string(),
+            "false".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(request.operation, Operation::Write);
+        assert!(!request.removable);
+    }
+
+    /// Verifies callers must explicitly provide target removability.
+    #[test]
+    fn rejects_missing_removable_argument() {
+        let error = parse_args([
+            "write".to_string(),
+            "--source".to_string(),
+            "source.raw".to_string(),
+            "--target".to_string(),
+            "target.raw".to_string(),
+            "--total-bytes".to_string(),
+            "4".to_string(),
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("missing --removable"));
+    }
+
     /// Verifies a successful write and verification cycle against temporary files.
     #[test]
     fn writes_and_verifies_raw_image() {
@@ -405,6 +463,7 @@ mod tests {
             source: source.clone(),
             target: target.clone(),
             total_bytes: image.len() as u64,
+            removable: true,
             event_log: None,
             stdout: true,
         };
@@ -418,6 +477,7 @@ mod tests {
             source,
             target,
             total_bytes: image.len() as u64,
+            removable: true,
             event_log: None,
             stdout: true,
         };
@@ -438,6 +498,7 @@ mod tests {
             source,
             target,
             total_bytes: 4,
+            removable: true,
             event_log: None,
             stdout: true,
         };
@@ -459,6 +520,7 @@ mod tests {
             source,
             target,
             total_bytes: 3,
+            removable: true,
             event_log: None,
             stdout: true,
         };
@@ -484,6 +546,7 @@ mod tests {
             source: source.clone(),
             target: target.clone(),
             total_bytes: image.len() as u64,
+            removable: true,
             event_log: None,
             stdout: true,
         };
@@ -511,6 +574,7 @@ mod tests {
             source: source.clone(),
             target: source,
             total_bytes: 4,
+            removable: true,
             event_log: None,
             stdout: true,
         };
@@ -518,6 +582,31 @@ mod tests {
             validate_request(&request)
                 .unwrap_err()
                 .contains("same path")
+        );
+    }
+
+    /// Verifies non-removable targets are rejected before opening the target.
+    #[test]
+    fn rejects_non_removable_target() {
+        let temp = TempDirectory::new("rejects_non_removable_target");
+        let source = temp.path().join("source.raw");
+        let target = temp.path().join("target.raw");
+        fs::write(&source, [1u8, 2, 3, 4]).unwrap();
+        fs::write(&target, [0u8; 8]).unwrap();
+
+        let request = Request {
+            operation: Operation::Write,
+            source,
+            target,
+            total_bytes: 4,
+            removable: false,
+            event_log: None,
+            stdout: true,
+        };
+        assert!(
+            validate_request(&request)
+                .unwrap_err()
+                .contains("not removable")
         );
     }
 
@@ -536,6 +625,7 @@ mod tests {
             source,
             target,
             total_bytes: 4,
+            removable: true,
             event_log: Some(event_log.clone()),
             stdout: false,
         };

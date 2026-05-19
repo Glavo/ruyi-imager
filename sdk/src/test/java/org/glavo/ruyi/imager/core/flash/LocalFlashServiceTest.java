@@ -87,8 +87,10 @@ public final class LocalFlashServiceTest {
         assertEquals(image, writer.writeSource);
         assertEquals(target, writer.writeTarget);
         assertEquals(4L, writer.writeTotalBytes);
+        assertTrue(writer.writeTargetRemovable);
         assertEquals(image, writer.verifySource);
         assertEquals(target, writer.verifyTarget);
+        assertTrue(writer.verifyTargetRemovable);
     }
 
     /// Writes a local image through a fake writer without verifying.
@@ -116,6 +118,7 @@ public final class LocalFlashServiceTest {
         assertEquals(image, writer.writeCalls.getFirst().source());
         assertEquals(target, writer.writeCalls.getFirst().target());
         assertEquals(4L, writer.writeCalls.getFirst().totalBytes());
+        assertTrue(writer.writeCalls.getFirst().targetRemovable());
     }
 
     /// Reports a failed post-write verification without touching the target file in the writer.
@@ -235,6 +238,7 @@ public final class LocalFlashServiceTest {
         assertEquals(List.of(boot, root), writer.writeCalls.stream().map(DdCall::source).toList());
         assertEquals(List.of(bootTarget, rootTarget), writer.writeCalls.stream().map(DdCall::target).toList());
         assertEquals(List.of(3L, 4L), writer.writeCalls.stream().map(DdCall::totalBytes).toList());
+        assertEquals(List.of(true, true), writer.writeCalls.stream().map(DdCall::targetRemovable).toList());
         assertEquals(List.of(boot, root), writer.verifyCalls.stream().map(DdCall::source).toList());
     }
 
@@ -441,6 +445,31 @@ public final class LocalFlashServiceTest {
         assertFalse(result.success());
     }
 
+    /// Refuses to write to a target marked non-removable.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesNonRemovableTarget(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1});
+        Files.write(target, new byte[8]);
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(null, image, target(target, 8, false, false, false, false), false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+        assertEquals("Refusing to write to a non-removable device.", result.message());
+        assertEquals(0, writer.writeCalls.size());
+    }
+
     /// Refuses to write to a target with mounted volumes.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -587,7 +616,26 @@ public final class LocalFlashServiceTest {
             boolean system,
             boolean mounted,
             boolean readOnly) {
-        return new BlockDevice("test", "Test Target", path, sizeBytes, true, system, mounted, readOnly, "Test", "file");
+        return target(path, sizeBytes, system, mounted, readOnly, true);
+    }
+
+    /// Creates a test target device.
+    ///
+    /// @param path target path.
+    /// @param sizeBytes target size.
+    /// @param system whether target is a system disk.
+    /// @param mounted whether target has mounted volumes.
+    /// @param readOnly whether target is read-only.
+    /// @param removable whether target is removable.
+    /// @return target device.
+    private static BlockDevice target(
+            Path path,
+            long sizeBytes,
+            boolean system,
+            boolean mounted,
+            boolean readOnly,
+            boolean removable) {
+        return new BlockDevice("test", "Test Target", path, sizeBytes, removable, system, mounted, readOnly, "Test", "file");
     }
 
     /// Returns test target metadata with mount state cleared.
@@ -738,11 +786,17 @@ public final class LocalFlashServiceTest {
         /// Captured write byte count.
         private long writeTotalBytes;
 
+        /// Captured write target removable flag.
+        private boolean writeTargetRemovable;
+
         /// Captured verification source.
         private @Nullable Path verifySource;
 
         /// Captured verification target.
         private @Nullable Path verifyTarget;
+
+        /// Captured verification target removable flag.
+        private boolean verifyTargetRemovable;
 
         /// Creates the capturing writer.
         ///
@@ -756,18 +810,22 @@ public final class LocalFlashServiceTest {
         /// @param source source image path.
         /// @param target target path.
         /// @param totalBytes source size.
+        /// @param targetRemovable whether the target was identified as removable.
+        /// @param message progress message.
         /// @param reporter progress reporter.
         @Override
         public void write(
                 Path source,
                 Path target,
                 long totalBytes,
+                boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) {
             this.writeSource = source;
             this.writeTarget = target;
             this.writeTotalBytes = totalBytes;
-            this.writeCalls.add(new DdCall(source, target, totalBytes, message));
+            this.writeTargetRemovable = targetRemovable;
+            this.writeCalls.add(new DdCall(source, target, totalBytes, targetRemovable, message));
         }
 
         /// Captures one block-image verification.
@@ -775,6 +833,8 @@ public final class LocalFlashServiceTest {
         /// @param source source image path.
         /// @param target target path.
         /// @param totalBytes source size.
+        /// @param targetRemovable whether the target was identified as removable.
+        /// @param message progress message.
         /// @param reporter progress reporter.
         /// @return configured verification result.
         @Override
@@ -782,11 +842,13 @@ public final class LocalFlashServiceTest {
                 Path source,
                 Path target,
                 long totalBytes,
+                boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) {
             this.verifySource = source;
             this.verifyTarget = target;
-            this.verifyCalls.add(new DdCall(source, target, totalBytes, message));
+            this.verifyTargetRemovable = targetRemovable;
+            this.verifyCalls.add(new DdCall(source, target, totalBytes, targetRemovable, message));
             return verifyResult;
         }
     }
@@ -796,9 +858,10 @@ public final class LocalFlashServiceTest {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     @NotNullByDefault
-    private record DdCall(Path source, Path target, long totalBytes, String message) {
+    private record DdCall(Path source, Path target, long totalBytes, boolean targetRemovable, String message) {
     }
 
     /// Test dd writer that copies bytes inside the JVM.
@@ -809,6 +872,7 @@ public final class LocalFlashServiceTest {
         /// @param source source image path.
         /// @param target target path.
         /// @param totalBytes source size.
+        /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
         /// @param reporter progress reporter.
         /// @throws IOException when files cannot be read or written.
@@ -817,6 +881,7 @@ public final class LocalFlashServiceTest {
                 Path source,
                 Path target,
                 long totalBytes,
+                boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) throws IOException {
             try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ);
@@ -837,6 +902,7 @@ public final class LocalFlashServiceTest {
         /// @param source source image path.
         /// @param target target path.
         /// @param totalBytes source size.
+        /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
         /// @param reporter progress reporter.
         /// @return whether target bytes match source bytes.
@@ -846,6 +912,7 @@ public final class LocalFlashServiceTest {
                 Path source,
                 Path target,
                 long totalBytes,
+                boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) throws IOException {
             try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ);

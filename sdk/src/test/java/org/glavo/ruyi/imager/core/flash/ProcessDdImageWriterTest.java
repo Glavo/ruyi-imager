@@ -48,6 +48,7 @@ public final class ProcessDdImageWriterTest {
                         source,
                         target,
                         4L,
+                        true,
                         "Writing test image.",
                         NO_PROGRESS)));
         assertTrue(exception.getMessage().contains("stderr-marker-0"), exception.getMessage());

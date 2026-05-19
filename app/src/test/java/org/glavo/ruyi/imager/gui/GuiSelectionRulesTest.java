@@ -72,6 +72,7 @@ public final class GuiSelectionRulesTest {
         BlockDevice root = device("root", Path.of("root.raw"), false, false, false);
         BlockDevice duplicate = device("duplicate", Path.of("boot.raw"), false, false, false);
         BlockDevice mounted = device("mounted", Path.of("mounted.raw"), false, true, false);
+        BlockDevice fixed = device("fixed", Path.of("fixed.raw"), false, false, false, false);
 
         assertTrue(GuiSelectionRules.requiresPartitionTargets(image));
         assertTrue(GuiSelectionRules.partitionTargetsReady(image, FlashTarget.blockDevices(Map.of(
@@ -83,6 +84,9 @@ public final class GuiSelectionRulesTest {
         assertFalse(GuiSelectionRules.partitionTargetsReady(image, FlashTarget.blockDevices(Map.of(
                 "boot", boot,
                 "root", mounted))));
+        assertFalse(GuiSelectionRules.partitionTargetsReady(image, FlashTarget.blockDevices(Map.of(
+                "boot", boot,
+                "root", fixed))));
         assertFalse(GuiSelectionRules.partitionTargetKeysMatch(image, FlashTarget.blockDevices(Map.of("boot", boot))));
         assertFalse(GuiSelectionRules.partitionTargetKeysMatch(image, FlashTarget.blockDevice(boot)));
     }
@@ -107,6 +111,7 @@ public final class GuiSelectionRulesTest {
                 true,
                 false,
                 false)));
+        assertFalse(GuiSelectionRules.targetWritable(device("fixed", Path.of("fixed.raw"), false, false, false, false)));
         assertFalse(GuiSelectionRules.targetWritable(device("readonly", Path.of("readonly.raw"), false, false, true)));
     }
 
@@ -123,11 +128,12 @@ public final class GuiSelectionRulesTest {
                 true,
                 false,
                 true);
+        BlockDevice fixed = device("fixed", Path.of("fixed.raw"), false, false, false, false);
         BlockDevice readonly = device("readonly", Path.of("readonly.raw"), false, false, true);
 
         assertEquals(
                 List.of(ready, preparableMounted),
-                GuiSelectionRules.supportedTargets(List.of(ready, system, mounted, preparableMounted, readonly)));
+                GuiSelectionRules.supportedTargets(List.of(ready, system, mounted, preparableMounted, fixed, readonly)));
     }
 
     /// Creates a test image entry.

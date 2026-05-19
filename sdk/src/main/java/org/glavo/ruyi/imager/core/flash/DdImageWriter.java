@@ -24,6 +24,7 @@ public interface DdImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @throws IOException when the image cannot be written.
@@ -31,6 +32,7 @@ public interface DdImageWriter {
             Path source,
             Path target,
             long totalBytes,
+            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException;
 
@@ -39,6 +41,7 @@ public interface DdImageWriter {
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return whether the target bytes match the source image.
@@ -47,6 +50,7 @@ public interface DdImageWriter {
             Path source,
             Path target,
             long totalBytes,
+            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException;
 }
