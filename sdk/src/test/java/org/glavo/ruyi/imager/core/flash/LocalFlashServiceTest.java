@@ -470,6 +470,51 @@ public final class LocalFlashServiceTest {
         assertEquals(0, writer.writeCalls.size());
     }
 
+    /// Refuses a real block-device target whose size is unknown.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesUnknownSizeRealTarget(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1});
+        Files.write(target, new byte[8]);
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(null, image, target(target, 0, false, false, false, true, "USB"), false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+        assertEquals("Refusing to write to a real block device with unknown size.", result.message());
+        assertEquals(0, writer.writeCalls.size());
+    }
+
+    /// Allows unknown-size file-backed targets used by tests and simulations.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void allowsUnknownSizeFileTarget(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] imageBytes = new byte[]{1, 2, 3, 4};
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, imageBytes);
+        Files.write(target, new byte[8]);
+
+        OperationResult result = flashService(new EmptyImageCatalogService()).flash(
+                new FlashRequest(null, image, target(target, 0, false, false), false),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
+    }
+
     /// Refuses to write to a target with mounted volumes.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -635,7 +680,28 @@ public final class LocalFlashServiceTest {
             boolean mounted,
             boolean readOnly,
             boolean removable) {
-        return new BlockDevice("test", "Test Target", path, sizeBytes, removable, system, mounted, readOnly, "Test", "file");
+        return target(path, sizeBytes, system, mounted, readOnly, removable, "file");
+    }
+
+    /// Creates a test target device.
+    ///
+    /// @param path target path.
+    /// @param sizeBytes target size.
+    /// @param system whether target is a system disk.
+    /// @param mounted whether target has mounted volumes.
+    /// @param readOnly whether target is read-only.
+    /// @param removable whether target is removable.
+    /// @param busType target bus type.
+    /// @return target device.
+    private static BlockDevice target(
+            Path path,
+            long sizeBytes,
+            boolean system,
+            boolean mounted,
+            boolean readOnly,
+            boolean removable,
+            @Nullable String busType) {
+        return new BlockDevice("test", "Test Target", path, sizeBytes, removable, system, mounted, readOnly, "Test", busType);
     }
 
     /// Returns test target metadata with mount state cleared.

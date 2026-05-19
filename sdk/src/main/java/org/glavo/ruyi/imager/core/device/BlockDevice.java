@@ -66,4 +66,11 @@ public record BlockDevice(
     public BlockDevice {
         mountPoints = List.copyOf(mountPoints);
     }
+
+    /// Returns whether this target is a file-backed fixture instead of a platform block device.
+    ///
+    /// @return whether this target is file-backed.
+    public boolean fileBacked() {
+        return "file".equalsIgnoreCase(busType);
+    }
 }

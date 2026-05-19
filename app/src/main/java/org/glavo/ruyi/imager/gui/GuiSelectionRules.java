@@ -120,6 +120,7 @@ final class GuiSelectionRules {
     static boolean targetWritable(BlockDevice target) {
         return target.removable()
                 && !target.system()
+                && (target.sizeBytes() > 0L || target.fileBacked())
                 && !target.readOnly()
                 && (!target.mounted() || targetPreparablyMounted(target));
     }

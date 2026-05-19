@@ -15,7 +15,7 @@
 - Distfile 下载和物化路径已加固：拒绝不安全 distfile 文件名，自动丢弃校验失败的完整 `.part`，并在干净 staging 目录物化成功后替换 artifact cache，避免路径逃逸和旧分区产物复用。
 - `dd-v1`、`fastboot-v1` 和 `fastboot-v1(lpi4a-uboot)` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度。
 - Rust `dd-flasher` 写入路径已限制最多写入声明的镜像字节数，并覆盖源文件变大时不越界写目标的回归测试。
-- `dd-v1` raw 写入已要求目标必须标记为 removable：GUI 默认过滤非可移动块设备，SDK 写前拒绝非 removable 目标，`dd-flasher` helper 也通过必传 wire 参数在打开目标前再次拒绝。
+- `dd-v1` raw 写入已要求目标必须标记为 removable：GUI 默认过滤非可移动块设备，SDK 写前拒绝非 removable 目标，`dd-flasher` helper 也通过必传 wire 参数在打开目标前再次拒绝；容量未知的真实块设备会被 GUI 过滤并在 SDK 写前拒绝，文件型测试 target 仍可用于模拟写入。
 - Java `ProcessDdImageWriter` 已并发消费 helper 诊断输出，避免异常 helper 写满 stdout/stderr 管道后卡住 CLI/GUI。
 - 平台设备枚举和 Windows 目标准备命令已改为并发消费 stdout/stderr，避免外部命令输出填满管道导致误超时。
 - Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
@@ -44,6 +44,7 @@
   - `./gradlew -g .gradle-user-home :dd-flasher:test`
   - `./gradlew -g .gradle-user-home :dd-flasher:cargoBuild`
   - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.*`
+  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
   - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.* :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest --tests org.glavo.ruyi.imager.cli.CliApplicationTest.flashLocalImageWritesSimulatedTarget`
   - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.cli.CliApplicationTest.flashLocalImageWritesSimulatedTarget`
   - `cargo fmt --check` in `dd-flasher`

@@ -38,6 +38,7 @@ public final class SdkMessages {
             Map.entry("core.flash.success", "Image flashed successfully."),
             Map.entry("core.flash.refuseSystem", "Refusing to write to a system disk."),
             Map.entry("core.flash.refuseNonRemovable", "Refusing to write to a non-removable device."),
+            Map.entry("core.flash.refuseUnknownTargetSize", "Refusing to write to a real block device with unknown size."),
             Map.entry("core.flash.refuseMounted", "Refusing to write to a mounted device."),
             Map.entry("core.flash.refuseMountedWithPoints", "Refusing to write to a mounted device: {0}"),
             Map.entry("core.flash.refuseReadOnly", "Refusing to write to a read-only device."),

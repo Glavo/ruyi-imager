@@ -111,6 +111,24 @@ public final class GuiSelectionRulesTest {
                 true,
                 false,
                 false)));
+        assertFalse(GuiSelectionRules.targetWritable(device(
+                "unknown-size-usb",
+                Path.of("/dev/sdz"),
+                false,
+                false,
+                false,
+                true,
+                0L,
+                "usb")));
+        assertTrue(GuiSelectionRules.targetWritable(device(
+                "unknown-size-file",
+                Path.of("unknown-size.raw"),
+                false,
+                false,
+                false,
+                true,
+                0L,
+                "file")));
         assertFalse(GuiSelectionRules.targetWritable(device("fixed", Path.of("fixed.raw"), false, false, false, false)));
         assertFalse(GuiSelectionRules.targetWritable(device("readonly", Path.of("readonly.raw"), false, false, true)));
     }
@@ -128,12 +146,28 @@ public final class GuiSelectionRulesTest {
                 true,
                 false,
                 true);
+        BlockDevice unknownSize = device(
+                "unknown-size-usb",
+                Path.of("/dev/sdz"),
+                false,
+                false,
+                false,
+                true,
+                0L,
+                "usb");
         BlockDevice fixed = device("fixed", Path.of("fixed.raw"), false, false, false, false);
         BlockDevice readonly = device("readonly", Path.of("readonly.raw"), false, false, true);
 
         assertEquals(
                 List.of(ready, preparableMounted),
-                GuiSelectionRules.supportedTargets(List.of(ready, system, mounted, preparableMounted, fixed, readonly)));
+                GuiSelectionRules.supportedTargets(List.of(
+                        ready,
+                        system,
+                        mounted,
+                        preparableMounted,
+                        unknownSize,
+                        fixed,
+                        readonly)));
     }
 
     /// Creates a test image entry.
@@ -205,16 +239,39 @@ public final class GuiSelectionRulesTest {
             boolean mounted,
             boolean readOnly,
             boolean removable) {
+        return device(id, path, system, mounted, readOnly, removable, 1024L, "file");
+    }
+
+    /// Creates a test block device.
+    ///
+    /// @param id device id.
+    /// @param path device path.
+    /// @param system whether the device is a system disk.
+    /// @param mounted whether the device is mounted.
+    /// @param readOnly whether the device is read-only.
+    /// @param removable whether the device is removable.
+    /// @param sizeBytes device size in bytes.
+    /// @param busType device bus type.
+    /// @return test block device.
+    private static BlockDevice device(
+            String id,
+            Path path,
+            boolean system,
+            boolean mounted,
+            boolean readOnly,
+            boolean removable,
+            long sizeBytes,
+            String busType) {
         return new BlockDevice(
                 id,
                 "Test Device",
                 path,
-                1024L,
+                sizeBytes,
                 removable,
                 system,
                 mounted,
                 readOnly,
                 "Test",
-                "file");
+                busType);
     }
 }

@@ -464,6 +464,9 @@ public final class LocalFlashService implements FlashService {
         if (!target.removable()) {
             return SdkMessages.get("core.flash.refuseNonRemovable");
         }
+        if (target.sizeBytes() <= 0L && !target.fileBacked()) {
+            return SdkMessages.get("core.flash.refuseUnknownTargetSize");
+        }
         if (target.mounted() && !allowMounted) {
             return mountedTargetMessage(target);
         }
