@@ -64,12 +64,6 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
           cp app/build/distributions/*-${{ matrix.platform }}-jlink.zip release-assets/
-          cd release-assets
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum *-${{ matrix.platform }}-jlink.zip > SHA256SUMS-${{ matrix.platform }}.txt
-          else
-            shasum -a 256 *-${{ matrix.platform }}-jlink.zip > SHA256SUMS-${{ matrix.platform }}.txt
-          fi
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
