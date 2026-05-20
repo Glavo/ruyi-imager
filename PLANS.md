@@ -27,7 +27,7 @@
 - Java/Gradle 代码标识符统一使用 `DDFlasher` 作为 dd-flasher helper 的 acronym 命名；外部可执行文件名、目录名和配置属性保持 `dd-flasher`/`ddFlasher` 兼容。
 - Android Platform Tools 下载已迁移到 `gradle-download-task`，fastboot 打包默认锁定到 Platform-Tools 37.0.0 的版本化归档并校验 SHA-256/大小，支持本地缓存复用、临时文件落盘、重试和主 URL/校验值覆盖，避免临时限流直接阻断 `jlinkZip`。
 - `dd-flasher` 已提供每个发行平台的 Gradle 构建/打包任务，可通过 `ddFlasher.buildTool=cross` 切换到 `cross`；JLink 包会自动依赖与 `jlink.jdk.platform` 匹配的 helper，并只打入对应平台目录。
-- GitHub Actions 已接入 nightly release workflow：每天定时或手动构建 Windows x86_64、Linux x86_64 和 macOS aarch64 JLink zip，并更新固定 `nightly` prerelease 的说明、tag 和 assets。
+- GitHub Actions 已接入 nightly release workflow：每天定时或手动构建 Windows x86_64、Linux x86_64/aarch64 和 macOS x86_64/aarch64 JLink zip，并更新固定 `nightly` prerelease 的说明、tag 和 assets。
 
 ### Remaining
 

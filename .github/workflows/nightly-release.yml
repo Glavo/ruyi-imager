@@ -34,9 +34,13 @@ jobs:
           - platform: windows-x86_64
             runner: windows-2025
           - platform: linux-x86_64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - platform: macos-x86_64
+            runner: macos-15-intel
           - platform: macos-aarch64
-            runner: macos-latest
+            runner: macos-15
 
     steps:
       - name: Check out sources
