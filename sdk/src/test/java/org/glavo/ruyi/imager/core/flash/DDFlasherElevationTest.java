@@ -17,18 +17,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for dd-flasher privilege elevation decisions and launch commands.
 @NotNullByDefault
-public final class DdFlasherElevationTest {
+public final class DDFlasherElevationTest {
     /// Verifies automatic Windows UAC decisions for raw device paths.
     @Test
     public void elevatesWindowsRawDevices() {
-        assertTrue(DdFlasherElevation.shouldElevate(
+        assertTrue(DDFlasherElevation.shouldElevate(
                 Path.of("\\\\.\\PHYSICALDRIVE2"),
                 "Windows 11",
                 null,
                 null,
                 "Alice",
                 null));
-        assertFalse(DdFlasherElevation.shouldElevate(
+        assertFalse(DDFlasherElevation.shouldElevate(
                 Path.of("target.raw"),
                 "Windows 11",
                 null,
@@ -40,21 +40,21 @@ public final class DdFlasherElevationTest {
     /// Verifies automatic Linux GUI elevation decisions for raw device paths.
     @Test
     public void elevatesLinuxRawDevicesInGraphicalSessions() {
-        assertTrue(DdFlasherElevation.shouldElevate(
+        assertTrue(DDFlasherElevation.shouldElevate(
                 Path.of("/dev/sdb"),
                 "Linux",
                 ":0",
                 null,
                 "alice",
                 null));
-        assertFalse(DdFlasherElevation.shouldElevate(
+        assertFalse(DDFlasherElevation.shouldElevate(
                 Path.of("/dev/sdb"),
                 "Linux",
                 null,
                 null,
                 "alice",
                 null));
-        assertFalse(DdFlasherElevation.shouldElevate(
+        assertFalse(DDFlasherElevation.shouldElevate(
                 Path.of("/dev/sdb"),
                 "Linux",
                 ":0",
@@ -66,28 +66,28 @@ public final class DdFlasherElevationTest {
     /// Verifies automatic macOS administrator elevation decisions for raw disk paths.
     @Test
     public void elevatesMacOsRawDisks() {
-        assertTrue(DdFlasherElevation.shouldElevate(
+        assertTrue(DDFlasherElevation.shouldElevate(
                 Path.of("/dev/disk2"),
                 "Mac OS X",
                 null,
                 null,
                 "alice",
                 null));
-        assertTrue(DdFlasherElevation.shouldElevate(
+        assertTrue(DDFlasherElevation.shouldElevate(
                 Path.of("/dev/rdisk2"),
                 "Darwin",
                 null,
                 null,
                 "alice",
                 null));
-        assertFalse(DdFlasherElevation.shouldElevate(
+        assertFalse(DDFlasherElevation.shouldElevate(
                 Path.of("/tmp/target.raw"),
                 "Mac OS X",
                 null,
                 null,
                 "alice",
                 null));
-        assertFalse(DdFlasherElevation.shouldElevate(
+        assertFalse(DDFlasherElevation.shouldElevate(
                 Path.of("/dev/disk2"),
                 "Mac OS X",
                 null,
@@ -99,14 +99,14 @@ public final class DdFlasherElevationTest {
     /// Verifies configured elevation modes override automatic decisions.
     @Test
     public void honorsConfiguredElevationModes() {
-        assertTrue(DdFlasherElevation.shouldElevate(
+        assertTrue(DDFlasherElevation.shouldElevate(
                 Path.of("target.raw"),
                 "Linux",
                 null,
                 null,
                 "alice",
                 "always"));
-        assertFalse(DdFlasherElevation.shouldElevate(
+        assertFalse(DDFlasherElevation.shouldElevate(
                 Path.of("\\\\.\\PHYSICALDRIVE2"),
                 "Windows 11",
                 null,
@@ -122,7 +122,7 @@ public final class DdFlasherElevationTest {
     public void buildsLinuxPkexecCommand() throws Exception {
         assertEquals(
                 List.of("pkexec", "/opt/ruyi/dd-flasher", "write", "--source", "image.raw"),
-                DdFlasherElevation.elevatedCommand(
+                DDFlasherElevation.elevatedCommand(
                         "/opt/ruyi/dd-flasher",
                         List.of("write", "--source", "image.raw"),
                         "Linux"));
@@ -131,7 +131,7 @@ public final class DdFlasherElevationTest {
     /// Verifies Windows elevation uses a PowerShell UAC launcher.
     @Test
     public void buildsWindowsUacCommand() {
-        List<String> command = DdFlasherElevation.windowsElevatedCommand(
+        List<String> command = DDFlasherElevation.windowsElevatedCommand(
                 "C:\\Tools\\dd-flasher.exe",
                 List.of("write", "--source", "C:\\Images\\o'clock.raw"));
         assertEquals("powershell.exe", command.getFirst());
@@ -147,7 +147,7 @@ public final class DdFlasherElevationTest {
     /// Verifies macOS elevation uses osascript administrator privileges and shell quoting.
     @Test
     public void buildsMacOsAdministratorCommand() {
-        List<String> command = DdFlasherElevation.macOsElevatedCommand(
+        List<String> command = DDFlasherElevation.macOsElevatedCommand(
                 "/Applications/Ruyi Imager.app/Contents/tools/dd-flasher",
                 List.of("write", "--source", "/Users/alice/o'clock.raw"));
         assertEquals("osascript", command.getFirst());

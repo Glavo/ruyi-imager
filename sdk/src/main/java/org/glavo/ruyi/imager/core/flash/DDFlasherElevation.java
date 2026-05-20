@@ -16,7 +16,7 @@ import java.util.Locale;
 
 /// Builds platform-specific elevated launch commands for the dd-flasher helper.
 @NotNullByDefault
-final class DdFlasherElevation {
+final class DDFlasherElevation {
     /// System property used to configure dd-flasher elevation.
     static final String ELEVATION_PROPERTY = "ruyi.imager.ddFlasher.elevation";
 
@@ -24,7 +24,7 @@ final class DdFlasherElevation {
     static final String ELEVATION_ENV = "RUYI_IMAGER_DD_FLASHER_ELEVATION";
 
     /// Prevents construction.
-    private DdFlasherElevation() {
+    private DDFlasherElevation() {
     }
 
     /// Returns whether helper execution should be elevated for a target path.

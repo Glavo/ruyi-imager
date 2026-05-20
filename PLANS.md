@@ -24,6 +24,7 @@
 - SDK 刷写测试覆盖 fake `DdImageWriter` 编排路径，包括跳过校验、校验失败、多分区顺序和分区 target 拒绝条件，不依赖真实 helper 写目标内容。
 - 日志已改用 SLF4J API，运行时接 JUL 文件后端；CLI/GUI 错误都会暴露日志路径，日志默认脱敏和截断敏感外部输出。
 - 打包支持 bundled fastboot、bundled `dd-flasher`、JLink runtime 和 JLink zip；`dd-flasher` release 构建会追踪 Cargo manifest/lockfile/Rust 源码输入；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。
+- Java/Gradle 代码标识符统一使用 `DDFlasher` 作为 dd-flasher helper 的 acronym 命名；外部可执行文件名、目录名和配置属性保持 `dd-flasher`/`ddFlasher` 兼容。
 - Android Platform Tools 下载已迁移到 `gradle-download-task`，fastboot 打包默认锁定到 Platform-Tools 37.0.0 的版本化归档并校验 SHA-256/大小，支持本地缓存复用、临时文件落盘、重试和主 URL/校验值覆盖，避免临时限流直接阻断 `jlinkZip`。
 - `dd-flasher` 已提供每个发行平台的 Gradle 构建/打包任务，可通过 `ddFlasher.buildTool=cross` 切换到 `cross`；JLink 包会自动依赖与 `jlink.jdk.platform` 匹配的 helper，并只打入对应平台目录。
 
@@ -40,6 +41,8 @@
 - 已通过：
   - `./gradlew -g .gradle-user-home test`
   - `./gradlew -g .gradle-user-home check`
+  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.DDFlasherElevationTest --tests org.glavo.ruyi.imager.core.flash.DDFlasherExecutableLocatorTest`
+  - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group distribution :app:jlinkZip --dry-run`
   - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiDistfileDownloaderTest --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
   - `./gradlew -g .gradle-user-home :dd-flasher:test`
   - `./gradlew -g .gradle-user-home :dd-flasher:cargoBuild`
@@ -57,7 +60,7 @@
   - `./gradlew -g .gradle-user-home :app:jlinkZip --dry-run`
   - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group build`
   - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group distribution`
-  - `./gradlew -g .gradle-user-home :dd-flasher:printDdFlasherTargets`
+  - `./gradlew -g .gradle-user-home :dd-flasher:printDDFlasherTargets`
   - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkZip --dry-run`
   - `app/build/jlink/windows-x86_64/runtime/bin/java --list-modules`
   - `app/build/jlink/linux-x86_64/runtime/release`

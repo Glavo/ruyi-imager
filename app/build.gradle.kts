@@ -76,10 +76,10 @@ val fastbootDownloadRetries = providers.gradleProperty("fastboot.download.retrie
     .map { it.toInt() }
     .orElse(downloadRetries)
 val bundledFastbootDirectory = layout.buildDirectory.dir("bundled-fastboot")
-val bundledDdFlasherDirectory = project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher")
+val bundledDDFlasherDirectory = project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher")
 val ddFlasherExecutableName =
     if (isWindowsOs(System.getProperty("os.name").lowercase())) "dd-flasher.exe" else "dd-flasher"
-val testDdFlasherExecutable = project(":dd-flasher").layout.buildDirectory.file("cargo-target/release/$ddFlasherExecutableName")
+val testDDFlasherExecutable = project(":dd-flasher").layout.buildDirectory.file("cargo-target/release/$ddFlasherExecutableName")
 val javafxModules = listOf("base", "controls", "graphics")
 val javafxModuleNames = javafxModules.map { "javafx.$it" }
 val javafxRuntimeAvailable = javafxRuntimePlatform() != null
@@ -88,10 +88,10 @@ val jlinkJdkVersion = providers.gradleProperty("jlink.jdk.version").orElse("25.0
 val jlinkJdkPlatform = providers.gradleProperty("jlink.jdk.platform")
     .orElse(currentJlinkPlatform() ?: error("Unsupported platform for jlink JDK bundle"))
     .get()
-val jlinkDdFlasherPlatformDirectory =
+val jlinkDDFlasherPlatformDirectory =
     project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher/$jlinkJdkPlatform")
-val prepareJlinkBundledDdFlasherTask =
-    ":dd-flasher:prepareBundledDdFlasher${platformTaskSuffix(jlinkJdkPlatform)}"
+val prepareJlinkBundledDDFlasherTask =
+    ":dd-flasher:prepareBundledDDFlasher${platformTaskSuffix(jlinkJdkPlatform)}"
 val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/runtime")
 val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/launchers")
 val jlinkImageDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/ruyi-imager")
@@ -336,7 +336,7 @@ distributions {
                 from(bundledFastbootDirectory)
             }
             into("tools/dd-flasher") {
-                from(bundledDdFlasherDirectory)
+                from(bundledDDFlasherDirectory)
             }
         }
     }
@@ -344,23 +344,23 @@ distributions {
 
 tasks.named("installDist") {
     dependsOn("prepareBundledFastboot")
-    dependsOn(":dd-flasher:prepareBundledDdFlasher")
+    dependsOn(":dd-flasher:prepareBundledDDFlasher")
 }
 
 tasks.named("distZip") {
     dependsOn("prepareBundledFastboot")
-    dependsOn(":dd-flasher:prepareBundledDdFlasher")
+    dependsOn(":dd-flasher:prepareBundledDDFlasher")
 }
 
 tasks.named("distTar") {
     dependsOn("prepareBundledFastboot")
-    dependsOn(":dd-flasher:prepareBundledDdFlasher")
+    dependsOn(":dd-flasher:prepareBundledDDFlasher")
 }
 
 tasks.test {
     jvmArgs("--enable-native-access=ALL-UNNAMED,javafx.graphics")
     dependsOn(":dd-flasher:cargoBuild")
-    systemProperty("ruyi.imager.test.ddFlasher.executable", testDdFlasherExecutable.get().asFile.absolutePath)
+    systemProperty("ruyi.imager.test.ddFlasher.executable", testDDFlasherExecutable.get().asFile.absolutePath)
     if (!javafxRuntimeAvailable) {
         exclude("**/MainWindowJavaFxSmokeTest.class")
     }
@@ -452,7 +452,7 @@ tasks.register<Sync>("installJlinkDist") {
     dependsOn("jlinkRuntime")
     dependsOn("writeJlinkLaunchers")
     dependsOn("prepareBundledFastboot")
-    dependsOn(prepareJlinkBundledDdFlasherTask)
+    dependsOn(prepareJlinkBundledDDFlasherTask)
 
     into(jlinkImageDirectory)
     from(jlinkRuntimeDirectory) {
@@ -473,7 +473,7 @@ tasks.register<Sync>("installJlinkDist") {
     from(bundledFastbootDirectory) {
         into("tools/fastboot")
     }
-    from(jlinkDdFlasherPlatformDirectory) {
+    from(jlinkDDFlasherPlatformDirectory) {
         into("tools/dd-flasher/$jlinkJdkPlatform")
     }
 }

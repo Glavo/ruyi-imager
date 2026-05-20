@@ -52,7 +52,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     ///
     /// @return process-backed dd image writer.
     public static ProcessDdImageWriter createDefault() {
-        return new ProcessDdImageWriter(DdFlasherExecutableLocator.resolve());
+        return new ProcessDdImageWriter(DDFlasherExecutableLocator.resolve());
     }
 
     /// Creates a writer using an explicit helper executable.
@@ -138,7 +138,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             String message,
             ProgressReporter reporter) throws IOException {
         List<String> arguments = arguments(operation, source, target, totalBytes, targetRemovable);
-        if (DdFlasherElevation.shouldElevate(target)) {
+        if (DDFlasherElevation.shouldElevate(target)) {
             return runElevated(operation, stage, arguments, message, reporter);
         }
 
@@ -193,7 +193,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
 
         List<String> command;
         try {
-            command = DdFlasherElevation.elevatedCommand(
+            command = DDFlasherElevation.elevatedCommand(
                     executable,
                     elevatedArguments,
                     System.getProperty("os.name", ""));

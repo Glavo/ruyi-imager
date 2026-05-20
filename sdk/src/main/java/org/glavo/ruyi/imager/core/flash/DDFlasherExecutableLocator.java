@@ -15,7 +15,7 @@ import java.util.Locale;
 
 /// Locates the Rust dd-flasher helper executable bundled with application distributions.
 @NotNullByDefault
-public final class DdFlasherExecutableLocator {
+public final class DDFlasherExecutableLocator {
     /// System property used to override dd-flasher executable resolution.
     public static final String EXECUTABLE_PROPERTY = "ruyi.imager.ddFlasher.executable";
 
@@ -26,13 +26,13 @@ public final class DdFlasherExecutableLocator {
     public static final String APP_HOME_PROPERTY = "ruyi.imager.appHome";
 
     /// Logger for dd-flasher executable resolution.
-    private static final Logger LOGGER = LoggerFactory.getLogger(DdFlasherExecutableLocator.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(DDFlasherExecutableLocator.class);
 
     /// Fallback executable name resolved from PATH.
     private static final String PATH_EXECUTABLE = "dd-flasher";
 
     /// Prevents construction of the locator utility.
-    private DdFlasherExecutableLocator() {
+    private DDFlasherExecutableLocator() {
     }
 
     /// Resolves the best dd-flasher executable for the current process.
@@ -68,7 +68,7 @@ public final class DdFlasherExecutableLocator {
     /// @param osArch operating system architecture.
     /// @return bundled dd-flasher path, or null when unsupported or absent.
     static @Nullable Path bundledExecutable(Path appHome, String osName, String osArch) {
-        @Nullable DdFlasherPlatform platform = platform(osName, osArch);
+        @Nullable DDFlasherPlatform platform = platform(osName, osArch);
         if (platform == null) {
             return null;
         }
@@ -92,7 +92,7 @@ public final class DdFlasherExecutableLocator {
     /// @param osName operating system name.
     /// @param osArch operating system architecture.
     /// @return supported platform, or null when no bundled binary is available.
-    static @Nullable DdFlasherPlatform platform(String osName, String osArch) {
+    static @Nullable DDFlasherPlatform platform(String osName, String osArch) {
         @Nullable String arch = normalizedArch(osArch);
         if (arch == null) {
             return null;
@@ -100,13 +100,13 @@ public final class DdFlasherExecutableLocator {
 
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
         if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
-            return new DdFlasherPlatform("macos-" + arch, "dd-flasher", false);
+            return new DDFlasherPlatform("macos-" + arch, "dd-flasher", false);
         }
         if (normalizedOs.startsWith("windows")) {
-            return new DdFlasherPlatform("windows-" + arch, "dd-flasher.exe", true);
+            return new DDFlasherPlatform("windows-" + arch, "dd-flasher.exe", true);
         }
         if (normalizedOs.contains("linux")) {
-            return new DdFlasherPlatform("linux-" + arch, "dd-flasher", false);
+            return new DDFlasherPlatform("linux-" + arch, "dd-flasher", false);
         }
         return null;
     }
@@ -145,7 +145,7 @@ public final class DdFlasherExecutableLocator {
         }
 
         try {
-            Path codeSource = Path.of(DdFlasherExecutableLocator.class
+            Path codeSource = Path.of(DDFlasherExecutableLocator.class
                     .getProtectionDomain()
                     .getCodeSource()
                     .getLocation()
@@ -176,6 +176,6 @@ public final class DdFlasherExecutableLocator {
     /// @param executableName executable file name.
     /// @param windows whether this platform is Windows.
     @NotNullByDefault
-    record DdFlasherPlatform(String directory, String executableName, boolean windows) {
+    record DDFlasherPlatform(String directory, String executableName, boolean windows) {
     }
 }

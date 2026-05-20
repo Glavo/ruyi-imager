@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 /// Tests for bundled dd-flasher executable resolution.
 @NotNullByDefault
-public final class DdFlasherExecutableLocatorTest {
+public final class DDFlasherExecutableLocatorTest {
     /// Verifies supported platform mappings.
     @Test
     public void mapsSupportedPlatforms() {
@@ -33,8 +33,8 @@ public final class DdFlasherExecutableLocatorTest {
     /// Verifies unsupported architectures do not map to bundled binaries.
     @Test
     public void ignoresUnsupportedArchitectures() {
-        assertNull(DdFlasherExecutableLocator.platform("Linux", "sparc64"));
-        assertNull(DdFlasherExecutableLocator.platform("Plan 9", "amd64"));
+        assertNull(DDFlasherExecutableLocator.platform("Linux", "sparc64"));
+        assertNull(DDFlasherExecutableLocator.platform("Plan 9", "amd64"));
     }
 
     /// Verifies bundled executable lookup under an application home.
@@ -51,7 +51,7 @@ public final class DdFlasherExecutableLocatorTest {
         Files.createDirectories(executable.getParent());
         Files.writeString(executable, "dd-flasher");
 
-        assertEquals(executable, DdFlasherExecutableLocator.bundledExecutable(temporaryDirectory, "Linux", "amd64"));
+        assertEquals(executable, DDFlasherExecutableLocator.bundledExecutable(temporaryDirectory, "Linux", "amd64"));
     }
 
     /// Verifies missing bundled binaries fall back to PATH lookup.
@@ -59,7 +59,7 @@ public final class DdFlasherExecutableLocatorTest {
     /// @param temporaryDirectory temporary test directory.
     @Test
     public void returnsNullWhenBundledExecutableIsMissing(@TempDir Path temporaryDirectory) {
-        assertNull(DdFlasherExecutableLocator.bundledExecutable(temporaryDirectory, "Linux", "amd64"));
+        assertNull(DDFlasherExecutableLocator.bundledExecutable(temporaryDirectory, "Linux", "amd64"));
     }
 
     /// Asserts one platform mapping.
@@ -73,8 +73,8 @@ public final class DdFlasherExecutableLocatorTest {
             String expectedExecutable,
             String osName,
             String osArch) {
-        @Nullable DdFlasherExecutableLocator.DdFlasherPlatform platform =
-                DdFlasherExecutableLocator.platform(osName, osArch);
+        @Nullable DDFlasherExecutableLocator.DDFlasherPlatform platform =
+                DDFlasherExecutableLocator.platform(osName, osArch);
         assertNotNull(platform);
         assertEquals(expectedDirectory, platform.directory());
         assertEquals(expectedExecutable, platform.executableName());

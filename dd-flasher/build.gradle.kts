@@ -22,7 +22,7 @@ val cargoRustTarget = providers.gradleProperty("ddFlasher.rustTarget").orNull
 /// @param directory distribution platform directory.
 /// @param rustTarget Rust target triple.
 /// @param executableName output executable name.
-data class DdFlasherPlatform(
+data class DDFlasherPlatform(
     val directory: String,
     val rustTarget: String,
     val executableName: String,
@@ -31,21 +31,21 @@ data class DdFlasherPlatform(
 /// Supported dd-flasher distribution platforms.
 ///
 /// @return supported platforms.
-fun supportedPlatforms(): List<DdFlasherPlatform> =
+fun supportedPlatforms(): List<DDFlasherPlatform> =
     listOf(
-        DdFlasherPlatform("windows-x86_64", "x86_64-pc-windows-msvc", "dd-flasher.exe"),
-        DdFlasherPlatform("windows-aarch64", "aarch64-pc-windows-msvc", "dd-flasher.exe"),
-        DdFlasherPlatform("macos-x86_64", "x86_64-apple-darwin", "dd-flasher"),
-        DdFlasherPlatform("macos-aarch64", "aarch64-apple-darwin", "dd-flasher"),
-        DdFlasherPlatform("linux-x86_64", "x86_64-unknown-linux-gnu", "dd-flasher"),
-        DdFlasherPlatform("linux-aarch64", "aarch64-unknown-linux-gnu", "dd-flasher"),
-        DdFlasherPlatform("linux-riscv64", "riscv64gc-unknown-linux-gnu", "dd-flasher"),
+        DDFlasherPlatform("windows-x86_64", "x86_64-pc-windows-msvc", "dd-flasher.exe"),
+        DDFlasherPlatform("windows-aarch64", "aarch64-pc-windows-msvc", "dd-flasher.exe"),
+        DDFlasherPlatform("macos-x86_64", "x86_64-apple-darwin", "dd-flasher"),
+        DDFlasherPlatform("macos-aarch64", "aarch64-apple-darwin", "dd-flasher"),
+        DDFlasherPlatform("linux-x86_64", "x86_64-unknown-linux-gnu", "dd-flasher"),
+        DDFlasherPlatform("linux-aarch64", "aarch64-unknown-linux-gnu", "dd-flasher"),
+        DDFlasherPlatform("linux-riscv64", "riscv64gc-unknown-linux-gnu", "dd-flasher"),
     )
 
 /// Returns the current platform used inside distributions.
 ///
 /// @return platform, or null when unsupported.
-fun currentPlatform(): DdFlasherPlatform? {
+fun currentPlatform(): DDFlasherPlatform? {
     val osName = System.getProperty("os.name").lowercase()
     val osArch = System.getProperty("os.arch").lowercase()
     val os = when {
@@ -67,7 +67,7 @@ fun currentPlatform(): DdFlasherPlatform? {
 ///
 /// @param directory distribution platform directory.
 /// @return platform metadata, or null when unsupported.
-fun platform(directory: String): DdFlasherPlatform? =
+fun platform(directory: String): DDFlasherPlatform? =
     supportedPlatforms().firstOrNull { it.directory == directory }
 
 /// Returns supported platform names for diagnostics.
@@ -105,7 +105,7 @@ val platformPrepareTasks = supportedPlatforms().map { platform ->
         outputs.file(platformReleaseExecutable)
     }
 
-    tasks.register<Copy>("prepareBundledDdFlasher$taskSuffix") {
+    tasks.register<Copy>("prepareBundledDDFlasher$taskSuffix") {
         group = "distribution"
         description = "Copies the ${platform.directory} Rust dd-flasher helper into the application distribution layout."
         dependsOn(buildTask)
@@ -127,7 +127,7 @@ tasks.register<Exec>("cargoTest") {
     commandLine(cargoExecutable.get(), "test", "--target-dir", cargoTargetDirectoryPath.get())
 }
 
-val prepareBundledDdFlasher = tasks.register<Copy>("prepareBundledDdFlasher") {
+val prepareBundledDDFlasher = tasks.register<Copy>("prepareBundledDDFlasher") {
     group = "distribution"
     description = "Copies the selected-platform Rust dd-flasher helper into the application distribution layout."
     dependsOn("cargoBuild")
@@ -141,13 +141,13 @@ val prepareBundledDdFlasher = tasks.register<Copy>("prepareBundledDdFlasher") {
     }
 }
 
-tasks.register("prepareAllBundledDdFlashers") {
+tasks.register("prepareAllBundledDDFlashers") {
     group = "distribution"
     description = "Copies all supported-platform Rust dd-flasher helpers into the application distribution layout."
     dependsOn(platformPrepareTasks)
 }
 
-tasks.register("printDdFlasherTargets") {
+tasks.register("printDDFlasherTargets") {
     group = "help"
     description = "Prints supported dd-flasher target platforms and Rust target triples."
     doLast {
@@ -186,7 +186,7 @@ fun rustBuildExecutable(): String =
 ///
 /// @param platform target platform metadata.
 /// @param rustTarget Rust target triple, or null for the host default target.
-fun Exec.configureRustBuild(platform: DdFlasherPlatform, rustTarget: String?) {
+fun Exec.configureRustBuild(platform: DDFlasherPlatform, rustTarget: String?) {
     workingDir = projectDir
     inputs.file(layout.projectDirectory.file("Cargo.toml"))
         .withPropertyName("cargoManifest")
@@ -214,7 +214,7 @@ fun Exec.configureRustBuild(platform: DdFlasherPlatform, rustTarget: String?) {
 /// @param platform target platform metadata.
 /// @param rustTarget Rust target triple, or null for the host default target.
 /// @return release executable provider.
-fun releaseExecutable(platform: DdFlasherPlatform, rustTarget: String?) =
+fun releaseExecutable(platform: DDFlasherPlatform, rustTarget: String?) =
     rustTargetDirectory.map {
         if (rustTarget == null) {
             it.file("release/${platform.executableName}")
@@ -227,7 +227,7 @@ fun releaseExecutable(platform: DdFlasherPlatform, rustTarget: String?) =
 ///
 /// @param platform target platform metadata.
 /// @return bundled executable provider.
-fun bundledExecutable(platform: DdFlasherPlatform) =
+fun bundledExecutable(platform: DDFlasherPlatform) =
     layout.buildDirectory.file("bundled-dd-flasher/${platform.directory}/${platform.executableName}")
 
 /// Converts a platform directory name into a Gradle task suffix.
