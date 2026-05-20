@@ -92,6 +92,7 @@ val jlinkDDFlasherPlatformDirectory =
     project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher/$jlinkJdkPlatform")
 val prepareJlinkBundledDDFlasherTask =
     ":dd-flasher:prepareBundledDDFlasher${platformTaskSuffix(jlinkJdkPlatform)}"
+val jlinkFastbootBundle = fastbootBundles.firstOrNull { it.platformDirectory == jlinkJdkPlatform }
 val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/runtime")
 val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/launchers")
 val jlinkImageDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/ruyi-imager")
@@ -451,7 +452,7 @@ tasks.register<Sync>("installJlinkDist") {
     dependsOn("jar")
     dependsOn("jlinkRuntime")
     dependsOn("writeJlinkLaunchers")
-    dependsOn("prepareBundledFastboot")
+    jlinkFastbootBundle?.let { dependsOn("extract${it.taskSuffix}Fastboot") }
     dependsOn(prepareJlinkBundledDDFlasherTask)
 
     into(jlinkImageDirectory)
@@ -470,8 +471,10 @@ tasks.register<Sync>("installJlinkDist") {
     from(jlinkLaunchersDirectory) {
         into("bin")
     }
-    from(bundledFastbootDirectory) {
-        into("tools/fastboot")
+    jlinkFastbootBundle?.let { bundle ->
+        from(bundledFastbootDirectory.map { it.dir(bundle.platformDirectory) }) {
+            into("tools/fastboot/${bundle.platformDirectory}")
+        }
     }
     from(jlinkDDFlasherPlatformDirectory) {
         into("tools/dd-flasher/$jlinkJdkPlatform")
