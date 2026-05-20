@@ -1,0 +1,150 @@
+name: Nightly Release
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 02:00 Asia/Shanghai.
+    - cron: "0 18 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
+
+env:
+  GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-user-home
+  GRADLE_OPTS: >-
+    --enable-native-access=ALL-UNNAMED
+    --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
+  NIGHTLY_TAG: nightly
+  NIGHTLY_RELEASE_NAME: Nightly Build
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x86_64
+            runner: windows-latest
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+          - platform: macos-aarch64
+            runner: macos-latest
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Make Gradle wrapper executable
+        if: runner.os != 'Windows'
+        run: chmod +x ./gradlew
+
+      - name: Select Rust stable toolchain
+        run: rustup default stable
+
+      - name: Build jlink archive
+        run: ./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkZip
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp app/build/distributions/*-${{ matrix.platform }}-jlink.zip release-assets/
+          cd release-assets
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum *-${{ matrix.platform }}-jlink.zip > SHA256SUMS-${{ matrix.platform }}.txt
+          else
+            shasum -a 256 *-${{ matrix.platform }}-jlink.zip > SHA256SUMS-${{ matrix.platform }}.txt
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    name: Update nightly release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Write release notes
+        run: |
+          set -euo pipefail
+          mkdir -p release-meta
+          {
+            echo "# Nightly Build"
+            echo
+            echo "Updated at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo
+            echo "Source commit: ${GITHUB_SHA}"
+            echo
+            echo "Assets:"
+            find release-assets -maxdepth 1 -type f -printf "- %f\n" | sort
+          } > release-meta/nightly-notes.md
+
+      - name: Move nightly tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "${NIGHTLY_TAG}" "${GITHUB_SHA}"
+          git push --force origin "refs/tags/${NIGHTLY_TAG}"
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "${NIGHTLY_TAG}" >/dev/null 2>&1; then
+            gh release edit "${NIGHTLY_TAG}" \
+              --title "${NIGHTLY_RELEASE_NAME}" \
+              --notes-file release-meta/nightly-notes.md \
+              --prerelease
+          else
+            gh release create "${NIGHTLY_TAG}" \
+              --title "${NIGHTLY_RELEASE_NAME}" \
+              --notes-file release-meta/nightly-notes.md \
+              --prerelease \
+              --verify-tag
+          fi
+
+      - name: Replace release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          find release-assets -maxdepth 1 -type f -printf '%f\n' | sort > release-meta/local-assets.txt
+          gh release view "${NIGHTLY_TAG}" --json assets --jq '.assets[].name' > release-meta/existing-assets.txt
+          gh release upload "${NIGHTLY_TAG}" release-assets/* --clobber
+          while IFS= read -r asset; do
+            if [ -n "${asset}" ] && ! grep -Fxq "${asset}" release-meta/local-assets.txt; then
+              gh release delete-asset "${NIGHTLY_TAG}" "${asset}" --yes
+            fi
+          done < release-meta/existing-assets.txt
