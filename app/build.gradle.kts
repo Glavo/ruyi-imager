@@ -482,7 +482,8 @@ tasks.register<Zip>("jlinkZip") {
     group = "distribution"
     description = "Archives the jlink application image."
     dependsOn("installJlinkDist")
-    archiveClassifier = "$jlinkJdkPlatform-jlink"
+    archiveBaseName = "ruyi-imager"
+    archiveClassifier = jlinkJdkPlatform
     from(jlinkImageDirectory) {
         into("ruyi-imager")
     }

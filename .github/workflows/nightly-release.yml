@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          cp app/build/distributions/*-${{ matrix.platform }}-jlink.zip release-assets/
+          cp app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.zip release-assets/
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7

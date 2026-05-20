@@ -65,7 +65,7 @@
   - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkZip --dry-run`
   - `app/build/jlink/windows-x86_64/runtime/bin/java --list-modules`
   - `app/build/jlink/linux-x86_64/runtime/release`
-  - `jar tf app/build/distributions/app-1.0-SNAPSHOT-windows-x86_64-jlink.zip`
+  - `jar tf app/build/distributions/ruyi-imager-1.0-SNAPSHOT-windows-x86_64.zip`
   - `git diff --check`
   - `cargo clippy --all-targets -- -D warnings` in `dd-flasher`
 - 已知限制：
