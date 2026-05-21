@@ -42,6 +42,7 @@ import io.github.palexdev.materialfx.dialogs.MFXStageDialogBuilder;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProvisionStrategies;
+import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
@@ -149,6 +150,15 @@ public final class MainWindow {
 
     /// Progress bar shown for background work.
     private final MFXProgressBar progressBar = new MFXProgressBar(0);
+
+    /// Progress rows shown for each flash operation stage.
+    private final VBox phaseProgressBox = new VBox(8);
+
+    /// Progress rows keyed by stage identifier for the active flash operation.
+    private final LinkedHashMap<String, PhaseProgressRow> phaseProgressRows = new LinkedHashMap<>();
+
+    /// Generation token used to ignore late progress events from a finished flash task.
+    private long phaseProgressGeneration;
 
     /// Manufacturer selection summary.
     private final Label manufacturerValue = new Label();
@@ -381,6 +391,11 @@ public final class MainWindow {
         HBox writeActions = new HBox(flashButton);
         writeActions.getStyleClass().add("write-actions");
 
+        phaseProgressBox.getStyleClass().add("phase-progress-box");
+        phaseProgressBox.setVisible(false);
+        phaseProgressBox.setManaged(false);
+        phaseProgressBox.setFillWidth(true);
+
         Label catalogTitle = localizedLabel("gui.choice.catalog");
         catalogTitle.getStyleClass().add("choice-title");
         catalogTitle.setAlignment(Pos.CENTER);
@@ -433,7 +448,8 @@ public final class MainWindow {
         VBox workflow = new VBox(14,
                 sourceChoices,
                 createStep("4", targetTitle, storageValue, storageButton),
-                writeActions);
+                writeActions,
+                phaseProgressBox);
         workflow.getStyleClass().add("workflow");
         return workflow;
     }
@@ -1405,6 +1421,7 @@ public final class MainWindow {
             return;
         }
 
+        long progressGeneration = beginPhaseProgress();
         Task<OperationResult> task = new Task<>() {
             /// Runs the flash operation outside the JavaFX application thread.
             ///
@@ -1416,10 +1433,13 @@ public final class MainWindow {
                         new FlashRequest(selectedImage, selectedLocalImage, selectedTarget, true),
                         LoggingProgressReporter.wrap(event -> {
                             updateMessage(event.message());
+                            Platform.runLater(() -> updatePhaseProgress(progressGeneration, event));
                             @Nullable Long currentBytes = event.currentBytes();
                             @Nullable Long totalBytes = event.totalBytes();
                             if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
                                 updateProgress(currentBytes, totalBytes);
+                            } else {
+                                updateProgress(ProgressBar.INDETERMINATE_PROGRESS, 1.0);
                             }
                         }, LOGGER));
             }
@@ -1482,8 +1502,131 @@ public final class MainWindow {
         statusLabel.setText(Messages.get("gui.status.ready"));
         progressBar.setProgress(0);
         progressBar.setVisible(false);
+        resetPhaseProgress();
         busy = false;
         refreshState();
+    }
+
+    /// Starts a fresh visible phase-progress generation for one flash task.
+    ///
+    /// @return generation token for the task.
+    private long beginPhaseProgress() {
+        phaseProgressGeneration++;
+        clearPhaseProgressRows();
+        return phaseProgressGeneration;
+    }
+
+    /// Hides and invalidates phase progress rows.
+    private void resetPhaseProgress() {
+        phaseProgressGeneration++;
+        clearPhaseProgressRows();
+    }
+
+    /// Removes all phase progress rows without changing the generation token.
+    private void clearPhaseProgressRows() {
+        phaseProgressRows.clear();
+        phaseProgressBox.getChildren().clear();
+        phaseProgressBox.setVisible(false);
+        phaseProgressBox.setManaged(false);
+    }
+
+    /// Updates one phase progress row from a backend progress event.
+    ///
+    /// @param generation generation token for the active flash task.
+    /// @param event backend progress event.
+    private void updatePhaseProgress(long generation, ProgressEvent event) {
+        if (generation != phaseProgressGeneration) {
+            return;
+        }
+
+        phaseProgressBox.setVisible(true);
+        phaseProgressBox.setManaged(true);
+        PhaseProgressRow row = phaseProgressRows.computeIfAbsent(event.stage(), this::createPhaseProgressRow);
+        row.message().setText(event.message());
+
+        @Nullable Long currentBytes = event.currentBytes();
+        @Nullable Long totalBytes = event.totalBytes();
+        if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
+            double progress = progressValue(currentBytes, totalBytes);
+            row.progressBar().setProgress(progress);
+            row.percent().setText(percentText(progress));
+        } else if (row.progressBar().getProgress() <= 0.0) {
+            row.progressBar().setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+            row.percent().setText("");
+        }
+    }
+
+    /// Creates a visual row for one progress stage.
+    ///
+    /// @param stage stable stage identifier.
+    /// @return progress row.
+    private PhaseProgressRow createPhaseProgressRow(String stage) {
+        Label title = new Label();
+        @Nullable String titleKey = phaseTitleKey(stage);
+        if (titleKey == null) {
+            title.setText(stage);
+        } else {
+            title.textProperty().bind(Messages.binding(titleKey));
+        }
+        title.getStyleClass().add("phase-progress-title");
+
+        Label message = new Label();
+        message.getStyleClass().add("phase-progress-message");
+        message.setMaxWidth(Double.MAX_VALUE);
+        message.setWrapText(true);
+        HBox.setHgrow(message, Priority.ALWAYS);
+
+        Label percent = new Label();
+        percent.getStyleClass().add("phase-progress-percent");
+
+        HBox header = new HBox(10, title, message, percent);
+        header.getStyleClass().add("phase-progress-header");
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.setMaxWidth(Double.MAX_VALUE);
+
+        MFXProgressBar rowProgressBar = new MFXProgressBar(ProgressBar.INDETERMINATE_PROGRESS);
+        rowProgressBar.getStyleClass().add("phase-progress-bar");
+        rowProgressBar.setMaxWidth(Double.MAX_VALUE);
+
+        VBox container = new VBox(6, header, rowProgressBar);
+        container.getStyleClass().add("phase-progress-row");
+        container.setMaxWidth(Double.MAX_VALUE);
+        phaseProgressBox.getChildren().add(container);
+        return new PhaseProgressRow(message, percent, rowProgressBar);
+    }
+
+    /// Returns a bounded progress value for a byte counter pair.
+    ///
+    /// @param currentBytes current byte count.
+    /// @param totalBytes total byte count.
+    /// @return progress value in the JavaFX progress range.
+    private static double progressValue(long currentBytes, long totalBytes) {
+        return Math.max(0.0, Math.min(1.0, (double) currentBytes / (double) totalBytes));
+    }
+
+    /// Formats a compact percentage for a progress value.
+    ///
+    /// @param progress JavaFX progress value.
+    /// @return percentage text.
+    private static String percentText(double progress) {
+        return String.format(Locale.ROOT, "%.0f%%", progress * 100.0);
+    }
+
+    /// Returns the localized title key for a progress stage.
+    ///
+    /// @param stage stable stage identifier.
+    /// @return localized title key, or null for unknown stages.
+    private static @Nullable String phaseTitleKey(String stage) {
+        return switch (stage) {
+            case "repo" -> "gui.progress.stage.repo";
+            case "download" -> "gui.progress.stage.download";
+            case "materialize" -> "gui.progress.stage.materialize";
+            case "prepare" -> "gui.progress.stage.prepare";
+            case "flash" -> "gui.progress.stage.flash";
+            case "verify" -> "gui.progress.stage.verify";
+            case "fastboot" -> "gui.progress.stage.fastboot";
+            default -> null;
+        };
     }
 
     /// Refreshes labels and enabled states from the current selections.
@@ -2732,6 +2875,18 @@ public final class MainWindow {
     /// @param imageCount number of images in the category.
     @NotNullByDefault
     private record OperatingSystemCategoryOption(String id, String name, int imageCount) {
+    }
+
+    /// JavaFX controls for one flash phase progress row.
+    ///
+    /// @param message latest stage message label.
+    /// @param percent compact percentage label.
+    /// @param progressBar stage progress bar.
+    @NotNullByDefault
+    private record PhaseProgressRow(
+            Label message,
+            Label percent,
+            MFXProgressBar progressBar) {
     }
 
     /// Operating system tree node shown in the image picker.
