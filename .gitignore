@@ -3,6 +3,7 @@
 gradle.properties
 build/
 /dd-flasher/target/
+/launcher/target/
 /downloads/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/

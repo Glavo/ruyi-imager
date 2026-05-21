@@ -1,0 +1,13 @@
+[package]
+name = "ruyi-imager-launcher"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+
+[[bin]]
+name = "ruyi-imager"
+path = "src/main.rs"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
