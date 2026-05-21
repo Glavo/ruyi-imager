@@ -8,6 +8,10 @@ license = "MPL-2.0"
 name = "ruyi-imager"
 path = "src/main.rs"
 
+[[bin]]
+name = "ruyi-imager-gui"
+path = "src/gui.rs"
+
 [profile.release]
 lto = "thin"
 strip = "symbols"

@@ -12,11 +12,11 @@ val rustSourceFiles = fileTree(layout.projectDirectory.dir("src")) {
 ///
 /// @param directory distribution platform directory.
 /// @param rustTarget Rust target triple.
-/// @param executableName output executable name.
+/// @param executableNames output executable names.
 data class LauncherPlatform(
     val directory: String,
     val rustTarget: String,
-    val executableName: String,
+    val executableNames: List<String>,
 )
 
 /// Supported native launcher distribution platforms.
@@ -24,31 +24,38 @@ data class LauncherPlatform(
 /// @return supported platforms.
 fun supportedPlatforms(): List<LauncherPlatform> =
     listOf(
-        LauncherPlatform("windows-x86_64", "x86_64-pc-windows-msvc", "ruyi-imager.exe"),
-        LauncherPlatform("windows-aarch64", "aarch64-pc-windows-msvc", "ruyi-imager.exe"),
+        LauncherPlatform(
+            "windows-x86_64",
+            "x86_64-pc-windows-msvc",
+            listOf("ruyi-imager.exe", "ruyi-imager-gui.exe"),
+        ),
+        LauncherPlatform(
+            "windows-aarch64",
+            "aarch64-pc-windows-msvc",
+            listOf("ruyi-imager.exe", "ruyi-imager-gui.exe"),
+        ),
     )
 
 val cargoTargetDirectoryPath = rustTargetDirectory.map { it.asFile.absolutePath }
 
 val platformPrepareTasks = supportedPlatforms().map { platform ->
     val taskSuffix = platformTaskSuffix(platform.directory)
-    val platformReleaseExecutable = releaseExecutable(platform)
-    val platformBundledExecutable = bundledExecutable(platform)
+    val platformReleaseExecutables = releaseExecutables(platform)
+    val platformBundledExecutables = bundledExecutables(platform)
     val buildTask = tasks.register<Exec>("cargoBuild$taskSuffix") {
         group = "build"
         description = "Builds the Rust native launcher for ${platform.directory}."
         configureRustBuild(platform)
-        outputs.file(platformReleaseExecutable)
+        outputs.files(platformReleaseExecutables)
     }
 
     tasks.register<Copy>("prepareBundledLauncher$taskSuffix") {
         group = "distribution"
         description = "Copies the ${platform.directory} Rust native launcher into the application distribution layout."
         dependsOn(buildTask)
-        from(platformReleaseExecutable)
+        from(platformReleaseExecutables)
         into(layout.buildDirectory.dir("bundled-launcher/${platform.directory}"))
-        rename { platform.executableName }
-        outputs.file(platformBundledExecutable)
+        outputs.files(platformBundledExecutables)
     }
 }
 
@@ -110,19 +117,23 @@ fun Exec.configureRustBuild(platform: LauncherPlatform) {
     )
 }
 
-/// Returns the release executable path for a platform build.
+/// Returns the release executable paths for a platform build.
 ///
 /// @param platform target platform metadata.
-/// @return release executable provider.
-fun releaseExecutable(platform: LauncherPlatform) =
-    rustTargetDirectory.map { it.file("${platform.rustTarget}/release/${platform.executableName}") }
+/// @return release executable files.
+fun releaseExecutables(platform: LauncherPlatform) =
+    platform.executableNames.map { executableName ->
+        rustTargetDirectory.map { it.file("${platform.rustTarget}/release/$executableName") }
+    }
 
-/// Returns the bundled executable path for a platform.
+/// Returns the bundled executable paths for a platform.
 ///
 /// @param platform target platform metadata.
-/// @return bundled executable provider.
-fun bundledExecutable(platform: LauncherPlatform) =
-    layout.buildDirectory.file("bundled-launcher/${platform.directory}/${platform.executableName}")
+/// @return bundled executable files.
+fun bundledExecutables(platform: LauncherPlatform) =
+    platform.executableNames.map { executableName ->
+        layout.buildDirectory.file("bundled-launcher/${platform.directory}/$executableName")
+    }
 
 /// Converts a platform directory name into a Gradle task suffix.
 ///
