@@ -20,9 +20,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -294,12 +296,15 @@ public final class ProcessFastbootService implements FastbootService {
         }
 
         int totalSteps = 4;
+        @Unmodifiable Set<String> preHandoffOtherSerials = readOtherFastbootSerials(device);
+
         reporter.report(progress(SdkMessages.get("core.fastboot.loadingLpi4aUboot"), 0, totalSteps));
         OperationResult ramResult = runFastboot(device, List.of("flash", "ram", uboot.toString()));
         if (!ramResult.success()) {
             return ramResult;
         }
         reporter.report(progress(SdkMessages.get("core.fastboot.loadingLpi4aUboot"), 1, totalSteps));
+        preHandoffOtherSerials = mergeSerials(preHandoffOtherSerials, readOtherFastbootSerials(device));
 
         reporter.report(progress(SdkMessages.get("core.fastboot.rebooting"), 1, totalSteps));
         OperationResult rebootResult = runFastboot(device, List.of("reboot"));
@@ -311,7 +316,8 @@ public final class ProcessFastbootService implements FastbootService {
         String waitMessage = SdkMessages.get("core.fastboot.waitingReconnect", device.serial());
         reporter.report(progress(waitMessage, 2, totalSteps));
         sleepLpi4aUbootHandoff();
-        ResolvedFastbootDevice resolvedDevice = resolveLpi4aUbootDevice(device, reporter, 2, totalSteps);
+        ResolvedFastbootDevice resolvedDevice =
+                resolveLpi4aUbootDevice(device, preHandoffOtherSerials, reporter, 2, totalSteps);
         if (!resolvedDevice.success()) {
             return OperationResult.failure(resolvedDevice.message());
         }
@@ -333,6 +339,7 @@ public final class ProcessFastbootService implements FastbootService {
     /// Resolves the fastboot device visible after LPi4A jumps into RAM-loaded U-Boot.
     ///
     /// @param originalDevice device selected before the handoff.
+    /// @param preHandoffOtherSerials serials that were already visible before the handoff except the selected device.
     /// @param reporter progress reporter.
     /// @param completedSteps completed progress steps.
     /// @param totalSteps total progress steps.
@@ -340,6 +347,7 @@ public final class ProcessFastbootService implements FastbootService {
     /// @throws IOException when fastboot cannot be executed or waiting is interrupted.
     private ResolvedFastbootDevice resolveLpi4aUbootDevice(
             FastbootDevice originalDevice,
+            @Unmodifiable Set<String> preHandoffOtherSerials,
             ProgressReporter reporter,
             int completedSteps,
             int totalSteps) throws IOException {
@@ -367,18 +375,22 @@ public final class ProcessFastbootService implements FastbootService {
                 LOGGER.atInfo().log(() -> "LPi4A U-Boot fastboot device kept the selected serial. serial=" + sameSerial.serial());
                 return ResolvedFastbootDevice.success(sameSerial);
             }
-            if (devices.size() == 1) {
-                FastbootDevice changedDevice = devices.getFirst();
+
+            @Unmodifiable List<FastbootDevice> changedSerialCandidates =
+                    changedSerialCandidates(devices, preHandoffOtherSerials);
+            if (changedSerialCandidates.size() == 1) {
+                FastbootDevice changedDevice = changedSerialCandidates.getFirst();
                 LOGGER.atInfo().log(() -> "LPi4A U-Boot fastboot device changed serial. oldSerial="
                         + originalDevice.serial()
                         + ", newSerial="
                         + changedDevice.serial());
                 return ResolvedFastbootDevice.success(changedDevice);
             }
-            if (devices.size() > 1) {
+            if (changedSerialCandidates.size() > 1) {
                 LOGGER.atWarn().log(() -> "Multiple fastboot devices are visible after LPi4A U-Boot handoff. count="
-                        + devices.size());
-                return ResolvedFastbootDevice.failure(SdkMessages.get("core.fastboot.reconnectAmbiguous", devices.size()));
+                        + changedSerialCandidates.size());
+                return ResolvedFastbootDevice.failure(
+                        SdkMessages.get("core.fastboot.reconnectAmbiguous", changedSerialCandidates.size()));
             }
 
             sleepLpi4aUbootReconnectPoll();
@@ -386,6 +398,71 @@ public final class ProcessFastbootService implements FastbootService {
 
         LOGGER.atWarn().log(() -> "Timed out waiting for LPi4A U-Boot fastboot device. serial=" + originalDevice.serial());
         return ResolvedFastbootDevice.failure(SdkMessages.get("core.fastboot.reconnectTimedOut", originalDevice.serial()));
+    }
+
+    /// Reads fastboot serials that were present before LPi4A U-Boot handoff except the selected device.
+    ///
+    /// @param selectedDevice selected LPi4A fastboot device.
+    /// @return immutable serial set to exclude after serial-changing handoff.
+    /// @throws IOException when fastboot cannot be executed or device enumeration fails.
+    private @Unmodifiable Set<String> readOtherFastbootSerials(FastbootDevice selectedDevice) throws IOException {
+        LOGGER.atInfo().log(() -> "Capturing pre-handoff fastboot devices. serial=" + selectedDevice.serial());
+        CommandResult result = runner.run(List.of(executable, "devices"), DEVICE_POLL_TIMEOUT);
+        if (result.timedOut()) {
+            LOGGER.warn("Pre-handoff fastboot devices command timed out.");
+            throw new IOException(SdkMessages.get("core.fastboot.timeout", commandText(List.of(executable, "devices"))));
+        }
+        if (result.exitCode() != 0) {
+            LOGGER.atWarn().log(() -> "Pre-handoff fastboot devices command failed. exitCode="
+                    + result.exitCode()
+                    + ", output="
+                    + LogRedactor.redactOutput(result.output(), MAX_OUTPUT_CHARS));
+            throw new IOException(SdkMessages.get(
+                    "core.fastboot.commandFailed",
+                    result.exitCode(),
+                    commandText(List.of(executable, "devices")),
+                    outputSummary(result.output())));
+        }
+
+        HashSet<String> serials = new HashSet<>();
+        for (FastbootDevice visibleDevice : parseDevices(result.output())) {
+            if (!visibleDevice.serial().equals(selectedDevice.serial())) {
+                serials.add(visibleDevice.serial());
+            }
+        }
+        @Unmodifiable Set<String> excludedSerials = Set.copyOf(serials);
+        LOGGER.atInfo().log(() -> "Captured pre-handoff non-target fastboot devices. count=" + excludedSerials.size());
+        return excludedSerials;
+    }
+
+    /// Merges immutable serial sets.
+    ///
+    /// @param first first serial set.
+    /// @param second second serial set.
+    /// @return immutable merged serial set.
+    private static @Unmodifiable Set<String> mergeSerials(
+            @Unmodifiable Set<String> first,
+            @Unmodifiable Set<String> second) {
+        HashSet<String> merged = new HashSet<>(first);
+        merged.addAll(second);
+        return Set.copyOf(merged);
+    }
+
+    /// Filters devices to serials that were not already visible before LPi4A U-Boot handoff.
+    ///
+    /// @param devices currently visible devices.
+    /// @param preHandoffOtherSerials serials to exclude.
+    /// @return immutable changed-serial candidates.
+    private static @Unmodifiable List<FastbootDevice> changedSerialCandidates(
+            @Unmodifiable List<FastbootDevice> devices,
+            @Unmodifiable Set<String> preHandoffOtherSerials) {
+        ArrayList<FastbootDevice> candidates = new ArrayList<>();
+        for (FastbootDevice device : devices) {
+            if (!preHandoffOtherSerials.contains(device.serial())) {
+                candidates.add(device);
+            }
+        }
+        return List.copyOf(candidates);
     }
 
     /// Finds a fastboot device by serial.

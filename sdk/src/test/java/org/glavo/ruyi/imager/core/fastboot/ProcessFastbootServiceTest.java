@@ -41,9 +41,11 @@ public final class ProcessFastbootServiceTest {
     @Test
     public void lpi4aUbootKeepsStableSerial() throws Exception {
         ArrayList<List<String>> commands = new ArrayList<>();
+        int[] devicesCalls = {0};
         ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
             commands.add(List.copyOf(command));
             if (command.equals(List.of("fastboot-test", "devices"))) {
+                devicesCalls[0]++;
                 assertEquals(Duration.ofSeconds(3), timeout);
                 return new ProcessFastbootService.CommandResult(0, "abc123\tfastboot\nother\tfastboot\n", false);
             }
@@ -59,8 +61,11 @@ public final class ProcessFastbootServiceTest {
                 progress::add);
 
         assertTrue(result.success(), result.message());
+        assertEquals(3, devicesCalls[0]);
         assertEquals(List.of(
+                List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img"),
+                List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "reboot"),
                 List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "uboot", "uboot.img")), commands);
@@ -73,11 +78,16 @@ public final class ProcessFastbootServiceTest {
     @Test
     public void lpi4aUbootUsesUniqueChangedSerial() throws Exception {
         ArrayList<List<String>> commands = new ArrayList<>();
+        int[] devicesCalls = {0};
         ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
             commands.add(List.copyOf(command));
             if (command.equals(List.of("fastboot-test", "devices"))) {
+                devicesCalls[0]++;
                 assertEquals(Duration.ofSeconds(3), timeout);
-                return new ProcessFastbootService.CommandResult(0, "new456\tfastboot\n", false);
+                if (devicesCalls[0] <= 2) {
+                    return new ProcessFastbootService.CommandResult(0, "abc123\tfastboot\nother\tfastboot\n", false);
+                }
+                return new ProcessFastbootService.CommandResult(0, "other\tfastboot\nnew456\tfastboot\n", false);
             }
             assertEquals(Duration.ofHours(4), timeout);
             return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
@@ -91,9 +101,53 @@ public final class ProcessFastbootServiceTest {
                 });
 
         assertTrue(result.success(), result.message());
+        assertEquals(3, devicesCalls[0]);
         assertEquals(List.of(
+                List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img"),
+                List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "reboot"),
+                List.of("fastboot-test", "devices"),
+                List.of("fastboot-test", "-s", "new456", "flash", "uboot", "uboot.img")), commands);
+    }
+
+    /// Keeps waiting when only a pre-existing non-target serial is visible after LPi4A U-Boot handoff.
+    @Test
+    public void lpi4aUbootDoesNotUsePreExistingNonTargetSerial() throws Exception {
+        ArrayList<List<String>> commands = new ArrayList<>();
+        int[] devicesCalls = {0};
+        ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
+            commands.add(List.copyOf(command));
+            if (command.equals(List.of("fastboot-test", "devices"))) {
+                devicesCalls[0]++;
+                assertEquals(Duration.ofSeconds(3), timeout);
+                if (devicesCalls[0] <= 2) {
+                    return new ProcessFastbootService.CommandResult(0, "abc123\tfastboot\nother\tfastboot\n", false);
+                }
+                if (devicesCalls[0] == 3) {
+                    return new ProcessFastbootService.CommandResult(0, "other\tfastboot\n", false);
+                }
+                return new ProcessFastbootService.CommandResult(0, "other\tfastboot\nnew456\tfastboot\n", false);
+            }
+            assertEquals(Duration.ofHours(4), timeout);
+            return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
+        });
+
+        OperationResult result = service.flash(
+                "fastboot-v1(lpi4a-uboot)",
+                Map.of("uboot", Path.of("uboot.img")),
+                new FastbootDevice("abc123", "abc123", "fastboot"),
+                _ -> {
+                });
+
+        assertTrue(result.success(), result.message());
+        assertEquals(4, devicesCalls[0]);
+        assertEquals(List.of(
+                List.of("fastboot-test", "devices"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img"),
+                List.of("fastboot-test", "devices"),
+                List.of("fastboot-test", "-s", "abc123", "reboot"),
+                List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "new456", "flash", "uboot", "uboot.img")), commands);
     }
@@ -102,11 +156,19 @@ public final class ProcessFastbootServiceTest {
     @Test
     public void lpi4aUbootRefusesAmbiguousChangedSerial() throws Exception {
         ArrayList<List<String>> commands = new ArrayList<>();
+        int[] devicesCalls = {0};
         ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
             commands.add(List.copyOf(command));
             if (command.equals(List.of("fastboot-test", "devices"))) {
+                devicesCalls[0]++;
                 assertEquals(Duration.ofSeconds(3), timeout);
-                return new ProcessFastbootService.CommandResult(0, "new456\tfastboot\nother\tfastboot\n", false);
+                if (devicesCalls[0] <= 2) {
+                    return new ProcessFastbootService.CommandResult(0, "abc123\tfastboot\nother\tfastboot\n", false);
+                }
+                return new ProcessFastbootService.CommandResult(
+                        0,
+                        "other\tfastboot\nnew456\tfastboot\nnew789\tfastboot\n",
+                        false);
             }
             assertEquals(Duration.ofHours(4), timeout);
             return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
@@ -120,8 +182,11 @@ public final class ProcessFastbootServiceTest {
                 });
 
         assertFalse(result.success());
+        assertEquals(3, devicesCalls[0]);
         assertEquals(List.of(
+                List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img"),
+                List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "reboot"),
                 List.of("fastboot-test", "devices")), commands);
     }
