@@ -306,6 +306,47 @@ public final class CliApplicationTest {
         assertEquals(boot, fastboot.partitions.get("boot"));
     }
 
+    /// Flashes a Bianbu SpacemiT K1 catalog image through the public CLI fastboot target path.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or JSON cannot be parsed.
+    @Test
+    public void flashSpacemitK1ImageUsesFastbootSerial(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Path fsbl = artifactDirectory.resolve("FSBL.bin");
+        Path uboot = artifactDirectory.resolve("u-boot.itb");
+        Files.write(fsbl, new byte[]{1, 2, 3});
+        Files.write(uboot, new byte[]{4, 5, 6});
+
+        ImageEntry image = imageEntry("spacemit-k1-v1", Map.of("fsbl", "FSBL.bin", "uboot", "u-boot.itb"));
+        CapturingFastbootService fastboot = new CapturingFastbootService(
+                new FastbootDevice("test-fastboot", "test-fastboot", "fastboot"));
+
+        CliResult result = runCli(
+                services(
+                        temporaryDirectory,
+                        new FixedBlockDeviceService(List.of()),
+                        new FixedImageCatalogService(image, artifactDirectory),
+                        fastboot),
+                "flash",
+                "--atom",
+                image.atom(),
+                "--device",
+                "test-fastboot",
+                "--yes",
+                "--json");
+
+        assertEquals(0, result.exitCode(), result.stderr());
+        String[] lines = result.stdout().strip().split("\\R");
+        JsonNode finalEvent = MAPPER.readTree(lines[lines.length - 1]);
+        assertEquals("complete", finalEvent.path("type").asText());
+        assertTrue(finalEvent.path("success").asBoolean());
+        assertEquals("spacemit-k1-v1", fastboot.strategy);
+        assertEquals(fsbl, fastboot.partitions.get("fsbl"));
+        assertEquals(uboot, fastboot.partitions.get("uboot"));
+    }
+
     /// Updates a local Ruyi repository fixture through the public CLI.
     ///
     /// @param temporaryDirectory temporary test directory.

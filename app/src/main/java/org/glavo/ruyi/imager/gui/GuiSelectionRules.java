@@ -3,6 +3,7 @@
 
 package org.glavo.ruyi.imager.gui;
 
+import org.glavo.ruyi.imager.core.ProvisionStrategies;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.flash.FlashTarget;
@@ -28,7 +29,7 @@ final class GuiSelectionRules {
     /// @param image image entry.
     /// @return whether the image should use a partition target map.
     static boolean requiresPartitionTargets(@Nullable ImageEntry image) {
-        return image != null && "dd-v1".equals(image.strategy()) && image.partitionMap().size() > 1;
+        return image != null && ProvisionStrategies.isDD(image.strategy()) && image.partitionMap().size() > 1;
     }
 
     /// Returns whether partition target selections are complete and writable.
@@ -82,7 +83,7 @@ final class GuiSelectionRules {
         if (localImage != null) {
             return target.blockDevice() == null ? null : target;
         }
-        if (image != null && fastbootStrategy(image.strategy())) {
+        if (image != null && ProvisionStrategies.isFastboot(image.strategy())) {
             return target.isFastbootDevice() ? target : null;
         }
         if (requiresPartitionTargets(image)) {
@@ -99,18 +100,10 @@ final class GuiSelectionRules {
         if (image.support() != StrategySupport.SUPPORTED) {
             return false;
         }
-        if ("dd-v1".equals(image.strategy())) {
+        if (ProvisionStrategies.isDD(image.strategy())) {
             return !image.partitionMap().isEmpty();
         }
-        return fastbootStrategy(image.strategy()) && !image.partitionMap().isEmpty();
-    }
-
-    /// Returns whether a strategy uses fastboot.
-    ///
-    /// @param strategy strategy name.
-    /// @return whether this is a fastboot strategy.
-    static boolean fastbootStrategy(String strategy) {
-        return "fastboot-v1".equals(strategy) || "fastboot-v1(lpi4a-uboot)".equals(strategy);
+        return ProvisionStrategies.isFastboot(image.strategy()) && !image.partitionMap().isEmpty();
     }
 
     /// Returns whether a target can be written by the GUI.

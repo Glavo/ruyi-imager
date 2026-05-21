@@ -8,6 +8,7 @@ import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
+import org.glavo.ruyi.imager.core.ProvisionStrategies;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.flash.FlashRequest;
@@ -709,14 +710,6 @@ public final class CliApplication implements Runnable {
         return String.join(", ", device.mountPoints());
     }
 
-    /// Returns whether a strategy uses fastboot.
-    ///
-    /// @param strategy strategy name.
-    /// @return whether this is a fastboot strategy.
-    private static boolean fastbootStrategy(String strategy) {
-        return "fastboot-v1".equals(strategy) || "fastboot-v1(lpi4a-uboot)".equals(strategy);
-    }
-
     /// Flashes an image to a target device.
     @Command(name = "flash", description = "Flash an image to a target device.")
     @NotNullByDefault
@@ -819,15 +812,15 @@ public final class CliApplication implements Runnable {
                     if (requestedDeviceId != null) {
                         return fail(Messages.get("cli.error.deviceConflictsWithPartitionDevice"), json);
                     }
-                    if (image == null || !"dd-v1".equals(image.strategy())) {
+                    if (image == null || !ProvisionStrategies.isDD(image.strategy())) {
                         return fail(Messages.get("cli.error.partitionDeviceRequiresAtom"), json);
                     }
                     target = FlashTarget.blockDevices(resolvePartitionDevices(requestedPartitionDevices));
-                } else if (image != null && "dd-v1".equals(image.strategy()) && image.partitionMap().size() > 1) {
+                } else if (image != null && ProvisionStrategies.isDD(image.strategy()) && image.partitionMap().size() > 1) {
                     return fail(
                             Messages.get("cli.error.missingPartitionTargets", String.join(", ", image.partitionMap().keySet())),
                             json);
-                } else if (image != null && fastbootStrategy(image.strategy())) {
+                } else if (image != null && ProvisionStrategies.isFastboot(image.strategy())) {
                     if (requestedDeviceId == null) {
                         return fail(Messages.get("cli.error.missingTargetDevice"), json);
                     }

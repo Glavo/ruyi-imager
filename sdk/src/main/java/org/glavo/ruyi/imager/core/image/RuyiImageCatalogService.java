@@ -6,7 +6,7 @@ package org.glavo.ruyi.imager.core.image;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
-import org.glavo.ruyi.imager.core.StrategySupport;
+import org.glavo.ruyi.imager.core.ProvisionStrategies;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryEntry;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryMetadata;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
@@ -506,7 +506,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 strategy,
                 partitionMap,
                 distfiles,
-                classifyStrategy(strategy));
+                ProvisionStrategies.classify(strategy));
     }
 
     /// Checks whether a manifest has a package kind.
@@ -959,17 +959,6 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
     /// @param variant package variant, or `generic` when absent.
     @NotNullByDefault
     private record DeviceNameParts(String deviceId, String variant) {
-    }
-
-    /// Classifies support for a provision strategy.
-    ///
-    /// @param strategy strategy name.
-    /// @return support classification.
-    private static StrategySupport classifyStrategy(String strategy) {
-        return switch (strategy) {
-            case "dd-v1", "fastboot-v1", "fastboot-v1(lpi4a-uboot)" -> StrategySupport.SUPPORTED;
-            default -> StrategySupport.UNKNOWN;
-        };
     }
 
     /// Checks whether a file name starts with a digit.

@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.core.fastboot;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
+import org.glavo.ruyi.imager.core.ProvisionStrategies;
 import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +49,18 @@ public final class ProcessFastbootService implements FastbootService {
     /// Timeout used for one fastboot flashing command.
     private static final Duration FLASH_TIMEOUT = Duration.ofMinutes(30);
 
+    /// Delay between SpacemiT K1 bootloader handoff stages.
+    private static final Duration SPACEMIT_K1_HANDOFF_DELAY = Duration.ofSeconds(1);
+
     /// Maximum command output included in user-visible failures.
     private static final int MAX_OUTPUT_CHARS = 4000;
 
     /// Preferred partition flashing order for common Ruyi fastboot images.
     private static final @Unmodifiable List<String> PARTITION_ORDER = List.of("uboot", "boot", "root", "disk", "live");
+
+    /// Required SpacemiT K1 eMMC partitions in the flashing order used by Ruyi.
+    private static final @Unmodifiable List<String> SPACEMIT_K1_PARTITION_ORDER =
+            List.of("gpt", "bootinfo", "fsbl", "env", "opensbi", "uboot", "bootfs", "rootfs");
 
     /// Fastboot executable name or path.
     private final String executable;
@@ -126,11 +135,14 @@ public final class ProcessFastbootService implements FastbootService {
             return OperationResult.failure(SdkMessages.get("core.fastboot.noPartitions"));
         }
 
-        if ("fastboot-v1".equals(strategy)) {
+        if (ProvisionStrategies.FASTBOOT_V1.equals(strategy)) {
             return flashStandard(partitions, device, reporter);
         }
-        if ("fastboot-v1(lpi4a-uboot)".equals(strategy)) {
+        if (ProvisionStrategies.FASTBOOT_LPI4A_UBOOT_V1.equals(strategy)) {
             return flashLpi4aUboot(partitions, device, reporter);
+        }
+        if (ProvisionStrategies.SPACEMIT_K1_V1.equals(strategy)) {
+            return flashSpacemitK1(partitions, device, reporter);
         }
 
         return OperationResult.failure(SdkMessages.get("core.fastboot.unsupportedStrategy", strategy));
@@ -186,6 +198,83 @@ public final class ProcessFastbootService implements FastbootService {
             }
             reporter.report(progress(message, i + 1, totalSteps));
         }
+        return OperationResult.success(SdkMessages.get("core.fastboot.success"));
+    }
+
+    /// Flashes a SpacemiT K1 eMMC image using the Bianbu fastboot handoff sequence.
+    ///
+    /// @param partitions materialized partition images.
+    /// @param device target fastboot device.
+    /// @param reporter progress reporter.
+    /// @return operation result.
+    /// @throws IOException when fastboot cannot be executed.
+    private OperationResult flashSpacemitK1(
+            @Unmodifiable Map<String, Path> partitions,
+            FastbootDevice device,
+            ProgressReporter reporter) throws IOException {
+        @Nullable String missingPartition = missingPartition(partitions, SPACEMIT_K1_PARTITION_ORDER);
+        if (missingPartition != null) {
+            return OperationResult.failure(SdkMessages.get("core.fastboot.missingPartition", missingPartition));
+        }
+
+        Path fsbl = Objects.requireNonNull(partitions.get("fsbl"));
+        Path uboot = Objects.requireNonNull(partitions.get("uboot"));
+        int totalSteps = SPACEMIT_K1_PARTITION_ORDER.size() + 6;
+        int completedSteps = 0;
+
+        String stageFsblMessage = SdkMessages.get("core.fastboot.spacemit.stageFsbl");
+        reporter.report(progress(stageFsblMessage, completedSteps, totalSteps));
+        OperationResult result = runFastboot(device, List.of("stage", fsbl.toString()));
+        if (!result.success()) {
+            return result;
+        }
+        reporter.report(progress(stageFsblMessage, ++completedSteps, totalSteps));
+
+        String continueFsblMessage = SdkMessages.get("core.fastboot.spacemit.continueFsbl");
+        reporter.report(progress(continueFsblMessage, completedSteps, totalSteps));
+        result = runFastboot(device, List.of("continue"));
+        if (!result.success()) {
+            return result;
+        }
+        reporter.report(progress(continueFsblMessage, ++completedSteps, totalSteps));
+
+        String waitFsblMessage = SdkMessages.get("core.fastboot.spacemit.waitFsbl");
+        reporter.report(progress(waitFsblMessage, completedSteps, totalSteps));
+        sleepSpacemitK1Handoff();
+        reporter.report(progress(waitFsblMessage, ++completedSteps, totalSteps));
+
+        String stageUbootMessage = SdkMessages.get("core.fastboot.spacemit.stageUboot");
+        reporter.report(progress(stageUbootMessage, completedSteps, totalSteps));
+        result = runFastboot(device, List.of("stage", uboot.toString()));
+        if (!result.success()) {
+            return result;
+        }
+        reporter.report(progress(stageUbootMessage, ++completedSteps, totalSteps));
+
+        String continueUbootMessage = SdkMessages.get("core.fastboot.spacemit.continueUboot");
+        reporter.report(progress(continueUbootMessage, completedSteps, totalSteps));
+        result = runFastboot(device, List.of("continue"));
+        if (!result.success()) {
+            return result;
+        }
+        reporter.report(progress(continueUbootMessage, ++completedSteps, totalSteps));
+
+        String waitUbootMessage = SdkMessages.get("core.fastboot.spacemit.waitUboot");
+        reporter.report(progress(waitUbootMessage, completedSteps, totalSteps));
+        sleepSpacemitK1Handoff();
+        reporter.report(progress(waitUbootMessage, ++completedSteps, totalSteps));
+
+        for (String partition : SPACEMIT_K1_PARTITION_ORDER) {
+            Path image = Objects.requireNonNull(partitions.get(partition));
+            String flashMessage = SdkMessages.get("core.fastboot.flashingPartition", partition);
+            reporter.report(progress(flashMessage, completedSteps, totalSteps));
+            result = runFastboot(device, List.of("flash", partition, image.toString()));
+            if (!result.success()) {
+                return result;
+            }
+            reporter.report(progress(flashMessage, ++completedSteps, totalSteps));
+        }
+
         return OperationResult.success(SdkMessages.get("core.fastboot.success"));
     }
 
@@ -289,6 +378,18 @@ public final class ProcessFastbootService implements FastbootService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException(SdkMessages.get("core.fastboot.reconnectInterrupted"), e);
+        }
+    }
+
+    /// Sleeps between SpacemiT K1 handoff stages.
+    ///
+    /// @throws IOException when interrupted.
+    private static void sleepSpacemitK1Handoff() throws IOException {
+        try {
+            Thread.sleep(SPACEMIT_K1_HANDOFF_DELAY.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(SdkMessages.get("core.fastboot.spacemit.handoffInterrupted"), e);
         }
     }
 
@@ -439,6 +540,22 @@ public final class ProcessFastbootService implements FastbootService {
                 .comparingInt((Map.Entry<String, Path> entry) -> partitionOrder(entry.getKey()))
                 .thenComparing(Map.Entry::getKey));
         return List.copyOf(entries);
+    }
+
+    /// Finds the first missing required partition.
+    ///
+    /// @param partitions partition map.
+    /// @param requiredPartitions required partition names.
+    /// @return first missing partition name, or null when all are present.
+    private static @Nullable String missingPartition(
+            @Unmodifiable Map<String, Path> partitions,
+            @Unmodifiable List<String> requiredPartitions) {
+        for (String partition : requiredPartitions) {
+            if (!partitions.containsKey(partition)) {
+                return partition;
+            }
+        }
+        return null;
     }
 
     /// Returns the preferred order index for one partition.

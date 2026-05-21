@@ -41,6 +41,7 @@ import io.github.palexdev.materialfx.dialogs.MFXStageDialog;
 import io.github.palexdev.materialfx.dialogs.MFXStageDialogBuilder;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
+import org.glavo.ruyi.imager.core.ProvisionStrategies;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
@@ -77,7 +78,6 @@ import org.slf4j.LoggerFactory;
 
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.catalogImageFlashable;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.compatibleTarget;
-import static org.glavo.ruyi.imager.gui.GuiSelectionRules.fastbootStrategy;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetKeysMatch;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetsReady;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.supportedTargets;
@@ -1550,7 +1550,7 @@ public final class MainWindow {
     /// @return whether target selection should use fastboot devices.
     private boolean requiresFastbootTarget() {
         @Nullable ImageEntry image = state.image();
-        return image != null && fastbootStrategy(image.strategy());
+        return image != null && ProvisionStrategies.isFastboot(image.strategy());
     }
 
     /// Returns whether the selected catalog image requires partition-specific block targets.
@@ -2252,7 +2252,7 @@ public final class MainWindow {
     /// @return localized support label.
     private static String imageSupportLabel(ImageEntry image) {
         if (catalogImageFlashable(image)) {
-            if (fastbootStrategy(image.strategy())) {
+            if (ProvisionStrategies.isFastboot(image.strategy())) {
                 return Messages.get("gui.image.support.fastbootFlashable");
             }
             if (image.partitionMap().size() > 1) {
@@ -2266,10 +2266,10 @@ public final class MainWindow {
         if (image.support() == StrategySupport.UNSUPPORTED) {
             return Messages.get("gui.image.support.unsupported");
         }
-        if (fastbootStrategy(image.strategy())) {
+        if (ProvisionStrategies.isFastboot(image.strategy())) {
             return Messages.get("gui.image.support.noPartitions");
         }
-        if (!"dd-v1".equals(image.strategy())) {
+        if (!ProvisionStrategies.isDD(image.strategy())) {
             return Messages.get("gui.image.support.writerUnsupported");
         }
         return Messages.get("gui.image.support.noPartitions");

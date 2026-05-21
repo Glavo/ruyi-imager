@@ -90,4 +90,47 @@ public final class ProcessFastbootServiceTest {
         assertEquals(2L, last.currentBytes());
         assertEquals(2L, last.totalBytes());
     }
+
+    /// Runs the SpacemiT K1 handoff and partition flashing sequence used by Bianbu eMMC images.
+    @Test
+    public void spacemitK1StagesBootloadersBeforeFlashingPartitions() throws Exception {
+        ArrayList<List<String>> commands = new ArrayList<>();
+        ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, _) -> {
+            commands.add(List.copyOf(command));
+            return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
+        });
+
+        ArrayList<ProgressEvent> progress = new ArrayList<>();
+        OperationResult result = service.flash(
+                "spacemit-k1-v1",
+                Map.of(
+                        "bootfs", Path.of("bootfs.ext4"),
+                        "bootinfo", Path.of("bootinfo.bin"),
+                        "env", Path.of("env.bin"),
+                        "fsbl", Path.of("FSBL.bin"),
+                        "gpt", Path.of("partition_universal.json"),
+                        "opensbi", Path.of("fw_dynamic.itb"),
+                        "rootfs", Path.of("rootfs.ext4"),
+                        "uboot", Path.of("u-boot.itb")),
+                new FastbootDevice("abc123", "abc123", "fastboot"),
+                progress::add);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(List.of(
+                List.of("fastboot-test", "-s", "abc123", "stage", "FSBL.bin"),
+                List.of("fastboot-test", "-s", "abc123", "continue"),
+                List.of("fastboot-test", "-s", "abc123", "stage", "u-boot.itb"),
+                List.of("fastboot-test", "-s", "abc123", "continue"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "gpt", "partition_universal.json"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "bootinfo", "bootinfo.bin"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "fsbl", "FSBL.bin"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "env", "env.bin"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "opensbi", "fw_dynamic.itb"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "uboot", "u-boot.itb"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "bootfs", "bootfs.ext4"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "rootfs", "rootfs.ext4")), commands);
+        ProgressEvent last = progress.getLast();
+        assertEquals(14L, last.currentBytes());
+        assertEquals(14L, last.totalBytes());
+    }
 }

@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.core.flash;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
+import org.glavo.ruyi.imager.core.ProvisionStrategies;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
@@ -115,7 +116,7 @@ public final class LocalFlashService implements FlashService {
             return OperationResult.failure(SdkMessages.get("core.flash.noSource"));
         }
 
-        if ("dd-v1".equals(image.strategy())) {
+        if (ProvisionStrategies.isDD(image.strategy())) {
             LOGGER.atInfo().log(() -> "Dispatching dd-v1 flash. atom=" + image.atom());
             Path materialized = images.downloadImage(image, reporter);
             @Unmodifiable Map<String, Path> partitions = resolvePartitionPaths(image, materialized);
@@ -125,7 +126,7 @@ public final class LocalFlashService implements FlashService {
             return flashBlockPartitions(partitions, request.target(), request.verify(), reporter);
         }
 
-        if (isFastbootStrategy(image.strategy())) {
+        if (ProvisionStrategies.isFastboot(image.strategy())) {
             LOGGER.atInfo().log(() -> "Dispatching fastboot flash. atom=" + image.atom() + ", strategy=" + image.strategy());
             return flashFastbootImage(image, request.target(), reporter);
         }
@@ -525,14 +526,6 @@ public final class LocalFlashService implements FlashService {
             result.put(entry.getKey(), realPath);
         }
         return Collections.unmodifiableMap(result);
-    }
-
-    /// Returns whether a strategy is handled by fastboot.
-    ///
-    /// @param strategy strategy name.
-    /// @return whether this is a supported fastboot strategy.
-    private static boolean isFastbootStrategy(String strategy) {
-        return "fastboot-v1".equals(strategy) || "fastboot-v1(lpi4a-uboot)".equals(strategy);
     }
 
 }

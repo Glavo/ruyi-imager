@@ -188,6 +188,36 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals(StrategySupport.SUPPORTED, image.support());
     }
 
+    /// Verifies SpacemiT K1 Bianbu provision strategy is exposed as supported.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when test fixture files cannot be created or read.
+    @Test
+    public void classifiesSpacemitK1ImagesAsSupported(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        writeConfig(configDirectory, repoDirectory);
+        writeRepositoryConfig(repoDirectory);
+        writeImageManifest(
+                repoDirectory,
+                "1.2.3",
+                "Bianbu image for SpacemiT K1",
+                "bianbu-k1",
+                "image.zip",
+                "spacemit-k1-v1");
+
+        RuyiImageCatalogService service = new RuyiImageCatalogService(
+                new AppDirectories(configDirectory, cacheDirectory),
+                new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory)));
+
+        ImageEntry image = service.listImages().images().getFirst();
+
+        assertEquals("spacemit-k1-v1", image.strategy());
+        assertEquals(StrategySupport.SUPPORTED, image.support());
+    }
+
     /// Verifies board-image manufacturer and variant are derived from the device id.
     ///
     /// @param temporaryDirectory temporary test directory.
