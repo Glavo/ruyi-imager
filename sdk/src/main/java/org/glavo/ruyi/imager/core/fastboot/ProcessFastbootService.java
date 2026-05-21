@@ -36,6 +36,15 @@ public final class ProcessFastbootService implements FastbootService {
     /// Timeout used for fastboot device enumeration.
     private static final Duration DEVICES_TIMEOUT = Duration.ofSeconds(15);
 
+    /// Timeout used for one fastboot device polling command.
+    private static final Duration DEVICE_POLL_TIMEOUT = Duration.ofSeconds(3);
+
+    /// Maximum time to wait for LPi4A to expose U-Boot fastboot after reboot.
+    private static final Duration LPI4A_UBOOT_RECONNECT_TIMEOUT = Duration.ofSeconds(45);
+
+    /// Delay between LPi4A U-Boot fastboot polling attempts.
+    private static final Duration LPI4A_UBOOT_RECONNECT_POLL_INTERVAL = Duration.ofSeconds(1);
+
     /// Timeout used for long-running fastboot flashing commands.
     private static final Duration FLASH_TIMEOUT = Duration.ofHours(4);
 
@@ -302,17 +311,95 @@ public final class ProcessFastbootService implements FastbootService {
         String waitMessage = SdkMessages.get("core.fastboot.waitingReconnect", device.serial());
         reporter.report(progress(waitMessage, 2, totalSteps));
         sleepLpi4aUbootHandoff();
+        ResolvedFastbootDevice resolvedDevice = resolveLpi4aUbootDevice(device, reporter, 2, totalSteps);
+        if (!resolvedDevice.success()) {
+            return OperationResult.failure(resolvedDevice.message());
+        }
         reporter.report(progress(waitMessage, 3, totalSteps));
 
         String flashMessage = SdkMessages.get("core.fastboot.flashingPartition", "uboot");
         reporter.report(progress(flashMessage, 3, totalSteps));
-        OperationResult ubootResult = runFastbootAnyDevice(List.of("flash", "uboot", uboot.toString()));
+        OperationResult ubootResult = runFastboot(
+                Objects.requireNonNull(resolvedDevice.device()),
+                List.of("flash", "uboot", uboot.toString()));
         if (!ubootResult.success()) {
             return ubootResult;
         }
         reporter.report(progress(flashMessage, 4, totalSteps));
 
         return OperationResult.success(SdkMessages.get("core.fastboot.success"));
+    }
+
+    /// Resolves the fastboot device visible after LPi4A jumps into RAM-loaded U-Boot.
+    ///
+    /// @param originalDevice device selected before the handoff.
+    /// @param reporter progress reporter.
+    /// @param completedSteps completed progress steps.
+    /// @param totalSteps total progress steps.
+    /// @return resolved device result.
+    /// @throws IOException when fastboot cannot be executed or waiting is interrupted.
+    private ResolvedFastbootDevice resolveLpi4aUbootDevice(
+            FastbootDevice originalDevice,
+            ProgressReporter reporter,
+            int completedSteps,
+            int totalSteps) throws IOException {
+        long deadlineNanos = System.nanoTime() + LPI4A_UBOOT_RECONNECT_TIMEOUT.toNanos();
+        String message = SdkMessages.get("core.fastboot.waitingReconnect", originalDevice.serial());
+        while (System.nanoTime() < deadlineNanos) {
+            reporter.report(progress(message, completedSteps, totalSteps));
+            LOGGER.atDebug().log(() -> "Polling LPi4A U-Boot fastboot device. serial=" + originalDevice.serial());
+            CommandResult result = runner.run(List.of(executable, "devices"), DEVICE_POLL_TIMEOUT);
+            if (result.timedOut()) {
+                sleepLpi4aUbootReconnectPoll();
+                continue;
+            }
+            if (result.exitCode() != 0) {
+                return ResolvedFastbootDevice.failure(SdkMessages.get(
+                        "core.fastboot.commandFailed",
+                        result.exitCode(),
+                        commandText(List.of(executable, "devices")),
+                        outputSummary(result.output())));
+            }
+
+            @Unmodifiable List<FastbootDevice> devices = parseDevices(result.output());
+            @Nullable FastbootDevice sameSerial = findDeviceBySerial(devices, originalDevice.serial());
+            if (sameSerial != null) {
+                LOGGER.atInfo().log(() -> "LPi4A U-Boot fastboot device kept the selected serial. serial=" + sameSerial.serial());
+                return ResolvedFastbootDevice.success(sameSerial);
+            }
+            if (devices.size() == 1) {
+                FastbootDevice changedDevice = devices.getFirst();
+                LOGGER.atInfo().log(() -> "LPi4A U-Boot fastboot device changed serial. oldSerial="
+                        + originalDevice.serial()
+                        + ", newSerial="
+                        + changedDevice.serial());
+                return ResolvedFastbootDevice.success(changedDevice);
+            }
+            if (devices.size() > 1) {
+                LOGGER.atWarn().log(() -> "Multiple fastboot devices are visible after LPi4A U-Boot handoff. count="
+                        + devices.size());
+                return ResolvedFastbootDevice.failure(SdkMessages.get("core.fastboot.reconnectAmbiguous", devices.size()));
+            }
+
+            sleepLpi4aUbootReconnectPoll();
+        }
+
+        LOGGER.atWarn().log(() -> "Timed out waiting for LPi4A U-Boot fastboot device. serial=" + originalDevice.serial());
+        return ResolvedFastbootDevice.failure(SdkMessages.get("core.fastboot.reconnectTimedOut", originalDevice.serial()));
+    }
+
+    /// Finds a fastboot device by serial.
+    ///
+    /// @param devices devices to inspect.
+    /// @param serial serial to find.
+    /// @return matching device, or null when absent.
+    private static @Nullable FastbootDevice findDeviceBySerial(@Unmodifiable List<FastbootDevice> devices, String serial) {
+        for (FastbootDevice device : devices) {
+            if (device.serial().equals(serial)) {
+                return device;
+            }
+        }
+        return null;
     }
 
     /// Sleeps between SpacemiT K1 handoff stages.
@@ -339,6 +426,18 @@ public final class ProcessFastbootService implements FastbootService {
         }
     }
 
+    /// Sleeps between LPi4A U-Boot fastboot polling attempts.
+    ///
+    /// @throws IOException when interrupted.
+    private static void sleepLpi4aUbootReconnectPoll() throws IOException {
+        try {
+            Thread.sleep(LPI4A_UBOOT_RECONNECT_POLL_INTERVAL.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(SdkMessages.get("core.fastboot.reconnectInterrupted"), e);
+        }
+    }
+
     /// Runs one fastboot command for a target device.
     ///
     /// @param device target fastboot device.
@@ -350,40 +449,6 @@ public final class ProcessFastbootService implements FastbootService {
         command.add(executable);
         command.add("-s");
         command.add(device.serial());
-        command.addAll(arguments);
-
-        LOGGER.atInfo().log(() -> "Running fastboot command. command=" + LogRedactor.redactCommand(command));
-        CommandResult result = runner.run(List.copyOf(command), FLASH_TIMEOUT);
-        String commandText = commandText(command);
-        if (result.timedOut()) {
-            LOGGER.atWarn().log(() -> "fastboot command timed out. command=" + LogRedactor.redactCommand(command));
-            return OperationResult.failure(SdkMessages.get("core.fastboot.timeout", commandText));
-        }
-        if (result.exitCode() != 0) {
-            LOGGER.atWarn().log(() -> "fastboot command failed. command="
-                    + LogRedactor.redactCommand(command)
-                    + ", exitCode="
-                    + result.exitCode()
-                    + ", output="
-                    + LogRedactor.redactOutput(result.output(), MAX_OUTPUT_CHARS));
-            return OperationResult.failure(SdkMessages.get(
-                    "core.fastboot.commandFailed",
-                    result.exitCode(),
-                    commandText,
-                    outputSummary(result.output())));
-        }
-        LOGGER.atInfo().log(() -> "fastboot command completed. command=" + LogRedactor.redactCommand(command));
-        return OperationResult.success(SdkMessages.get("core.fastboot.commandSucceeded", commandText));
-    }
-
-    /// Runs one fastboot command without a serial selector.
-    ///
-    /// @param arguments fastboot arguments.
-    /// @return operation result.
-    /// @throws IOException when fastboot cannot be executed.
-    private OperationResult runFastbootAnyDevice(@Unmodifiable List<String> arguments) throws IOException {
-        ArrayList<String> command = new ArrayList<>(arguments.size() + 1);
-        command.add(executable);
         command.addAll(arguments);
 
         LOGGER.atInfo().log(() -> "Running fastboot command. command=" + LogRedactor.redactCommand(command));
@@ -570,6 +635,36 @@ public final class ProcessFastbootService implements FastbootService {
         /// @return command result.
         /// @throws IOException when the command cannot be executed.
         CommandResult run(@Unmodifiable List<String> command, Duration timeout) throws IOException;
+    }
+
+    /// Result of resolving the LPi4A U-Boot fastboot target after handoff.
+    ///
+    /// @param device resolved device when successful.
+    /// @param message failure message when unsuccessful.
+    @NotNullByDefault
+    private record ResolvedFastbootDevice(@Nullable FastbootDevice device, String message) {
+        /// Creates a successful resolution result.
+        ///
+        /// @param device resolved fastboot device.
+        /// @return successful resolution result.
+        private static ResolvedFastbootDevice success(FastbootDevice device) {
+            return new ResolvedFastbootDevice(device, "");
+        }
+
+        /// Creates a failed resolution result.
+        ///
+        /// @param message failure message.
+        /// @return failed resolution result.
+        private static ResolvedFastbootDevice failure(String message) {
+            return new ResolvedFastbootDevice(null, message);
+        }
+
+        /// Returns whether resolution succeeded.
+        ///
+        /// @return whether a device was resolved.
+        private boolean success() {
+            return device != null;
+        }
     }
 
     /// Captured command result.

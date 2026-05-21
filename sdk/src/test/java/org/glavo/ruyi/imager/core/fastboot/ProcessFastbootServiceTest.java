@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for process-backed fastboot helpers.
@@ -36,13 +37,17 @@ public final class ProcessFastbootServiceTest {
         assertEquals("fastbootd", devices.get(1).state());
     }
 
-    /// Follows the Ruyi LPi4A U-Boot handoff sequence without reconnect polling.
+    /// Keeps using the selected serial when LPi4A U-Boot exposes the same fastboot serial.
     @Test
-    public void lpi4aUbootSleepsBeforeFlashingUboot() throws Exception {
+    public void lpi4aUbootKeepsStableSerial() throws Exception {
         ArrayList<List<String>> commands = new ArrayList<>();
         ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
-            assertEquals(Duration.ofHours(4), timeout);
             commands.add(List.copyOf(command));
+            if (command.equals(List.of("fastboot-test", "devices"))) {
+                assertEquals(Duration.ofSeconds(3), timeout);
+                return new ProcessFastbootService.CommandResult(0, "abc123\tfastboot\nother\tfastboot\n", false);
+            }
+            assertEquals(Duration.ofHours(4), timeout);
             return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
         });
 
@@ -57,10 +62,68 @@ public final class ProcessFastbootServiceTest {
         assertEquals(List.of(
                 List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img"),
                 List.of("fastboot-test", "-s", "abc123", "reboot"),
-                List.of("fastboot-test", "flash", "uboot", "uboot.img")), commands);
+                List.of("fastboot-test", "devices"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "uboot", "uboot.img")), commands);
         ProgressEvent last = progress.getLast();
         assertEquals(4L, last.currentBytes());
         assertEquals(4L, last.totalBytes());
+    }
+
+    /// Switches to the only visible serial when LPi4A U-Boot changes the fastboot serial.
+    @Test
+    public void lpi4aUbootUsesUniqueChangedSerial() throws Exception {
+        ArrayList<List<String>> commands = new ArrayList<>();
+        ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
+            commands.add(List.copyOf(command));
+            if (command.equals(List.of("fastboot-test", "devices"))) {
+                assertEquals(Duration.ofSeconds(3), timeout);
+                return new ProcessFastbootService.CommandResult(0, "new456\tfastboot\n", false);
+            }
+            assertEquals(Duration.ofHours(4), timeout);
+            return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
+        });
+
+        OperationResult result = service.flash(
+                "fastboot-v1(lpi4a-uboot)",
+                Map.of("uboot", Path.of("uboot.img")),
+                new FastbootDevice("abc123", "abc123", "fastboot"),
+                _ -> {
+                });
+
+        assertTrue(result.success(), result.message());
+        assertEquals(List.of(
+                List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img"),
+                List.of("fastboot-test", "-s", "abc123", "reboot"),
+                List.of("fastboot-test", "devices"),
+                List.of("fastboot-test", "-s", "new456", "flash", "uboot", "uboot.img")), commands);
+    }
+
+    /// Refuses to continue when LPi4A U-Boot changes serial and multiple fastboot devices are visible.
+    @Test
+    public void lpi4aUbootRefusesAmbiguousChangedSerial() throws Exception {
+        ArrayList<List<String>> commands = new ArrayList<>();
+        ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
+            commands.add(List.copyOf(command));
+            if (command.equals(List.of("fastboot-test", "devices"))) {
+                assertEquals(Duration.ofSeconds(3), timeout);
+                return new ProcessFastbootService.CommandResult(0, "new456\tfastboot\nother\tfastboot\n", false);
+            }
+            assertEquals(Duration.ofHours(4), timeout);
+            return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
+        });
+
+        OperationResult result = service.flash(
+                "fastboot-v1(lpi4a-uboot)",
+                Map.of("uboot", Path.of("uboot.img")),
+                new FastbootDevice("abc123", "abc123", "fastboot"),
+                _ -> {
+                });
+
+        assertFalse(result.success());
+        assertEquals(List.of(
+                List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img"),
+                List.of("fastboot-test", "-s", "abc123", "reboot"),
+                List.of("fastboot-test", "devices")), commands);
     }
 
     /// Reports partition progress in metadata order for standard fastboot images.

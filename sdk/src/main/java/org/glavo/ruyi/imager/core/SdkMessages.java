@@ -89,6 +89,7 @@ public final class SdkMessages {
             Map.entry("core.fastboot.waitingReconnect", "Waiting for fastboot device {0} to reconnect."),
             Map.entry("core.fastboot.reconnected", "fastboot device reconnected: {0}"),
             Map.entry("core.fastboot.reconnectTimedOut", "Timed out waiting for fastboot device to reconnect: {0}"),
+            Map.entry("core.fastboot.reconnectAmbiguous", "Multiple fastboot devices are visible after handoff ({0}); refusing to continue without a unique target."),
             Map.entry("core.fastboot.reconnectInterrupted", "Interrupted while waiting for fastboot reconnect."),
             Map.entry("core.fastboot.success", "Fastboot flashing completed successfully."),
             Map.entry("core.device.windowsInterrupted", "Interrupted while enumerating Windows disks."),
