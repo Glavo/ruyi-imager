@@ -11,6 +11,7 @@ import org.glavo.ruyi.imager.core.repo.RuyiRepositoryEntry;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryMetadata;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.glavo.ruyi.imager.core.SdkMessages;
+import org.glavo.ruyi.imager.core.StrategySupport;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -24,6 +25,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -324,6 +326,8 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 readCategory(metadata, categoryPath, deviceIds, result);
             }
         }
+        @Unmodifiable List<ImageEntry> packageImages = List.copyOf(result);
+        readImageCombos(metadata, deviceIds, packageImages, result);
         LOGGER.atInfo().log(() -> "Repository image manifests read. repo=" + metadata.id() + ", images=" + result.size());
         return List.copyOf(result);
     }
@@ -449,6 +453,201 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 }
             }
         }
+    }
+
+    /// Reads image-combo entities and appends resolved combo entries.
+    ///
+    /// @param metadata repository metadata.
+    /// @param deviceIds known device ids.
+    /// @param packageImages package image entries available for combo resolution.
+    /// @param result mutable output list.
+    /// @throws IOException when combo entities cannot be read.
+    private static void readImageCombos(
+            RuyiRepositoryMetadata metadata,
+            @Unmodifiable List<String> deviceIds,
+            @Unmodifiable List<ImageEntry> packageImages,
+            ArrayList<ImageEntry> result) throws IOException {
+        Path comboRoot = metadata.root().resolve("entities").resolve("image-combo");
+        if (!Files.isDirectory(comboRoot)) {
+            return;
+        }
+
+        int beforeCount = result.size();
+        try (var files = Files.newDirectoryStream(comboRoot, "*.toml")) {
+            for (Path comboPath : files) {
+                @Nullable ImageEntry combo = readImageCombo(metadata, comboPath, deviceIds, packageImages);
+                if (combo != null) {
+                    result.add(combo);
+                }
+            }
+        }
+        int addedCount = result.size() - beforeCount;
+        LOGGER.atInfo().log(() -> "Repository image combos read. repo=" + metadata.id() + ", combos=" + addedCount);
+    }
+
+    /// Reads one image-combo entity.
+    ///
+    /// @param metadata repository metadata.
+    /// @param comboPath combo entity path.
+    /// @param deviceIds known device ids.
+    /// @param packageImages package image entries available for combo resolution.
+    /// @return combo image entry, or null when incomplete.
+    /// @throws IOException when the combo entity cannot be parsed.
+    private static @Nullable ImageEntry readImageCombo(
+            RuyiRepositoryMetadata metadata,
+            Path comboPath,
+            @Unmodifiable List<String> deviceIds,
+            @Unmodifiable List<ImageEntry> packageImages) throws IOException {
+        TomlParseResult entity = parseToml(comboPath);
+        @Nullable TomlTable combo = entity.getTable("image-combo");
+        if (combo == null) {
+            return null;
+        }
+
+        @Unmodifiable List<String> packageAtoms = readStringArray(combo.getArray("package_atoms"));
+        if (packageAtoms.isEmpty()) {
+            return null;
+        }
+
+        ArrayList<ImageEntry> selectedImages = new ArrayList<>();
+        for (String packageAtom : packageAtoms) {
+            @Nullable ImageEntry packageImage = resolvePackageAtom(packageImages, packageAtom);
+            if (packageImage == null) {
+                LOGGER.atWarn().log(() -> "Skipping image combo with unresolved package atom. combo="
+                        + comboPath
+                        + ", packageAtom="
+                        + packageAtom);
+                return null;
+            }
+            selectedImages.add(packageImage);
+        }
+
+        ArrayList<ImageComponent> components = new ArrayList<>();
+        for (ImageEntry image : selectedImages) {
+            if (image.components().isEmpty()) {
+                return null;
+            }
+            components.add(image.components().getFirst());
+        }
+        components.sort(Comparator
+                .comparingInt((ImageComponent component) -> ProvisionStrategies.priority(component.strategy()))
+                .reversed());
+
+        LinkedHashMap<String, String> partitionMap = new LinkedHashMap<>();
+        ArrayList<RuyiDistfile> distfiles = new ArrayList<>();
+        for (ImageComponent component : components) {
+            for (Map.Entry<String, String> partition : component.partitionMap().entrySet()) {
+                if (partitionMap.putIfAbsent(partition.getKey(), partition.getValue()) != null) {
+                    LOGGER.atWarn().log(() -> "Skipping image combo with duplicate partition. combo="
+                            + comboPath
+                            + ", partition="
+                            + partition.getKey());
+                    return null;
+                }
+            }
+            distfiles.addAll(component.distfiles());
+        }
+        if (partitionMap.isEmpty()) {
+            return null;
+        }
+
+        ImageEntry firstPackage = selectedImages.getFirst();
+        String name = comboName(comboPath);
+        String version = firstPackage.version();
+        @Nullable String displayName = combo.getString("display_name");
+        @Nullable DeviceNameParts relatedDevice = readRelatedDeviceName(entity);
+        @Nullable DeviceNameParts parsedDevice = relatedDevice != null
+                ? relatedDevice
+                : parseDeviceName("board-image", firstPackage.name(), deviceIds);
+        String manufacturer = firstPackage.manufacturer();
+        String board = firstPackage.board();
+        String variant = firstPackage.variant();
+        if (parsedDevice != null) {
+            board = parsedDevice.deviceId();
+            variant = parsedDevice.variant();
+            @Nullable String mappedManufacturer = DEVICE_MANUFACTURERS.get(firstFragment(parsedDevice.deviceId()));
+            if (mappedManufacturer != null) {
+                manufacturer = mappedManufacturer;
+            }
+        }
+
+        String strategy = components.getFirst().strategy();
+        StrategySupport support = components.stream()
+                .allMatch(component -> ProvisionStrategies.classify(component.strategy()) == StrategySupport.SUPPORTED)
+                ? StrategySupport.SUPPORTED
+                : StrategySupport.UNKNOWN;
+        String atom = "image-combo/" + name + "(" + version + ")";
+        return new ImageEntry(
+                metadata.id(),
+                "image-combo",
+                name,
+                version,
+                null,
+                atom,
+                displayName == null || displayName.isBlank() ? "image-combo/" + name : displayName,
+                manufacturer,
+                board,
+                variant,
+                strategy,
+                partitionMap,
+                distfiles,
+                support,
+                components);
+    }
+
+    /// Resolves a package atom against package image entries.
+    ///
+    /// @param packageImages package image entries.
+    /// @param atom package atom from an image combo.
+    /// @return resolved image, or null when none matches.
+    private static @Nullable ImageEntry resolvePackageAtom(
+            @Unmodifiable List<ImageEntry> packageImages,
+            String atom) {
+        String normalizedAtom = atom.startsWith("pkg:") ? atom.substring("pkg:".length()) : atom;
+        return RuyiImageSelector.find(new ImageCatalog(packageImages), normalizedAtom);
+    }
+
+    /// Returns the image-combo entity name from a file path.
+    ///
+    /// @param comboPath combo entity path.
+    /// @return combo entity name.
+    private static String comboName(Path comboPath) {
+        String fileName = comboPath.getFileName().toString();
+        return fileName.endsWith(".toml") ? fileName.substring(0, fileName.length() - ".toml".length()) : fileName;
+    }
+
+    /// Reads the related device name from a combo entity.
+    ///
+    /// @param entity combo entity.
+    /// @return related device name, or null when absent.
+    private static @Nullable DeviceNameParts readRelatedDeviceName(TomlTable entity) {
+        @Nullable TomlArray related = entity.getArray("related");
+        if (related == null) {
+            return null;
+        }
+
+        for (int i = 0; i < related.size(); i++) {
+            Object value = related.get(i);
+            if (!(value instanceof String text)) {
+                continue;
+            }
+
+            if (text.startsWith("device-variant:")) {
+                String deviceVariant = text.substring("device-variant:".length());
+                int separator = deviceVariant.indexOf('@');
+                if (separator > 0 && separator < deviceVariant.length() - 1) {
+                    return new DeviceNameParts(
+                            deviceVariant.substring(0, separator),
+                            deviceVariant.substring(separator + 1));
+                }
+            } else if (text.startsWith("device:")) {
+                String device = text.substring("device:".length());
+                if (!device.isBlank()) {
+                    return new DeviceNameParts(device, "generic");
+                }
+            }
+        }
+        return null;
     }
 
     /// Reads one provisionable image manifest.
@@ -690,7 +889,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 result.put(key, text);
             }
         }
-        return Map.copyOf(result);
+        return Collections.unmodifiableMap(result);
     }
 
     /// Reads a display name from manifest metadata.

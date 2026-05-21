@@ -188,6 +188,115 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals(StrategySupport.SUPPORTED, image.support());
     }
 
+    /// Verifies Ruyi image-combo entities preserve per-package fastboot strategies.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when test fixture files cannot be created or read.
+    @Test
+    public void listsImageCombosWithComponentStrategies(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        writeConfig(configDirectory, repoDirectory);
+        writeRepositoryConfig(repoDirectory);
+        writeDeviceEntity(repoDirectory, "sipeed-lpi4a");
+
+        Path systemPackage = repoDirectory.resolve("packages").resolve("board-image").resolve("revyos-sipeed-lpi4a");
+        Files.createDirectories(systemPackage);
+        Files.writeString(
+                systemPackage.resolve("0.20251226.0.toml"),
+                """
+                        format = "v1"
+                        kind = ["blob", "provisionable"]
+
+                        [metadata]
+                        desc = "RevyOS image for Sipeed LicheePi 4A"
+                        vendor = { name = "PLCT", eula = "" }
+
+                        [[distfiles]]
+                        name = "boot.ext4"
+                        size = 1024
+
+                        [[distfiles]]
+                        name = "root.ext4"
+                        size = 2048
+
+                        [provisionable]
+                        strategy = "fastboot-v1"
+
+                        [provisionable.partition_map]
+                        boot = "boot.ext4"
+                        root = "root.ext4"
+                        """);
+
+        Path ubootPackage = repoDirectory.resolve("packages").resolve("board-image").resolve("uboot-revyos-sipeed-lpi4a-8g");
+        Files.createDirectories(ubootPackage);
+        Files.writeString(
+                ubootPackage.resolve("0.20251226.0.toml"),
+                """
+                        format = "v1"
+                        kind = ["blob", "provisionable"]
+
+                        [metadata]
+                        desc = "U-Boot image for Sipeed LicheePi 4A"
+                        vendor = { name = "PLCT", eula = "" }
+
+                        [[distfiles]]
+                        name = "u-boot-with-spl.bin"
+                        size = 512
+
+                        [provisionable]
+                        strategy = "fastboot-v1(lpi4a-uboot)"
+
+                        [provisionable.partition_map]
+                        uboot = "u-boot-with-spl.bin"
+                        """);
+
+        Path comboDirectory = repoDirectory.resolve("entities").resolve("image-combo");
+        Files.createDirectories(comboDirectory);
+        Files.writeString(
+                comboDirectory.resolve("revyos-sipeed-lpi4a@8g.toml"),
+                """
+                        ruyi-entity = "v0"
+
+                        related = [
+                          "device-variant:sipeed-lpi4a@8g",
+                        ]
+
+                        [image-combo]
+                        display_name = "RevyOS for Sipeed LicheePi 4A (8G RAM)"
+                        package_atoms = [
+                          "board-image/revyos-sipeed-lpi4a",
+                          "board-image/uboot-revyos-sipeed-lpi4a-8g"
+                        ]
+                        """);
+
+        RuyiImageCatalogService service = new RuyiImageCatalogService(
+                new AppDirectories(configDirectory, cacheDirectory),
+                new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory)));
+
+        @Nullable ImageEntry combo = service.findImage("image-combo/revyos-sipeed-lpi4a@8g");
+
+        assertNotNull(combo);
+        assertEquals("image-combo", combo.category());
+        assertEquals("revyos-sipeed-lpi4a@8g", combo.name());
+        assertEquals("0.20251226.0", combo.version());
+        assertEquals("image-combo/revyos-sipeed-lpi4a@8g(0.20251226.0)", combo.atom());
+        assertEquals("RevyOS for Sipeed LicheePi 4A (8G RAM)", combo.displayName());
+        assertEquals("Sipeed", combo.manufacturer());
+        assertEquals("sipeed-lpi4a", combo.board());
+        assertEquals("8g", combo.variant());
+        assertEquals("fastboot-v1(lpi4a-uboot)", combo.strategy());
+        assertEquals(StrategySupport.SUPPORTED, combo.support());
+        assertEquals(List.of("uboot", "boot", "root"), List.copyOf(combo.partitionMap().keySet()));
+        assertEquals(2, combo.components().size());
+        assertEquals("fastboot-v1(lpi4a-uboot)", combo.components().get(0).strategy());
+        assertEquals(List.of("uboot"), List.copyOf(combo.components().get(0).partitionMap().keySet()));
+        assertEquals("fastboot-v1", combo.components().get(1).strategy());
+        assertEquals(List.of("boot", "root"), List.copyOf(combo.components().get(1).partitionMap().keySet()));
+    }
+
     /// Verifies SpacemiT K1 Bianbu provision strategy is exposed as supported.
     ///
     /// @param temporaryDirectory temporary test directory.

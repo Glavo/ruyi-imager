@@ -51,4 +51,15 @@ public final class ProvisionStrategies {
                 ? StrategySupport.SUPPORTED
                 : StrategySupport.UNKNOWN;
     }
+
+    /// Returns the Ruyi flashing priority for a strategy.
+    ///
+    /// @param strategy strategy name.
+    /// @return flashing priority, where higher values run earlier.
+    public static int priority(String strategy) {
+        if (FASTBOOT_LPI4A_UBOOT_V1.equals(strategy)) {
+            return 10;
+        }
+        return 0;
+    }
 }

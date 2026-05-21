@@ -12,6 +12,7 @@ import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.fastboot.ProcessFastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
+import org.glavo.ruyi.imager.core.image.ImageComponent;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -24,6 +25,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -417,8 +419,31 @@ public final class LocalFlashService implements FlashService {
         }
 
         Path materialized = images.downloadImage(image, reporter);
-        @Unmodifiable Map<String, Path> partitions = resolvePartitionPaths(image, materialized);
-        return fastboot.flash(image.strategy(), partitions, fastbootDevice, reporter);
+        @Unmodifiable List<ImageComponent> components = image.components();
+        if (components.size() <= 1) {
+            @Unmodifiable Map<String, Path> partitions = resolvePartitionPaths(image, materialized);
+            return fastboot.flash(image.strategy(), partitions, fastbootDevice, reporter);
+        }
+
+        for (ImageComponent component : components) {
+            if (!ProvisionStrategies.isFastboot(component.strategy())) {
+                return OperationResult.failure(SdkMessages.get("core.fastboot.unsupportedStrategy", component.strategy()));
+            }
+
+            LOGGER.atInfo().log(() -> "Dispatching fastboot image component. atom="
+                    + image.atom()
+                    + ", component="
+                    + component.atom()
+                    + ", strategy="
+                    + component.strategy());
+            @Unmodifiable Map<String, Path> partitions =
+                    resolvePartitionPaths(component.atom(), component.partitionMap(), materialized);
+            OperationResult result = fastboot.flash(component.strategy(), partitions, fastbootDevice, reporter);
+            if (!result.success()) {
+                return result;
+            }
+        }
+        return OperationResult.success(SdkMessages.get("core.fastboot.success"));
     }
 
     /// Summarizes a flash request source for logs.
@@ -495,12 +520,26 @@ public final class LocalFlashService implements FlashService {
     /// @return partition image paths keyed by partition name.
     /// @throws IOException when partition paths cannot be resolved safely.
     private static @Unmodifiable Map<String, Path> resolvePartitionPaths(ImageEntry image, Path materialized) throws IOException {
-        if (image.partitionMap().isEmpty()) {
-            throw new IOException(SdkMessages.get("core.materialize.noPartitionMap", image.atom()));
+        return resolvePartitionPaths(image.atom(), image.partitionMap(), materialized);
+    }
+
+    /// Resolves materialized partition paths.
+    ///
+    /// @param atom image or component atom used in diagnostics.
+    /// @param partitionMap partition map.
+    /// @param materialized materialized image file or artifact directory.
+    /// @return partition image paths keyed by partition name.
+    /// @throws IOException when partition paths cannot be resolved safely.
+    private static @Unmodifiable Map<String, Path> resolvePartitionPaths(
+            String atom,
+            @Unmodifiable Map<String, String> partitionMap,
+            Path materialized) throws IOException {
+        if (partitionMap.isEmpty()) {
+            throw new IOException(SdkMessages.get("core.materialize.noPartitionMap", atom));
         }
 
-        if (image.partitionMap().size() == 1 && Files.isRegularFile(materialized)) {
-            Map.Entry<String, String> entry = image.partitionMap().entrySet().iterator().next();
+        if (partitionMap.size() == 1 && Files.isRegularFile(materialized)) {
+            Map.Entry<String, String> entry = partitionMap.entrySet().iterator().next();
             return Map.of(entry.getKey(), materialized);
         }
 
@@ -511,7 +550,7 @@ public final class LocalFlashService implements FlashService {
         Path normalizedRoot = materialized.toAbsolutePath().normalize();
         Path realRoot = normalizedRoot.toRealPath();
         LinkedHashMap<String, Path> result = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : image.partitionMap().entrySet()) {
+        for (Map.Entry<String, String> entry : partitionMap.entrySet()) {
             Path path = normalizedRoot.resolve(entry.getValue()).normalize();
             if (!path.startsWith(normalizedRoot)) {
                 throw new IOException(SdkMessages.get("core.materialize.partitionEscape", entry.getValue()));

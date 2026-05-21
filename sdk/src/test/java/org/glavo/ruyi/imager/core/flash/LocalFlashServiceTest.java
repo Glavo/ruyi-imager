@@ -11,6 +11,7 @@ import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
+import org.glavo.ruyi.imager.core.image.ImageComponent;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -425,6 +426,80 @@ public final class LocalFlashServiceTest {
         assertEquals(root, fastboot.partitions.get("root"));
     }
 
+    /// Flashes a fastboot image combo by preserving each component strategy.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void flashesFastbootImageComboWithComponentStrategies(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Path uboot = artifactDirectory.resolve("u-boot-with-spl.bin");
+        Path boot = artifactDirectory.resolve("boot.ext4");
+        Path root = artifactDirectory.resolve("root.ext4");
+        Files.write(uboot, new byte[]{1});
+        Files.write(boot, new byte[]{2});
+        Files.write(root, new byte[]{3});
+
+        LinkedHashMap<String, String> ubootPartitions = new LinkedHashMap<>();
+        ubootPartitions.put("uboot", "u-boot-with-spl.bin");
+        LinkedHashMap<String, String> systemPartitions = new LinkedHashMap<>();
+        systemPartitions.put("boot", "boot.ext4");
+        systemPartitions.put("root", "root.ext4");
+        LinkedHashMap<String, String> combinedPartitions = new LinkedHashMap<>();
+        combinedPartitions.putAll(ubootPartitions);
+        combinedPartitions.putAll(systemPartitions);
+
+        ImageEntry image = new ImageEntry(
+                "ruyisdk",
+                "image-combo",
+                "revyos-sipeed-lpi4a@8g",
+                "0.20251226.0",
+                null,
+                "image-combo/revyos-sipeed-lpi4a@8g(0.20251226.0)",
+                "RevyOS for Sipeed LicheePi 4A (8G RAM)",
+                "Sipeed",
+                "sipeed-lpi4a",
+                "8g",
+                "fastboot-v1(lpi4a-uboot)",
+                combinedPartitions,
+                List.of(),
+                StrategySupport.SUPPORTED,
+                List.of(
+                        new ImageComponent(
+                                "board-image",
+                                "uboot-revyos-sipeed-lpi4a-8g",
+                                "0.20251226.0",
+                                "board-image/uboot-revyos-sipeed-lpi4a-8g(0.20251226.0)",
+                                "fastboot-v1(lpi4a-uboot)",
+                                ubootPartitions,
+                                List.of()),
+                        new ImageComponent(
+                                "board-image",
+                                "revyos-sipeed-lpi4a",
+                                "0.20251226.0",
+                                "board-image/revyos-sipeed-lpi4a(0.20251226.0)",
+                                "fastboot-v1",
+                                systemPartitions,
+                                List.of())));
+        CapturingFastbootService fastboot = new CapturingFastbootService();
+        FastbootDevice device = new FastbootDevice("test-fastboot", "test-fastboot", "fastboot");
+
+        OperationResult result = new LocalFlashService(
+                new FixedImageCatalogService(artifactDirectory),
+                fastboot).flash(
+                new FlashRequest(image, null, FlashTarget.fastbootDevice(device), false),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(2, fastboot.calls.size());
+        assertEquals("fastboot-v1(lpi4a-uboot)", fastboot.calls.get(0).strategy());
+        assertEquals(Map.of("uboot", uboot), fastboot.calls.get(0).partitions());
+        assertEquals("fastboot-v1", fastboot.calls.get(1).strategy());
+        assertEquals(boot, fastboot.calls.get(1).partitions().get("boot"));
+        assertEquals(root, fastboot.calls.get(1).partitions().get("root"));
+    }
+
     /// Refuses to flash fastboot images to block device targets.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -802,6 +877,9 @@ public final class LocalFlashServiceTest {
         /// Captured device.
         private @Nullable FastbootDevice device;
 
+        /// Captured flash calls.
+        private final ArrayList<FastbootCall> calls = new ArrayList<>();
+
         /// Lists no devices.
         ///
         /// @return empty fastboot device list.
@@ -826,8 +904,21 @@ public final class LocalFlashServiceTest {
             this.strategy = strategy;
             this.partitions = Map.copyOf(partitions);
             this.device = device;
+            this.calls.add(new FastbootCall(strategy, Map.copyOf(partitions), device));
             return OperationResult.success("Fastboot complete.");
         }
+    }
+
+    /// Captured fastboot flash call.
+    ///
+    /// @param strategy Ruyi provision strategy.
+    /// @param partitions materialized partition images keyed by target partition name.
+    /// @param device target fastboot device.
+    @NotNullByDefault
+    private record FastbootCall(
+            String strategy,
+            @Unmodifiable Map<String, Path> partitions,
+            FastbootDevice device) {
     }
 
     /// Test preparer that can optionally clear mount state.

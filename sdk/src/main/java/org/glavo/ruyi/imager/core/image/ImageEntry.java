@@ -29,6 +29,7 @@ import java.util.Map;
 /// @param partitionMap image partition map.
 /// @param distfiles distfiles required by the image.
 /// @param support strategy support state.
+/// @param components provisionable package components in flashing order.
 @NotNullByDefault
 public record ImageEntry(
         String repoId,
@@ -44,10 +45,61 @@ public record ImageEntry(
         String strategy,
         @Unmodifiable Map<String, String> partitionMap,
         @Unmodifiable List<RuyiDistfile> distfiles,
-        StrategySupport support) {
+        StrategySupport support,
+        @Unmodifiable List<ImageComponent> components) {
+    /// Creates a single-component image entry.
+    ///
+    /// @param repoId source repository id.
+    /// @param category Ruyi package category.
+    /// @param name Ruyi package name.
+    /// @param version Ruyi package version.
+    /// @param slug deprecated Ruyi package slug when present.
+    /// @param atom exact Ruyi atom name.
+    /// @param displayName human-readable image name.
+    /// @param manufacturer device or image manufacturer name.
+    /// @param board target board name.
+    /// @param variant board or image variant name.
+    /// @param strategy Ruyi provisioning strategy name.
+    /// @param partitionMap image partition map.
+    /// @param distfiles distfiles required by the image.
+    /// @param support strategy support state.
+    public ImageEntry(
+            String repoId,
+            String category,
+            String name,
+            String version,
+            @Nullable String slug,
+            String atom,
+            String displayName,
+            String manufacturer,
+            String board,
+            String variant,
+            String strategy,
+            @Unmodifiable Map<String, String> partitionMap,
+            @Unmodifiable List<RuyiDistfile> distfiles,
+            StrategySupport support) {
+        this(
+                repoId,
+                category,
+                name,
+                version,
+                slug,
+                atom,
+                displayName,
+                manufacturer,
+                board,
+                variant,
+                strategy,
+                partitionMap,
+                distfiles,
+                support,
+                List.of(new ImageComponent(category, name, version, atom, strategy, partitionMap, distfiles)));
+    }
+
     /// Copies collections into immutable instances.
     public ImageEntry {
         partitionMap = Collections.unmodifiableMap(new LinkedHashMap<>(partitionMap));
         distfiles = List.copyOf(distfiles);
+        components = List.copyOf(components);
     }
 }
