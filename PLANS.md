@@ -27,6 +27,7 @@
 - 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 JLink zip；Windows JLink 包同时提供 console subsystem 的 `ruyi-imager.exe` 作为 CLI 默认入口，以及 Windows subsystem 的 `ruyi-imager-gui.exe` 作为无黑框双击 GUI 入口，`dd-flasher`/launcher release 构建会追踪 Cargo manifest/lockfile/Rust 源码输入；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。
 - Java/Gradle 代码标识符统一使用 `DDFlasher` 作为 dd-flasher helper 的 acronym 命名；外部可执行文件名、目录名和配置属性保持 `dd-flasher`/`ddFlasher` 兼容。
 - Android Platform Tools 下载已迁移到 `gradle-download-task`，fastboot 打包默认锁定到 Platform-Tools 37.0.0 的版本化归档并校验 SHA-256/大小，支持本地缓存复用、临时文件落盘、重试和主 URL/校验值覆盖，避免临时限流直接阻断 `jlinkZip`。
+- Gradle `run` 会为当前平台解包 bundled fastboot，并通过 `ruyi.imager.fastboot.executable` 系统属性指向该可执行文件，开发运行不再依赖 PATH 中预装 fastboot。
 - JLink 包只依赖和打入与 `jlink.jdk.platform` 匹配的 fastboot bundle；没有配置 fastboot bundle 的目标平台会跳过 bundled fastboot，普通发行包仍保留全部已配置平台的 fastboot。
 - `dd-flasher` 已提供每个发行平台的 Gradle 构建/打包任务，可通过 `ddFlasher.buildTool=cross` 切换到 `cross`；JLink 包会自动依赖与 `jlink.jdk.platform` 匹配的 helper，并只打入对应平台目录。
 - GitHub Actions 已接入 nightly release workflow：每天定时或手动构建 Windows x86_64、Linux x86_64/aarch64 和 macOS x86_64/aarch64 JLink zip，并更新固定 `nightly` prerelease 的说明、tag 和 assets。

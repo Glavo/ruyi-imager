@@ -101,6 +101,9 @@ val prepareJlinkNativeLauncherTask =
         null
     }
 val jlinkFastbootBundle = fastbootBundles.firstOrNull { it.platformDirectory == jlinkJdkPlatform }
+val runFastbootBundle = currentJlinkPlatform()?.let { platform ->
+    fastbootBundles.firstOrNull { it.platformDirectory == platform }
+}
 val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/runtime")
 val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/launchers")
 val jlinkImageDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/ruyi-imager")
@@ -336,6 +339,18 @@ sourceSets {
 application {
     mainClass = "org.glavo.ruyi.imager.Main"
     applicationDefaultJvmArgs = applicationJvmArgs
+}
+
+tasks.named<JavaExec>("run") {
+    runFastbootBundle?.let { bundle ->
+        val executable = bundledFastbootDirectory.map {
+            it.file("${bundle.platformDirectory}/${bundle.executableName}")
+        }
+        dependsOn("extract${bundle.taskSuffix}Fastboot")
+        doFirst {
+            systemProperty("ruyi.imager.fastboot.executable", executable.get().asFile.absolutePath)
+        }
+    }
 }
 
 distributions {
