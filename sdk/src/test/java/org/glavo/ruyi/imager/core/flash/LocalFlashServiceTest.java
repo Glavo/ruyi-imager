@@ -34,7 +34,9 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /// Tests for local flash writes.
 @NotNullByDefault
@@ -240,6 +242,40 @@ public final class LocalFlashServiceTest {
         assertEquals(List.of(3L, 4L), writer.writeCalls.stream().map(DdCall::totalBytes).toList());
         assertEquals(List.of(true, true), writer.writeCalls.stream().map(DdCall::targetRemovable).toList());
         assertEquals(List.of(boot, root), writer.verifyCalls.stream().map(DdCall::source).toList());
+    }
+
+    /// Refuses a materialized partition path that resolves outside the artifact directory through a symbolic link.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesMaterializedPartitionSymlinkEscapingArtifactDirectory(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Path externalImage = temporaryDirectory.resolve("external.img");
+        Files.write(externalImage, new byte[]{1, 2, 3});
+        Path symlink = artifactDirectory.resolve("boot.img");
+        try {
+            Files.createSymbolicLink(symlink, externalImage);
+        } catch (IOException | SecurityException | UnsupportedOperationException exception) {
+            assumeTrue(false, "Symbolic links are not available: " + exception);
+        }
+
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(target, new byte[32]);
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+        ImageEntry image = imageEntry("dd-v1", Map.of("boot", "boot.img"));
+
+        IOException exception = assertThrows(IOException.class, () -> new LocalFlashService(
+                new FixedImageCatalogService(artifactDirectory),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(image, null, FlashTarget.blockDevice(target(target, 32, false, false)), false),
+                NO_PROGRESS));
+
+        assertEquals("Partition path escapes artifact directory: boot.img", exception.getMessage());
+        assertEquals(0, writer.writeCalls.size());
     }
 
     /// Refuses a multi-partition Ruyi dd-v1 image when only a single block target is provided.

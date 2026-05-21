@@ -247,6 +247,7 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
 
     /// Runs an external command.
     @FunctionalInterface
+    @NotNullByDefault
     interface CommandRunner {
         /// Runs one command with a timeout.
         ///
@@ -264,6 +265,7 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
     /// @param output standard output text.
     /// @param error standard error text.
     /// @param timedOut whether the process exceeded its timeout.
+    @NotNullByDefault
     record CommandResult(int exitCode, String output, String error, boolean timedOut) {
     }
 }

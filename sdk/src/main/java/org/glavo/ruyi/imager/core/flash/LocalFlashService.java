@@ -508,6 +508,7 @@ public final class LocalFlashService implements FlashService {
         }
 
         Path normalizedRoot = materialized.toAbsolutePath().normalize();
+        Path realRoot = normalizedRoot.toRealPath();
         LinkedHashMap<String, Path> result = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : image.partitionMap().entrySet()) {
             Path path = normalizedRoot.resolve(entry.getValue()).normalize();
@@ -517,7 +518,11 @@ public final class LocalFlashService implements FlashService {
             if (!Files.isRegularFile(path)) {
                 throw new IOException(SdkMessages.get("core.materialize.partitionMissing", path));
             }
-            result.put(entry.getKey(), path);
+            Path realPath = path.toRealPath();
+            if (!realPath.startsWith(realRoot)) {
+                throw new IOException(SdkMessages.get("core.materialize.partitionEscape", entry.getValue()));
+            }
+            result.put(entry.getKey(), realPath);
         }
         return Collections.unmodifiableMap(result);
     }
