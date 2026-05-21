@@ -534,7 +534,6 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 .reversed());
 
         LinkedHashMap<String, String> partitionMap = new LinkedHashMap<>();
-        ArrayList<RuyiDistfile> distfiles = new ArrayList<>();
         for (ImageComponent component : components) {
             for (Map.Entry<String, String> partition : component.partitionMap().entrySet()) {
                 if (partitionMap.putIfAbsent(partition.getKey(), partition.getValue()) != null) {
@@ -545,9 +544,13 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                     return null;
                 }
             }
-            distfiles.addAll(component.distfiles());
         }
         if (partitionMap.isEmpty()) {
+            return null;
+        }
+
+        @Nullable List<RuyiDistfile> distfiles = mergeComponentDistfiles(comboPath, components);
+        if (distfiles == null) {
             return null;
         }
 
@@ -593,6 +596,32 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 distfiles,
                 support,
                 components);
+    }
+
+    /// Merges component distfiles while rejecting ambiguous cache file names.
+    ///
+    /// @param comboPath combo entity path.
+    /// @param components image components.
+    /// @return merged distfiles, or null when a file name has conflicting declarations.
+    private static @Nullable @Unmodifiable List<RuyiDistfile> mergeComponentDistfiles(
+            Path comboPath,
+            @Unmodifiable List<ImageComponent> components) {
+        LinkedHashMap<String, RuyiDistfile> result = new LinkedHashMap<>();
+        for (ImageComponent component : components) {
+            for (RuyiDistfile distfile : component.distfiles()) {
+                @Nullable RuyiDistfile previous = result.putIfAbsent(distfile.name(), distfile);
+                if (previous != null && !previous.equals(distfile)) {
+                    LOGGER.atWarn().log(() -> "Skipping image combo with conflicting distfile name. combo="
+                            + comboPath
+                            + ", distfile="
+                            + distfile.name()
+                            + ", component="
+                            + component.atom());
+                    return null;
+                }
+            }
+        }
+        return List.copyOf(result.values());
     }
 
     /// Resolves a package atom against package image entries.

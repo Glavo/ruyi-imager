@@ -295,6 +295,90 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals(List.of("uboot"), List.copyOf(combo.components().get(0).partitionMap().keySet()));
         assertEquals("fastboot-v1", combo.components().get(1).strategy());
         assertEquals(List.of("boot", "root"), List.copyOf(combo.components().get(1).partitionMap().keySet()));
+        assertEquals(
+                List.of("u-boot-with-spl.bin", "boot.ext4", "root.ext4"),
+                combo.distfiles().stream().map(RuyiDistfile::name).toList());
+    }
+
+    /// Verifies image combos reject same-name distfiles with different declarations.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when test fixture files cannot be created or read.
+    @Test
+    public void skipsImageComboWithConflictingDistfileNames(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        writeConfig(configDirectory, repoDirectory);
+        writeRepositoryConfig(repoDirectory);
+
+        Path firstPackage = repoDirectory.resolve("packages").resolve("board-image").resolve("first-fastboot-image");
+        Files.createDirectories(firstPackage);
+        Files.writeString(
+                firstPackage.resolve("1.0.0.toml"),
+                """
+                        format = "v1"
+                        kind = ["blob", "provisionable"]
+
+                        [metadata]
+                        desc = "First fastboot image"
+                        vendor = { name = "PLCT", eula = "" }
+
+                        [[distfiles]]
+                        name = "payload.img"
+                        size = 1024
+
+                        [provisionable]
+                        strategy = "fastboot-v1"
+
+                        [provisionable.partition_map]
+                        boot = "payload.img"
+                        """);
+
+        Path secondPackage = repoDirectory.resolve("packages").resolve("board-image").resolve("second-fastboot-image");
+        Files.createDirectories(secondPackage);
+        Files.writeString(
+                secondPackage.resolve("1.0.0.toml"),
+                """
+                        format = "v1"
+                        kind = ["blob", "provisionable"]
+
+                        [metadata]
+                        desc = "Second fastboot image"
+                        vendor = { name = "PLCT", eula = "" }
+
+                        [[distfiles]]
+                        name = "payload.img"
+                        size = 2048
+
+                        [provisionable]
+                        strategy = "fastboot-v1"
+
+                        [provisionable.partition_map]
+                        root = "payload.img"
+                        """);
+
+        Path comboDirectory = repoDirectory.resolve("entities").resolve("image-combo");
+        Files.createDirectories(comboDirectory);
+        Files.writeString(
+                comboDirectory.resolve("conflicting-fastboot.toml"),
+                """
+                        ruyi-entity = "v0"
+
+                        [image-combo]
+                        display_name = "Conflicting fastboot image"
+                        package_atoms = [
+                          "board-image/first-fastboot-image",
+                          "board-image/second-fastboot-image"
+                        ]
+                        """);
+
+        RuyiImageCatalogService service = new RuyiImageCatalogService(
+                new AppDirectories(configDirectory, cacheDirectory),
+                new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory)));
+
+        assertNull(service.findImage("image-combo/conflicting-fastboot"));
     }
 
     /// Verifies SpacemiT K1 Bianbu provision strategy is exposed as supported.

@@ -12,7 +12,7 @@
 
 - 项目已拆分为 `:sdk`、`:app` 和 Rust `:dd-flasher`；CLI/GUI 共用 SDK service graph，i18n 和 JavaFX 资源保留在 app。
 - Ruyi catalog/repo、下载缓存、校验、artifact 物化和内存 catalog cache 已接入，压缩包/ tar / Debian `data.tar*` 物化使用 `Glavo/kala-compress`。
-- Ruyi `image-combo` 实体已接入，组合镜像会保留每个 package component 的独立刷写策略并按 Ruyi strategy priority 排序；LicheePi 4A/Meles 等带 U-Boot 组合会先执行 `fastboot-v1(lpi4a-uboot)`，再刷普通系统 fastboot 分区。
+- Ruyi `image-combo` 实体已接入，组合镜像会保留每个 package component 的独立刷写策略并按 Ruyi strategy priority 排序；LicheePi 4A/Meles 等带 U-Boot 组合会先执行 `fastboot-v1(lpi4a-uboot)`，再刷普通系统 fastboot 分区；同名 distfile 只允许完全相同声明去重，冲突时拒绝该 combo，避免单一 combo 下载目录错误复用文件。
 - Distfile 下载和物化路径已加固：拒绝不安全 distfile 文件名，自动丢弃校验失败的完整 `.part`，并在干净 staging 目录物化成功后替换 artifact cache，避免路径逃逸和旧分区产物复用。
 - 刷写前的 materialized 分区路径会解析真实路径并拒绝通过符号链接逃出 artifact 目录的分区文件，避免被篡改 cache 或自定义 catalog 绕过词法路径检查。
 - `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)` 和 Bianbu eMMC 使用的 `spacemit-k1-v1` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度，SpacemiT K1 fastboot 流程会先 stage/continue FSBL 和 U-Boot，再按 Ruyi 插件顺序刷写 gpt、bootinfo、fsbl、env、opensbi、uboot、bootfs、rootfs。
