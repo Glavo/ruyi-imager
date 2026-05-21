@@ -152,6 +152,41 @@ public final class ProcessFastbootServiceTest {
                 List.of("fastboot-test", "-s", "new456", "flash", "uboot", "uboot.img")), commands);
     }
 
+    /// Reports an actionable failure when the selected LPi4A fastboot device has no RAM handoff target.
+    @Test
+    public void lpi4aUbootReportsMissingRamTarget() throws Exception {
+        ArrayList<List<String>> commands = new ArrayList<>();
+        ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
+            commands.add(List.copyOf(command));
+            if (command.equals(List.of("fastboot-test", "devices"))) {
+                assertEquals(Duration.ofSeconds(3), timeout);
+                return new ProcessFastbootService.CommandResult(0, "abc123\tfastboot\n", false);
+            }
+            assertEquals(Duration.ofHours(4), timeout);
+            return new ProcessFastbootService.CommandResult(
+                    1,
+                    """
+                            Sending 'ram' (969 KB) OKAY
+                            Writing 'ram' FAILED (remote: 'cannot find partition')
+                            fastboot: error: Command failed
+                            """,
+                    false);
+        });
+
+        OperationResult result = service.flash(
+                "fastboot-v1(lpi4a-uboot)",
+                Map.of("uboot", Path.of("uboot.img")),
+                new FastbootDevice("abc123", "abc123", "fastboot"),
+                _ -> {
+                });
+
+        assertFalse(result.success());
+        assertTrue(result.message().contains("does not accept the LPi4A RAM U-Boot handoff"), result.message());
+        assertEquals(List.of(
+                List.of("fastboot-test", "devices"),
+                List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img")), commands);
+    }
+
     /// Refuses to continue when LPi4A U-Boot changes serial and multiple fastboot devices are visible.
     @Test
     public void lpi4aUbootRefusesAmbiguousChangedSerial() throws Exception {

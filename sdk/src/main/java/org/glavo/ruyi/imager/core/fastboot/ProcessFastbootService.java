@@ -59,6 +59,9 @@ public final class ProcessFastbootService implements FastbootService {
     /// Maximum command output included in user-visible failures.
     private static final int MAX_OUTPUT_CHARS = 4000;
 
+    /// Fastboot output reported when the selected device does not support the LPi4A RAM handoff target.
+    private static final String LPI4A_RAM_TARGET_MISSING_OUTPUT = "remote: 'cannot find partition'";
+
     /// Required SpacemiT K1 eMMC partitions in the flashing order used by Ruyi.
     private static final @Unmodifiable List<String> SPACEMIT_K1_PARTITION_ORDER =
             List.of("gpt", "bootinfo", "fsbl", "env", "opensbi", "uboot", "bootfs", "rootfs");
@@ -301,6 +304,11 @@ public final class ProcessFastbootService implements FastbootService {
         reporter.report(progress(SdkMessages.get("core.fastboot.loadingLpi4aUboot"), 0, totalSteps));
         OperationResult ramResult = runFastboot(device, List.of("flash", "ram", uboot.toString()));
         if (!ramResult.success()) {
+            if (isLpi4aRamTargetMissing(ramResult.message())) {
+                return OperationResult.failure(SdkMessages.get(
+                        "core.fastboot.lpi4aRamTargetMissing",
+                        ramResult.message()));
+            }
             return ramResult;
         }
         reporter.report(progress(SdkMessages.get("core.fastboot.loadingLpi4aUboot"), 1, totalSteps));
@@ -477,6 +485,14 @@ public final class ProcessFastbootService implements FastbootService {
             }
         }
         return null;
+    }
+
+    /// Returns whether a failed LPi4A `flash ram` command reported a missing RAM target.
+    ///
+    /// @param message fastboot failure message.
+    /// @return whether the selected fastboot device rejected the RAM handoff target.
+    private static boolean isLpi4aRamTargetMissing(String message) {
+        return message.contains(LPI4A_RAM_TARGET_MISSING_OUTPUT);
     }
 
     /// Sleeps between SpacemiT K1 handoff stages.

@@ -78,6 +78,7 @@ public final class SdkMessages {
             Map.entry("core.fastboot.unsupportedStrategy", "Unsupported fastboot strategy: {0}"),
             Map.entry("core.fastboot.flashingPartition", "Flashing fastboot partition {0}."),
             Map.entry("core.fastboot.loadingLpi4aUboot", "Loading LPi4A U-Boot through fastboot."),
+            Map.entry("core.fastboot.lpi4aRamTargetMissing", "The selected fastboot device does not accept the LPi4A RAM U-Boot handoff. Put the board into BootROM/download fastboot mode and select the U-Boot image that matches the board RAM size.\n{0}"),
             Map.entry("core.fastboot.rebooting", "Rebooting fastboot device."),
             Map.entry("core.fastboot.spacemit.stageFsbl", "Staging SpacemiT K1 FSBL through fastboot."),
             Map.entry("core.fastboot.spacemit.continueFsbl", "Continuing to SpacemiT K1 FSBL."),
