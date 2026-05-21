@@ -20,7 +20,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,26 +36,17 @@ public final class ProcessFastbootService implements FastbootService {
     /// Timeout used for fastboot device enumeration.
     private static final Duration DEVICES_TIMEOUT = Duration.ofSeconds(15);
 
-    /// Timeout used for one fastboot device polling command.
-    private static final Duration DEVICE_POLL_TIMEOUT = Duration.ofSeconds(3);
-
-    /// Maximum time to wait for a board to reconnect after rebooting.
-    private static final Duration RECONNECT_TIMEOUT = Duration.ofSeconds(45);
-
-    /// Delay between reconnect polling attempts.
-    private static final Duration RECONNECT_POLL_INTERVAL = Duration.ofSeconds(1);
-
-    /// Timeout used for one fastboot flashing command.
-    private static final Duration FLASH_TIMEOUT = Duration.ofMinutes(30);
+    /// Timeout used for long-running fastboot flashing commands.
+    private static final Duration FLASH_TIMEOUT = Duration.ofHours(4);
 
     /// Delay between SpacemiT K1 bootloader handoff stages.
     private static final Duration SPACEMIT_K1_HANDOFF_DELAY = Duration.ofSeconds(1);
 
+    /// Delay after LPi4A jumps from RAM-loaded U-Boot into target U-Boot fastboot.
+    private static final Duration LPI4A_UBOOT_HANDOFF_DELAY = Duration.ofSeconds(1);
+
     /// Maximum command output included in user-visible failures.
     private static final int MAX_OUTPUT_CHARS = 4000;
-
-    /// Preferred partition flashing order for common Ruyi fastboot images.
-    private static final @Unmodifiable List<String> PARTITION_ORDER = List.of("uboot", "boot", "root", "disk", "live");
 
     /// Required SpacemiT K1 eMMC partitions in the flashing order used by Ruyi.
     private static final @Unmodifiable List<String> SPACEMIT_K1_PARTITION_ORDER =
@@ -179,7 +169,7 @@ public final class ProcessFastbootService implements FastbootService {
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
-        @Unmodifiable List<Map.Entry<String, Path>> ordered = orderedPartitions(partitions);
+        @Unmodifiable List<Map.Entry<String, Path>> ordered = List.copyOf(partitions.entrySet());
         int totalSteps = ordered.size();
         for (int i = 0; i < ordered.size(); i++) {
             Map.Entry<String, Path> entry = ordered.get(i);
@@ -309,76 +299,20 @@ public final class ProcessFastbootService implements FastbootService {
         }
         reporter.report(progress(SdkMessages.get("core.fastboot.rebooting"), 2, totalSteps));
 
-        OperationResult reconnectResult = waitForReconnect(device, reporter, 2, totalSteps);
-        if (!reconnectResult.success()) {
-            return reconnectResult;
-        }
+        String waitMessage = SdkMessages.get("core.fastboot.waitingReconnect", device.serial());
+        reporter.report(progress(waitMessage, 2, totalSteps));
+        sleepLpi4aUbootHandoff();
+        reporter.report(progress(waitMessage, 3, totalSteps));
 
         String flashMessage = SdkMessages.get("core.fastboot.flashingPartition", "uboot");
         reporter.report(progress(flashMessage, 3, totalSteps));
-        OperationResult ubootResult = runFastboot(device, List.of("flash", "uboot", uboot.toString()));
+        OperationResult ubootResult = runFastbootAnyDevice(List.of("flash", "uboot", uboot.toString()));
         if (!ubootResult.success()) {
             return ubootResult;
         }
         reporter.report(progress(flashMessage, 4, totalSteps));
 
         return OperationResult.success(SdkMessages.get("core.fastboot.success"));
-    }
-
-    /// Waits for a device to reconnect after a fastboot reboot.
-    ///
-    /// @param device target fastboot device.
-    /// @param reporter progress reporter.
-    /// @param completedSteps completed progress steps.
-    /// @param totalSteps total progress steps.
-    /// @return operation result.
-    /// @throws IOException when fastboot cannot be executed or waiting is interrupted.
-    private OperationResult waitForReconnect(
-            FastbootDevice device,
-            ProgressReporter reporter,
-            int completedSteps,
-            int totalSteps) throws IOException {
-        long deadlineNanos = System.nanoTime() + RECONNECT_TIMEOUT.toNanos();
-        String message = SdkMessages.get("core.fastboot.waitingReconnect", device.serial());
-        while (System.nanoTime() < deadlineNanos) {
-            reporter.report(progress(message, completedSteps, totalSteps));
-            LOGGER.atDebug().log(() -> "Polling fastboot reconnect. serial=" + device.serial());
-            CommandResult result = runner.run(List.of(executable, "devices"), DEVICE_POLL_TIMEOUT);
-            if (!result.timedOut() && result.exitCode() == 0 && containsDevice(parseDevices(result.output()), device.serial())) {
-                LOGGER.atInfo().log(() -> "Fastboot device reconnected. serial=" + device.serial());
-                reporter.report(progress(message, completedSteps + 1, totalSteps));
-                return OperationResult.success(SdkMessages.get("core.fastboot.reconnected", device.serial()));
-            }
-            sleepReconnectPoll();
-        }
-        LOGGER.atWarn().log(() -> "Timed out waiting for fastboot reconnect. serial=" + device.serial());
-        return OperationResult.failure(SdkMessages.get("core.fastboot.reconnectTimedOut", device.serial()));
-    }
-
-    /// Returns whether a parsed fastboot device list contains one serial.
-    ///
-    /// @param devices parsed devices.
-    /// @param serial expected device serial.
-    /// @return whether the serial is present.
-    private static boolean containsDevice(@Unmodifiable List<FastbootDevice> devices, String serial) {
-        for (FastbootDevice device : devices) {
-            if (device.serial().equals(serial)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /// Sleeps between reconnect polling attempts.
-    ///
-    /// @throws IOException when interrupted.
-    private static void sleepReconnectPoll() throws IOException {
-        try {
-            Thread.sleep(RECONNECT_POLL_INTERVAL.toMillis());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException(SdkMessages.get("core.fastboot.reconnectInterrupted"), e);
-        }
     }
 
     /// Sleeps between SpacemiT K1 handoff stages.
@@ -393,6 +327,18 @@ public final class ProcessFastbootService implements FastbootService {
         }
     }
 
+    /// Sleeps after LPi4A reboot enters the RAM-loaded U-Boot.
+    ///
+    /// @throws IOException when interrupted.
+    private static void sleepLpi4aUbootHandoff() throws IOException {
+        try {
+            Thread.sleep(LPI4A_UBOOT_HANDOFF_DELAY.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(SdkMessages.get("core.fastboot.reconnectInterrupted"), e);
+        }
+    }
+
     /// Runs one fastboot command for a target device.
     ///
     /// @param device target fastboot device.
@@ -404,6 +350,40 @@ public final class ProcessFastbootService implements FastbootService {
         command.add(executable);
         command.add("-s");
         command.add(device.serial());
+        command.addAll(arguments);
+
+        LOGGER.atInfo().log(() -> "Running fastboot command. command=" + LogRedactor.redactCommand(command));
+        CommandResult result = runner.run(List.copyOf(command), FLASH_TIMEOUT);
+        String commandText = commandText(command);
+        if (result.timedOut()) {
+            LOGGER.atWarn().log(() -> "fastboot command timed out. command=" + LogRedactor.redactCommand(command));
+            return OperationResult.failure(SdkMessages.get("core.fastboot.timeout", commandText));
+        }
+        if (result.exitCode() != 0) {
+            LOGGER.atWarn().log(() -> "fastboot command failed. command="
+                    + LogRedactor.redactCommand(command)
+                    + ", exitCode="
+                    + result.exitCode()
+                    + ", output="
+                    + LogRedactor.redactOutput(result.output(), MAX_OUTPUT_CHARS));
+            return OperationResult.failure(SdkMessages.get(
+                    "core.fastboot.commandFailed",
+                    result.exitCode(),
+                    commandText,
+                    outputSummary(result.output())));
+        }
+        LOGGER.atInfo().log(() -> "fastboot command completed. command=" + LogRedactor.redactCommand(command));
+        return OperationResult.success(SdkMessages.get("core.fastboot.commandSucceeded", commandText));
+    }
+
+    /// Runs one fastboot command without a serial selector.
+    ///
+    /// @param arguments fastboot arguments.
+    /// @return operation result.
+    /// @throws IOException when fastboot cannot be executed.
+    private OperationResult runFastbootAnyDevice(@Unmodifiable List<String> arguments) throws IOException {
+        ArrayList<String> command = new ArrayList<>(arguments.size() + 1);
+        command.add(executable);
         command.addAll(arguments);
 
         LOGGER.atInfo().log(() -> "Running fastboot command. command=" + LogRedactor.redactCommand(command));
@@ -530,18 +510,6 @@ public final class ProcessFastbootService implements FastbootService {
         }
     }
 
-    /// Orders partitions into the common fastboot sequence.
-    ///
-    /// @param partitions partition map.
-    /// @return ordered entries.
-    private static @Unmodifiable List<Map.Entry<String, Path>> orderedPartitions(@Unmodifiable Map<String, Path> partitions) {
-        ArrayList<Map.Entry<String, Path>> entries = new ArrayList<>(partitions.entrySet());
-        entries.sort(Comparator
-                .comparingInt((Map.Entry<String, Path> entry) -> partitionOrder(entry.getKey()))
-                .thenComparing(Map.Entry::getKey));
-        return List.copyOf(entries);
-    }
-
     /// Finds the first missing required partition.
     ///
     /// @param partitions partition map.
@@ -556,15 +524,6 @@ public final class ProcessFastbootService implements FastbootService {
             }
         }
         return null;
-    }
-
-    /// Returns the preferred order index for one partition.
-    ///
-    /// @param partition partition name.
-    /// @return order index.
-    private static int partitionOrder(String partition) {
-        int index = PARTITION_ORDER.indexOf(partition);
-        return index < 0 ? PARTITION_ORDER.size() : index;
     }
 
     /// Creates a determinate fastboot progress event.
