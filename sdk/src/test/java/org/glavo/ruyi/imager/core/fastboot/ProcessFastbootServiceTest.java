@@ -70,8 +70,8 @@ public final class ProcessFastbootServiceTest {
                 List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "uboot", "uboot.img")), commands);
         ProgressEvent last = progress.getLast();
-        assertEquals(4L, last.currentBytes());
-        assertEquals(4L, last.totalBytes());
+        assertEquals(4000L, last.currentBytes());
+        assertEquals(4000L, last.totalBytes());
     }
 
     /// Switches to the only visible serial when LPi4A U-Boot changes the fastboot serial.
@@ -252,10 +252,52 @@ public final class ProcessFastbootServiceTest {
                 List.of("fastboot-test", "-s", "abc123", "flash", "root", "root.img"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "boot", "boot.img")), commands);
         assertEquals(0L, progress.get(0).currentBytes());
-        assertEquals(2L, progress.get(0).totalBytes());
+        assertEquals(2000L, progress.get(0).totalBytes());
         ProgressEvent last = progress.getLast();
-        assertEquals(2L, last.currentBytes());
-        assertEquals(2L, last.totalBytes());
+        assertEquals(2000L, last.currentBytes());
+        assertEquals(2000L, last.totalBytes());
+    }
+
+    /// Reports parsed sparse fastboot output as sub-step progress.
+    @Test
+    public void standardFastbootReportsSparseOutputProgress() throws Exception {
+        ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
+            assertEquals(Duration.ofHours(4), timeout);
+            assertEquals(List.of("fastboot-test", "-s", "abc123", "flash", "root", "root.img"), command);
+            return new ProcessFastbootService.CommandResult(
+                    0,
+                    """
+                            Sending sparse 'root' 1/4 (262140 KB) OKAY [  1.000s]
+                            Sending sparse 'root' 2/4 (262140 KB) OKAY [  1.000s]
+                            Writing 'root' OKAY [  1.000s]
+                            """,
+                    false);
+        });
+
+        ArrayList<ProgressEvent> progress = new ArrayList<>();
+        OperationResult result = service.flash(
+                "fastboot-v1",
+                Map.of("root", Path.of("root.img")),
+                new FastbootDevice("abc123", "abc123", "fastboot"),
+                progress::add);
+
+        assertTrue(result.success(), result.message());
+        boolean sawSparseChunk = false;
+        boolean sawWriting = false;
+        for (ProgressEvent event : progress) {
+            if (event.message().contains("chunk 2/4")) {
+                sawSparseChunk = true;
+                assertEquals(250L, event.currentBytes());
+                assertEquals(1000L, event.totalBytes());
+            }
+            if (event.message().equals("Writing fastboot partition root.")) {
+                sawWriting = true;
+                assertEquals(1000L, event.currentBytes());
+                assertEquals(1000L, event.totalBytes());
+            }
+        }
+        assertTrue(sawSparseChunk);
+        assertTrue(sawWriting);
     }
 
     /// Runs the SpacemiT K1 handoff and partition flashing sequence used by Bianbu eMMC images.
@@ -297,7 +339,7 @@ public final class ProcessFastbootServiceTest {
                 List.of("fastboot-test", "-s", "abc123", "flash", "bootfs", "bootfs.ext4"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "rootfs", "rootfs.ext4")), commands);
         ProgressEvent last = progress.getLast();
-        assertEquals(14L, last.currentBytes());
-        assertEquals(14L, last.totalBytes());
+        assertEquals(14000L, last.currentBytes());
+        assertEquals(14000L, last.totalBytes());
     }
 }

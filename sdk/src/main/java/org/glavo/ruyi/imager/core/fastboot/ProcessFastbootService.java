@@ -25,6 +25,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,8 +62,23 @@ public final class ProcessFastbootService implements FastbootService {
     /// Maximum command output included in user-visible failures.
     private static final int MAX_OUTPUT_CHARS = 4000;
 
+    /// Progress units used for one high-level fastboot command step.
+    private static final long FASTBOOT_PROGRESS_UNITS = 1000L;
+
     /// Fastboot output reported when the selected device does not support the LPi4A RAM handoff target.
     private static final String LPI4A_RAM_TARGET_MISSING_OUTPUT = "remote: 'cannot find partition'";
+
+    /// Pattern for fastboot sparse send completion output.
+    private static final Pattern FASTBOOT_SENDING_SPARSE_PATTERN =
+            Pattern.compile("^Sending\\s+sparse\\s+'([^']+)'\\s+(\\d+)/(\\d+).*");
+
+    /// Pattern for fastboot non-sparse send completion output.
+    private static final Pattern FASTBOOT_SENDING_PATTERN =
+            Pattern.compile("^Sending\\s+'([^']+)'.*");
+
+    /// Pattern for fastboot write output.
+    private static final Pattern FASTBOOT_WRITING_PATTERN =
+            Pattern.compile("^Writing\\s+'([^']+)'.*");
 
     /// Required SpacemiT K1 eMMC partitions in the flashing order used by Ruyi.
     private static final @Unmodifiable List<String> SPACEMIT_K1_PARTITION_ORDER =
@@ -81,7 +99,7 @@ public final class ProcessFastbootService implements FastbootService {
     ///
     /// @param executable executable name or path.
     public ProcessFastbootService(String executable) {
-        this(executable, ProcessFastbootService::runProcessCommand);
+        this(executable, ProcessCommandRunner.INSTANCE);
     }
 
     /// Creates a service with a custom command runner.
@@ -196,7 +214,10 @@ public final class ProcessFastbootService implements FastbootService {
                     + partition
                     + ", source="
                     + entry.getValue());
-            OperationResult result = runFastboot(device, List.of("flash", partition, entry.getValue().toString()));
+            OperationResult result = runFastboot(
+                    device,
+                    List.of("flash", partition, entry.getValue().toString()),
+                    new FastbootCommandProgress(reporter, i, totalSteps));
             if (!result.success()) {
                 return result;
             }
@@ -228,7 +249,10 @@ public final class ProcessFastbootService implements FastbootService {
 
         String stageFsblMessage = SdkMessages.get("core.fastboot.spacemit.stageFsbl");
         reporter.report(progress(stageFsblMessage, completedSteps, totalSteps));
-        OperationResult result = runFastboot(device, List.of("stage", fsbl.toString()));
+        OperationResult result = runFastboot(
+                device,
+                List.of("stage", fsbl.toString()),
+                new FastbootCommandProgress(reporter, completedSteps, totalSteps));
         if (!result.success()) {
             return result;
         }
@@ -236,7 +260,10 @@ public final class ProcessFastbootService implements FastbootService {
 
         String continueFsblMessage = SdkMessages.get("core.fastboot.spacemit.continueFsbl");
         reporter.report(progress(continueFsblMessage, completedSteps, totalSteps));
-        result = runFastboot(device, List.of("continue"));
+        result = runFastboot(
+                device,
+                List.of("continue"),
+                new FastbootCommandProgress(reporter, completedSteps, totalSteps));
         if (!result.success()) {
             return result;
         }
@@ -249,7 +276,10 @@ public final class ProcessFastbootService implements FastbootService {
 
         String stageUbootMessage = SdkMessages.get("core.fastboot.spacemit.stageUboot");
         reporter.report(progress(stageUbootMessage, completedSteps, totalSteps));
-        result = runFastboot(device, List.of("stage", uboot.toString()));
+        result = runFastboot(
+                device,
+                List.of("stage", uboot.toString()),
+                new FastbootCommandProgress(reporter, completedSteps, totalSteps));
         if (!result.success()) {
             return result;
         }
@@ -257,7 +287,10 @@ public final class ProcessFastbootService implements FastbootService {
 
         String continueUbootMessage = SdkMessages.get("core.fastboot.spacemit.continueUboot");
         reporter.report(progress(continueUbootMessage, completedSteps, totalSteps));
-        result = runFastboot(device, List.of("continue"));
+        result = runFastboot(
+                device,
+                List.of("continue"),
+                new FastbootCommandProgress(reporter, completedSteps, totalSteps));
         if (!result.success()) {
             return result;
         }
@@ -272,7 +305,10 @@ public final class ProcessFastbootService implements FastbootService {
             Path image = Objects.requireNonNull(partitions.get(partition));
             String flashMessage = SdkMessages.get("core.fastboot.flashingPartition", partition);
             reporter.report(progress(flashMessage, completedSteps, totalSteps));
-            result = runFastboot(device, List.of("flash", partition, image.toString()));
+            result = runFastboot(
+                    device,
+                    List.of("flash", partition, image.toString()),
+                    new FastbootCommandProgress(reporter, completedSteps, totalSteps));
             if (!result.success()) {
                 return result;
             }
@@ -302,7 +338,10 @@ public final class ProcessFastbootService implements FastbootService {
         @Unmodifiable Set<String> preHandoffOtherSerials = readOtherFastbootSerials(device);
 
         reporter.report(progress(SdkMessages.get("core.fastboot.loadingLpi4aUboot"), 0, totalSteps));
-        OperationResult ramResult = runFastboot(device, List.of("flash", "ram", uboot.toString()));
+        OperationResult ramResult = runFastboot(
+                device,
+                List.of("flash", "ram", uboot.toString()),
+                new FastbootCommandProgress(reporter, 0, totalSteps));
         if (!ramResult.success()) {
             if (isLpi4aRamTargetMissing(ramResult.message())) {
                 return OperationResult.failure(SdkMessages.get(
@@ -315,7 +354,10 @@ public final class ProcessFastbootService implements FastbootService {
         preHandoffOtherSerials = mergeSerials(preHandoffOtherSerials, readOtherFastbootSerials(device));
 
         reporter.report(progress(SdkMessages.get("core.fastboot.rebooting"), 1, totalSteps));
-        OperationResult rebootResult = runFastboot(device, List.of("reboot"));
+        OperationResult rebootResult = runFastboot(
+                device,
+                List.of("reboot"),
+                new FastbootCommandProgress(reporter, 1, totalSteps));
         if (!rebootResult.success()) {
             return rebootResult;
         }
@@ -335,7 +377,8 @@ public final class ProcessFastbootService implements FastbootService {
         reporter.report(progress(flashMessage, 3, totalSteps));
         OperationResult ubootResult = runFastboot(
                 Objects.requireNonNull(resolvedDevice.device()),
-                List.of("flash", "uboot", uboot.toString()));
+                List.of("flash", "uboot", uboot.toString()),
+                new FastbootCommandProgress(reporter, 3, totalSteps));
         if (!ubootResult.success()) {
             return ubootResult;
         }
@@ -538,6 +581,20 @@ public final class ProcessFastbootService implements FastbootService {
     /// @return operation result.
     /// @throws IOException when fastboot cannot be executed.
     private OperationResult runFastboot(FastbootDevice device, @Unmodifiable List<String> arguments) throws IOException {
+        return runFastboot(device, arguments, null);
+    }
+
+    /// Runs one fastboot command for a target device and streams output into progress when available.
+    ///
+    /// @param device target fastboot device.
+    /// @param arguments fastboot arguments after the serial selector.
+    /// @param commandProgress progress tracker for this fastboot command, or null when not tracked.
+    /// @return operation result.
+    /// @throws IOException when fastboot cannot be executed.
+    private OperationResult runFastboot(
+            FastbootDevice device,
+            @Unmodifiable List<String> arguments,
+            @Nullable FastbootCommandProgress commandProgress) throws IOException {
         ArrayList<String> command = new ArrayList<>(arguments.size() + 3);
         command.add(executable);
         command.add("-s");
@@ -545,7 +602,11 @@ public final class ProcessFastbootService implements FastbootService {
         command.addAll(arguments);
 
         LOGGER.atInfo().log(() -> "Running fastboot command. command=" + LogRedactor.redactCommand(command));
-        CommandResult result = runner.run(List.copyOf(command), FLASH_TIMEOUT);
+        CommandResult result = runner.run(
+                List.copyOf(command),
+                FLASH_TIMEOUT,
+                commandProgress == null ? _ -> {
+                } : commandProgress::acceptOutput);
         String commandText = commandText(command);
         if (result.timedOut()) {
             LOGGER.atWarn().log(() -> "fastboot command timed out. command=" + LogRedactor.redactCommand(command));
@@ -574,7 +635,10 @@ public final class ProcessFastbootService implements FastbootService {
     /// @param timeout command timeout.
     /// @return command result.
     /// @throws IOException when the process cannot be started.
-    private static CommandResult runProcessCommand(@Unmodifiable List<String> command, Duration timeout) throws IOException {
+    private static CommandResult runProcessCommand(
+            @Unmodifiable List<String> command,
+            Duration timeout,
+            Consumer<String> outputListener) throws IOException {
         LOGGER.atDebug().log(() -> "Starting process. command=" + LogRedactor.redactCommand(command) + ", timeout=" + timeout);
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(true);
@@ -589,7 +653,7 @@ public final class ProcessFastbootService implements FastbootService {
 
         StringBuilder output = new StringBuilder();
         Thread reader = new Thread(
-                () -> readProcessOutput(process, output),
+                () -> readProcessOutput(process, output, outputListener),
                 "ruyi-imager-fastboot-output");
         reader.setDaemon(true);
         reader.start();
@@ -635,7 +699,8 @@ public final class ProcessFastbootService implements FastbootService {
     ///
     /// @param process source process.
     /// @param output output buffer.
-    private static void readProcessOutput(Process process, StringBuilder output) {
+    /// @param outputListener listener receiving each output line.
+    private static void readProcessOutput(Process process, StringBuilder output, Consumer<String> outputListener) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 process.getInputStream(),
                 StandardCharsets.UTF_8))) {
@@ -647,11 +712,26 @@ public final class ProcessFastbootService implements FastbootService {
                 synchronized (output) {
                     output.append(line).append(System.lineSeparator());
                 }
+                notifyOutputListener(outputListener, line);
             }
         } catch (IOException e) {
+            String errorMessage = Objects.toString(e.getMessage(), e.toString());
             synchronized (output) {
-                output.append(e.getMessage()).append(System.lineSeparator());
+                output.append(errorMessage).append(System.lineSeparator());
             }
+            notifyOutputListener(outputListener, errorMessage);
+        }
+    }
+
+    /// Notifies a process output listener without letting listener failures stop output draining.
+    ///
+    /// @param outputListener listener to notify.
+    /// @param line output line.
+    private static void notifyOutputListener(Consumer<String> outputListener, String line) {
+        try {
+            outputListener.accept(line);
+        } catch (RuntimeException exception) {
+            LOGGER.debug("Fastboot output listener failed.", exception);
         }
     }
 
@@ -691,7 +771,15 @@ public final class ProcessFastbootService implements FastbootService {
     /// @param totalSteps total step count.
     /// @return progress event.
     private static ProgressEvent progress(String message, int currentStep, int totalSteps) {
-        return new ProgressEvent("fastboot", message, (long) currentStep, (long) totalSteps);
+        return new ProgressEvent("fastboot", message, progressUnits(currentStep), progressUnits(totalSteps));
+    }
+
+    /// Converts a high-level fastboot step count into progress units.
+    ///
+    /// @param steps high-level step count.
+    /// @return progress units.
+    private static long progressUnits(long steps) {
+        return steps * FASTBOOT_PROGRESS_UNITS;
     }
 
     /// Formats a command line for diagnostics.
@@ -728,6 +816,163 @@ public final class ProcessFastbootService implements FastbootService {
         /// @return command result.
         /// @throws IOException when the command cannot be executed.
         CommandResult run(@Unmodifiable List<String> command, Duration timeout) throws IOException;
+
+        /// Executes a command and streams process output when supported.
+        ///
+        /// @param command command line.
+        /// @param timeout command timeout.
+        /// @param outputListener listener receiving command output.
+        /// @return command result.
+        /// @throws IOException when the command cannot be executed.
+        default CommandResult run(
+                @Unmodifiable List<String> command,
+                Duration timeout,
+                Consumer<String> outputListener) throws IOException {
+            CommandResult result = run(command, timeout);
+            outputListener.accept(result.output());
+            return result;
+        }
+    }
+
+    /// Real process command runner with streaming output support.
+    @NotNullByDefault
+    private enum ProcessCommandRunner implements CommandRunner {
+        /// Singleton process command runner.
+        INSTANCE;
+
+        /// Executes a process command.
+        ///
+        /// @param command command line.
+        /// @param timeout command timeout.
+        /// @return command result.
+        /// @throws IOException when the command cannot be executed.
+        @Override
+        public CommandResult run(@Unmodifiable List<String> command, Duration timeout) throws IOException {
+            return runProcessCommand(command, timeout, _ -> {
+            });
+        }
+
+        /// Executes a process command and streams output.
+        ///
+        /// @param command command line.
+        /// @param timeout command timeout.
+        /// @param outputListener listener receiving command output.
+        /// @return command result.
+        /// @throws IOException when the command cannot be executed.
+        @Override
+        public CommandResult run(
+                @Unmodifiable List<String> command,
+                Duration timeout,
+                Consumer<String> outputListener) throws IOException {
+            return runProcessCommand(command, timeout, outputListener);
+        }
+    }
+
+    /// Parses fastboot command output and reports sub-step progress.
+    @NotNullByDefault
+    private static final class FastbootCommandProgress {
+        /// Reporter receiving parsed progress updates.
+        private final ProgressReporter reporter;
+
+        /// Base progress units for this command.
+        private final long baseUnits;
+
+        /// Total progress units for the whole fastboot operation.
+        private final long totalUnits;
+
+        /// Progress units assigned to this command.
+        private final long stepUnits;
+
+        /// Progress units assigned to the sending phase.
+        private final long sendingUnits;
+
+        /// Creates a command progress parser.
+        ///
+        /// @param reporter progress reporter.
+        /// @param completedSteps high-level steps completed before this command.
+        /// @param totalSteps high-level steps in the whole operation.
+        private FastbootCommandProgress(ProgressReporter reporter, int completedSteps, int totalSteps) {
+            this.reporter = reporter;
+            this.baseUnits = progressUnits(completedSteps);
+            this.totalUnits = progressUnits(totalSteps);
+            this.stepUnits = FASTBOOT_PROGRESS_UNITS;
+            this.sendingUnits = FASTBOOT_PROGRESS_UNITS / 2L;
+        }
+
+        /// Parses command output.
+        ///
+        /// @param output command output chunk or complete output.
+        private void acceptOutput(String output) {
+            for (String line : output.split("\\R")) {
+                acceptLine(line);
+            }
+        }
+
+        /// Parses one command output line.
+        ///
+        /// @param rawLine raw output line.
+        private void acceptLine(String rawLine) {
+            String line = rawLine.trim();
+            if (line.isEmpty()) {
+                return;
+            }
+
+            Matcher sparseMatcher = FASTBOOT_SENDING_SPARSE_PATTERN.matcher(line);
+            if (sparseMatcher.matches()) {
+                reportSparseSending(sparseMatcher);
+                return;
+            }
+
+            Matcher sendingMatcher = FASTBOOT_SENDING_PATTERN.matcher(line);
+            if (sendingMatcher.matches()) {
+                report(
+                        SdkMessages.get("core.fastboot.sendingPartition", sendingMatcher.group(1)),
+                        baseUnits + sendingUnits);
+                return;
+            }
+
+            Matcher writingMatcher = FASTBOOT_WRITING_PATTERN.matcher(line);
+            if (writingMatcher.matches()) {
+                long currentUnits = line.contains("OKAY") ? baseUnits + stepUnits : baseUnits + sendingUnits;
+                report(SdkMessages.get("core.fastboot.writingPartition", writingMatcher.group(1)), currentUnits);
+            }
+        }
+
+        /// Reports parsed sparse sending progress.
+        ///
+        /// @param matcher sparse sending output matcher.
+        private void reportSparseSending(Matcher matcher) {
+            long currentChunk;
+            long totalChunks;
+            try {
+                currentChunk = Long.parseLong(matcher.group(2));
+                totalChunks = Long.parseLong(matcher.group(3));
+            } catch (NumberFormatException exception) {
+                LOGGER.debug("Failed to parse fastboot sparse progress.", exception);
+                return;
+            }
+            if (totalChunks <= 0L) {
+                return;
+            }
+
+            long boundedChunk = Math.max(0L, Math.min(currentChunk, totalChunks));
+            long currentUnits = baseUnits + (sendingUnits * boundedChunk / totalChunks);
+            report(
+                    SdkMessages.get(
+                            "core.fastboot.sendingSparsePartition",
+                            matcher.group(1),
+                            boundedChunk,
+                            totalChunks),
+                    currentUnits);
+        }
+
+        /// Reports one parsed progress event.
+        ///
+        /// @param message progress message.
+        /// @param currentUnits current progress units.
+        private void report(String message, long currentUnits) {
+            reporter.report(new ProgressEvent("fastboot", message, currentUnits, totalUnits));
+        }
     }
 
     /// Result of resolving the LPi4A U-Boot fastboot target after handoff.
