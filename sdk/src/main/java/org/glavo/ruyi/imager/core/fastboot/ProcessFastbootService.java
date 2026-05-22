@@ -886,6 +886,15 @@ public final class ProcessFastbootService implements FastbootService {
         /// Progress units assigned to the sending phase.
         private final long sendingUnits;
 
+        /// Sparse partition currently being sent.
+        private @Nullable String sparsePartition;
+
+        /// Current sparse chunk number.
+        private long sparseCurrentChunk;
+
+        /// Total sparse chunk count.
+        private long sparseTotalChunks;
+
         /// Creates a command progress parser.
         ///
         /// @param reporter progress reporter.
@@ -933,8 +942,9 @@ public final class ProcessFastbootService implements FastbootService {
 
             Matcher writingMatcher = FASTBOOT_WRITING_PATTERN.matcher(line);
             if (writingMatcher.matches()) {
-                long currentUnits = line.contains("OKAY") ? baseUnits + stepUnits : baseUnits + sendingUnits;
-                report(SdkMessages.get("core.fastboot.writingPartition", writingMatcher.group(1)), currentUnits);
+                String partition = writingMatcher.group(1);
+                long currentUnits = writingProgressUnits(partition, line.contains("OKAY"));
+                report(SdkMessages.get("core.fastboot.writingPartition", partition), currentUnits);
             }
         }
 
@@ -956,14 +966,44 @@ public final class ProcessFastbootService implements FastbootService {
             }
 
             long boundedChunk = Math.max(0L, Math.min(currentChunk, totalChunks));
-            long currentUnits = baseUnits + (sendingUnits * boundedChunk / totalChunks);
+            sparsePartition = matcher.group(1);
+            sparseCurrentChunk = boundedChunk;
+            sparseTotalChunks = totalChunks;
+            long currentUnits = baseUnits + sparseSendingProgressUnits(boundedChunk, totalChunks);
             report(
                     SdkMessages.get(
                             "core.fastboot.sendingSparsePartition",
-                            matcher.group(1),
+                            sparsePartition,
                             boundedChunk,
                             totalChunks),
                     currentUnits);
+        }
+
+        /// Computes sparse sending progress units for a chunk.
+        ///
+        /// @param currentChunk current sparse chunk number.
+        /// @param totalChunks total sparse chunk count.
+        /// @return command-relative progress units.
+        private long sparseSendingProgressUnits(long currentChunk, long totalChunks) {
+            if (currentChunk <= 0L || totalChunks <= 0L) {
+                return 0L;
+            }
+            return stepUnits * ((currentChunk * 2L) - 1L) / (totalChunks * 2L);
+        }
+
+        /// Computes writing progress units.
+        ///
+        /// @param partition partition being written.
+        /// @param complete whether the write line reports completion.
+        /// @return absolute progress units.
+        private long writingProgressUnits(String partition, boolean complete) {
+            if (sparsePartition != null && sparsePartition.equals(partition) && sparseTotalChunks > 0L) {
+                if (complete) {
+                    return baseUnits + (stepUnits * sparseCurrentChunk / sparseTotalChunks);
+                }
+                return baseUnits + sparseSendingProgressUnits(sparseCurrentChunk, sparseTotalChunks);
+            }
+            return complete ? baseUnits + stepUnits : baseUnits + sendingUnits;
         }
 
         /// Reports one parsed progress event.

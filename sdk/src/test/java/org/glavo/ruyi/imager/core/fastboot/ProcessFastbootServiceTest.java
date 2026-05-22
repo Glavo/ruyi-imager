@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.core.fastboot;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -268,7 +269,12 @@ public final class ProcessFastbootServiceTest {
                     0,
                     """
                             Sending sparse 'root' 1/4 (262140 KB) OKAY [  1.000s]
+                            Writing 'root' OKAY [  1.000s]
                             Sending sparse 'root' 2/4 (262140 KB) OKAY [  1.000s]
+                            Writing 'root' OKAY [  1.000s]
+                            Sending sparse 'root' 3/4 (262140 KB) OKAY [  1.000s]
+                            Writing 'root' OKAY [  1.000s]
+                            Sending sparse 'root' 4/4 (1000 KB) OKAY [  1.000s]
                             Writing 'root' OKAY [  1.000s]
                             """,
                     false);
@@ -283,21 +289,27 @@ public final class ProcessFastbootServiceTest {
 
         assertTrue(result.success(), result.message());
         boolean sawSparseChunk = false;
-        boolean sawWriting = false;
+        ArrayList<Long> writingProgress = new ArrayList<>();
+        long previousProgress = -1L;
         for (ProgressEvent event : progress) {
+            @Nullable Long currentBytes = event.currentBytes();
+            if (currentBytes != null) {
+                assertTrue(currentBytes >= previousProgress, event.toString());
+                previousProgress = currentBytes;
+            }
             if (event.message().contains("chunk 2/4")) {
                 sawSparseChunk = true;
-                assertEquals(250L, event.currentBytes());
+                assertEquals(375L, event.currentBytes());
                 assertEquals(1000L, event.totalBytes());
             }
             if (event.message().equals("Writing fastboot partition root.")) {
-                sawWriting = true;
-                assertEquals(1000L, event.currentBytes());
+                assertTrue(currentBytes != null);
+                writingProgress.add(currentBytes);
                 assertEquals(1000L, event.totalBytes());
             }
         }
         assertTrue(sawSparseChunk);
-        assertTrue(sawWriting);
+        assertEquals(List.of(250L, 500L, 750L, 1000L), writingProgress);
     }
 
     /// Runs the SpacemiT K1 handoff and partition flashing sequence used by Bianbu eMMC images.
