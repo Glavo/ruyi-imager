@@ -157,6 +157,12 @@ public final class MainWindow {
     /// Progress rows keyed by stage identifier for the active flash operation.
     private final LinkedHashMap<String, PhaseProgressRow> phaseProgressRows = new LinkedHashMap<>();
 
+    /// Selection controls shown before a flash operation starts.
+    private final VBox selectionControlsBox = new VBox(14);
+
+    /// Compact flash progress surface shown while a flash operation is running.
+    private final VBox activeFlashBox = new VBox(16);
+
     /// Generation token used to ignore late progress events from a finished flash task.
     private long phaseProgressGeneration;
 
@@ -177,6 +183,18 @@ public final class MainWindow {
 
     /// Target step title.
     private final Label targetTitle = new Label();
+
+    /// Active flash manufacturer summary.
+    private final Label activeManufacturerValue = new Label();
+
+    /// Active flash board summary.
+    private final Label activeBoardValue = new Label();
+
+    /// Active flash image summary.
+    private final Label activeImageValue = new Label();
+
+    /// Active flash target summary.
+    private final Label activeTargetValue = new Label();
 
     /// Manufacturer selection button.
     private final Button manufacturerButton = localizedButton("gui.button.chooseManufacturer");
@@ -201,6 +219,9 @@ public final class MainWindow {
 
     /// Whether a background operation is active.
     private boolean busy;
+
+    /// Whether the active background operation is a flash operation.
+    private boolean flashInProgress;
 
     /// Creates the main window.
     ///
@@ -395,6 +416,7 @@ public final class MainWindow {
         phaseProgressBox.setVisible(false);
         phaseProgressBox.setManaged(false);
         phaseProgressBox.setFillWidth(true);
+        phaseProgressBox.setMaxWidth(Double.MAX_VALUE);
 
         Label catalogTitle = localizedLabel("gui.choice.catalog");
         catalogTitle.getStyleClass().add("choice-title");
@@ -445,13 +467,64 @@ public final class MainWindow {
         sourceChoices.setMaxWidth(Double.MAX_VALUE);
         sourceChoices.getStyleClass().add("source-choices");
 
-        VBox workflow = new VBox(14,
+        selectionControlsBox.getChildren().setAll(
                 sourceChoices,
                 createStep("4", targetTitle, storageValue, storageButton),
-                writeActions,
-                phaseProgressBox);
+                writeActions);
+        selectionControlsBox.getStyleClass().add("selection-controls-box");
+        selectionControlsBox.setFillWidth(true);
+        selectionControlsBox.setMaxWidth(Double.MAX_VALUE);
+
+        VBox workflow = new VBox(14,
+                selectionControlsBox,
+                createActiveFlashBox());
         workflow.getStyleClass().add("workflow");
         return workflow;
+    }
+
+    /// Creates the flash-only surface used while a write operation is active.
+    ///
+    /// @return active flash surface.
+    private VBox createActiveFlashBox() {
+        activeFlashBox.getStyleClass().add("active-flash-box");
+        activeFlashBox.setAlignment(Pos.TOP_CENTER);
+        activeFlashBox.setFillWidth(true);
+        activeFlashBox.setMaxWidth(Double.MAX_VALUE);
+        activeFlashBox.setVisible(false);
+        activeFlashBox.setManaged(false);
+
+        HBox summary = new HBox(12,
+                createActiveFlashSummaryItem("gui.dialog.confirmFlash.manufacturer", activeManufacturerValue),
+                createActiveFlashSummaryItem("gui.dialog.confirmFlash.board", activeBoardValue),
+                createActiveFlashSummaryItem("gui.dialog.confirmFlash.imageSource", activeImageValue),
+                createActiveFlashSummaryItem("gui.dialog.confirmFlash.target", activeTargetValue));
+        summary.getStyleClass().add("active-flash-summary");
+        summary.setAlignment(Pos.CENTER_LEFT);
+        summary.setMaxWidth(Double.MAX_VALUE);
+
+        activeFlashBox.getChildren().setAll(summary, phaseProgressBox);
+        VBox.setVgrow(phaseProgressBox, Priority.ALWAYS);
+        return activeFlashBox;
+    }
+
+    /// Creates one compact active-flash summary item.
+    ///
+    /// @param titleKey localized summary title key.
+    /// @param value summary value label.
+    /// @return summary item.
+    private static VBox createActiveFlashSummaryItem(String titleKey, Label value) {
+        Label title = localizedLabel(titleKey);
+        title.getStyleClass().add("active-flash-summary-title");
+
+        value.getStyleClass().add("active-flash-summary-value");
+        value.setWrapText(true);
+        value.setMaxWidth(Double.MAX_VALUE);
+
+        VBox item = new VBox(3, title, value);
+        item.getStyleClass().add("active-flash-summary-item");
+        item.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(item, Priority.ALWAYS);
+        return item;
     }
 
     /// Creates the independent local-image option outside the catalog selection flow.
@@ -1421,6 +1494,7 @@ public final class MainWindow {
             return;
         }
 
+        flashInProgress = true;
         long progressGeneration = beginPhaseProgress();
         Task<OperationResult> task = new Task<>() {
             /// Runs the flash operation outside the JavaFX application thread.
@@ -1464,7 +1538,7 @@ public final class MainWindow {
         busy = true;
         refreshState();
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-        progressBar.setVisible(true);
+        progressBar.setVisible(!flashInProgress);
         progressBar.progressProperty().bind(task.progressProperty());
         statusLabel.textProperty().bind(task.messageProperty());
 
@@ -1503,6 +1577,7 @@ public final class MainWindow {
         progressBar.setProgress(0);
         progressBar.setVisible(false);
         resetPhaseProgress();
+        flashInProgress = false;
         busy = false;
         refreshState();
     }
@@ -1640,6 +1715,12 @@ public final class MainWindow {
         storageButton.setText(Messages.get(fastbootTarget ? "gui.button.chooseFastboot" : "gui.button.chooseStorage"));
         @Nullable FlashTarget target = state.target();
         storageValue.setText(target == null ? targetNoneLabel() : targetLabel(target));
+        refreshActiveFlashSummary(target);
+        boolean showActiveFlashBox = flashInProgress;
+        selectionControlsBox.setVisible(!showActiveFlashBox);
+        selectionControlsBox.setManaged(!showActiveFlashBox);
+        activeFlashBox.setVisible(showActiveFlashBox);
+        activeFlashBox.setManaged(showActiveFlashBox);
         repoUpdateButton.setDisable(busy);
         manufacturerButton.setDisable(busy);
         boardButton.setDisable(busy || state.localImage() != null || state.manufacturerName() == null);
@@ -1650,6 +1731,16 @@ public final class MainWindow {
         localImageButton.setDisable(busy);
         storageButton.setDisable(busy || !hasImageSource());
         flashButton.setDisable(!canFlash());
+    }
+
+    /// Refreshes the compact selection summary shown while flashing.
+    ///
+    /// @param target selected target, or null when incomplete.
+    private void refreshActiveFlashSummary(@Nullable FlashTarget target) {
+        activeManufacturerValue.setText(manufacturerLabel());
+        activeBoardValue.setText(boardLabel());
+        activeImageValue.setText(imageSourceLabel());
+        activeTargetValue.setText(target == null ? targetNoneLabel() : targetLabel(target));
     }
 
     /// Returns whether the current state can start a flash operation.
