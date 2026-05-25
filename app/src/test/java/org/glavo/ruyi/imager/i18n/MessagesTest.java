@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.i18n;
 
 import javafx.beans.binding.StringBinding;
 import javafx.beans.property.SimpleStringProperty;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
@@ -49,6 +50,27 @@ public final class MessagesTest {
             assertEquals(Messages.get("gui.value.local.selected", "other.raw"), binding.get());
         } finally {
             binding.dispose();
+            Messages.setLocale(originalLocale);
+        }
+    }
+
+    /// Verifies that SDK diagnostic messages use the active application locale.
+    @Test
+    public void sdkMessagesUseApplicationLocale() {
+        Locale originalLocale = Messages.locale();
+        try {
+            Messages.setLocale(Locale.ENGLISH);
+            assertEquals("Writing image to target.", SdkMessages.get("core.flash.writing"));
+            assertEquals(
+                    "Sending fastboot partition root chunk 1/4.",
+                    SdkMessages.get("core.fastboot.sendingSparsePartition", "root", 1, 4));
+
+            Messages.setLocale(Locale.SIMPLIFIED_CHINESE);
+            assertEquals("正在将镜像写入目标设备。", SdkMessages.get("core.flash.writing"));
+            assertEquals(
+                    "正在发送 fastboot 分区 root 的 sparse chunk 1/4。",
+                    SdkMessages.get("core.fastboot.sendingSparsePartition", "root", 1, 4));
+        } finally {
             Messages.setLocale(originalLocale);
         }
     }

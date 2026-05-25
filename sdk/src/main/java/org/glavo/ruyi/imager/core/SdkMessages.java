@@ -4,15 +4,18 @@
 package org.glavo.ruyi.imager.core;
 
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.text.MessageFormat;
 import java.util.Map;
+import java.util.MissingResourceException;
 
-/// Formats stable SDK diagnostic messages without loading localized resources.
+/// Formats stable SDK diagnostic messages with optional presentation-layer localization.
 @NotNullByDefault
 public final class SdkMessages {
     /// English message patterns keyed by SDK diagnostic id.
-    private static final Map<String, String> MESSAGES = Map.ofEntries(
+    private static final @Unmodifiable Map<String, String> MESSAGES = Map.ofEntries(
             Map.entry("core.repo.updated", "Updated {0} Ruyi metadata repositories."),
             Map.entry("core.repo.usingLocal", "Using local Ruyi repo {0}."),
             Map.entry("core.repo.localMissingConfig", "Local Ruyi repo is missing config.toml: {0}"),
@@ -134,8 +137,18 @@ public final class SdkMessages {
             Map.entry("core.materialize.invalidPrefix", "Invalid archive prefix for distfile {0}: {1}")
     );
 
+    /// Optional resolver supplied by an application layer with localized resources.
+    private static volatile @Nullable MessageResolver resolver;
+
     /// Prevents construction.
     private SdkMessages() {
+    }
+
+    /// Sets the optional presentation-layer message resolver.
+    ///
+    /// @param value resolver to use, or null to use SDK English defaults.
+    public static void setResolver(@Nullable MessageResolver value) {
+        resolver = value;
     }
 
     /// Formats an SDK diagnostic message.
@@ -143,8 +156,41 @@ public final class SdkMessages {
     /// @param key stable diagnostic key.
     /// @param arguments message arguments.
     /// @return formatted diagnostic message.
-    public static String get(String key, Object... arguments) {
+    public static String get(String key, Object @Unmodifiable ... arguments) {
+        @Nullable MessageResolver currentResolver = resolver;
+        if (currentResolver != null) {
+            try {
+                @Nullable String message = currentResolver.resolve(key, arguments);
+                if (message != null) {
+                    return message;
+                }
+            } catch (IllegalArgumentException | MissingResourceException _) {
+                // Keep SDK diagnostics available even when application resources are incomplete.
+            }
+        }
+
+        return formatDefault(key, arguments);
+    }
+
+    /// Formats a message with the SDK English default table.
+    ///
+    /// @param key stable diagnostic key.
+    /// @param arguments message arguments.
+    /// @return formatted default diagnostic message.
+    private static String formatDefault(String key, Object @Unmodifiable ... arguments) {
         String pattern = MESSAGES.getOrDefault(key, key);
         return arguments.length == 0 ? pattern : MessageFormat.format(pattern, arguments);
+    }
+
+    /// Resolves SDK diagnostic messages for a presentation layer.
+    @FunctionalInterface
+    @NotNullByDefault
+    public interface MessageResolver {
+        /// Resolves an SDK diagnostic message.
+        ///
+        /// @param key stable diagnostic key.
+        /// @param arguments message arguments.
+        /// @return formatted localized message, or null to use the SDK default.
+        @Nullable String resolve(String key, Object @Unmodifiable ... arguments);
     }
 }

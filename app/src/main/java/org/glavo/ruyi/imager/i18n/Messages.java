@@ -8,6 +8,7 @@ import javafx.beans.binding.StringBinding;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.beans.value.ObservableValue;
+import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -33,6 +34,10 @@ public final class Messages {
 
     /// Currently selected locale.
     private static final ReadOnlyObjectWrapper<Locale> locale = new ReadOnlyObjectWrapper<>(selectedLocale());
+
+    static {
+        SdkMessages.setResolver(Messages::resolveSdkMessage);
+    }
 
     /// Prevents construction of the message utility.
     private Messages() {
@@ -102,6 +107,21 @@ public final class Messages {
     public static String get(String key, Object @Unmodifiable ... arguments) {
         ResourceBundle bundle = bundle();
         return new MessageFormat(bundle.getString(key), bundle.getLocale()).format(arguments);
+    }
+
+    /// Resolves SDK messages from the active application resource bundle.
+    ///
+    /// @param key message key.
+    /// @param arguments format arguments.
+    /// @return localized SDK message, or null when the application bundle does not contain the key.
+    private static @Nullable String resolveSdkMessage(String key, Object @Unmodifiable ... arguments) {
+        ResourceBundle bundle = bundle();
+        if (!bundle.containsKey(key)) {
+            return null;
+        }
+
+        String pattern = bundle.getString(key);
+        return arguments.length == 0 ? pattern : new MessageFormat(pattern, bundle.getLocale()).format(arguments);
     }
 
     /// Returns a binding for one localized message.
