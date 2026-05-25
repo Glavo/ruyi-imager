@@ -22,7 +22,7 @@
 - 平台设备枚举和 Windows 目标准备命令已改为并发消费 stdout/stderr，避免外部命令输出填满管道导致误超时。
 - Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
-- GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒和目标确认；刷写期间会折叠选择流程，仅保留当前制造商、开发板、镜像和目标摘要栏，并按后端 `ProgressEvent.stage` 分阶段显示下载、准备、写入、校验和 fastboot 等多个进度条。
+- GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒、目标确认和窗口图标；刷写期间会折叠选择流程，仅保留当前制造商、开发板、镜像和目标摘要栏，并按后端 `ProgressEvent.stage` 分阶段显示下载、准备、写入、校验和 fastboot 等多个进度条。
 - SDK 刷写测试覆盖 fake `DdImageWriter` 编排路径，包括跳过校验、校验失败、多分区顺序和分区 target 拒绝条件，不依赖真实 helper 写目标内容。
 - 日志已改用 SLF4J API，运行时接 JUL 文件后端；CLI/GUI 错误都会暴露日志路径，日志默认脱敏和截断敏感外部输出。
 - 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 JLink zip；Windows JLink 包同时提供 console subsystem 的 `ruyi-imager.exe` 作为 CLI 默认入口，以及 Windows subsystem 的 `ruyi-imager-gui.exe` 作为无黑框双击 GUI 入口，`dd-flasher`/launcher release 构建会追踪 Cargo manifest/lockfile/Rust 源码输入；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。
@@ -75,6 +75,7 @@
   - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=macos-aarch64" :app:jlinkZip --dry-run`
   - `./gradlew -g .gradle-user-home :app:distZip --dry-run`
   - `./gradlew -g .gradle-user-home :app:compileJava :app:processResources`
+  - `./gradlew -g .gradle-user-home :app:jar`
   - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.gui.MainWindowJavaFxSmokeTest --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
   - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group build`
   - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group distribution`

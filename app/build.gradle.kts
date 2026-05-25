@@ -333,6 +333,7 @@ dependencies {
 sourceSets {
     main {
         resources.srcDir(generatedResourcesDirectory)
+        resources.srcDir(rootProject.layout.projectDirectory.dir("resources"))
     }
 }
 

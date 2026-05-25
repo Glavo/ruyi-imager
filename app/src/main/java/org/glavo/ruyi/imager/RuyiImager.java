@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
+import javafx.scene.image.Image;
 import javafx.scene.text.Font;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
@@ -18,6 +19,7 @@ import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 import java.net.URL;
 import java.util.Locale;
@@ -33,6 +35,16 @@ public final class RuyiImager extends Application {
     /// Default GUI font bundled with the application.
     private static final String DEFAULT_FONT_RESOURCE =
             "/org/glavo/ruyi/imager/fonts/AlibabaPuHuiTi-3-65-Medium.ttf";
+
+    /// Application icon resources installed on JavaFX stages.
+    private static final String @Unmodifiable [] APPLICATION_ICON_RESOURCES = {
+            "/ruyi-logo-16.png",
+            "/ruyi-logo-24.png",
+            "/ruyi-logo-32.png",
+            "/ruyi-logo-64.png",
+            "/ruyi-logo-128.png",
+            "/ruyi-logo-256.png",
+    };
 
     /// Core services shared by the GUI and CLI.
     private @Nullable AppServices services;
@@ -67,6 +79,7 @@ public final class RuyiImager extends Application {
             scene.getStylesheets().add(stylesheet.toExternalForm());
         }
 
+        installWindowIcons(primaryStage);
         primaryStage.titleProperty().bind(Messages.binding("app.title"));
         primaryStage.setMinWidth(840);
         primaryStage.setMinHeight(560);
@@ -112,6 +125,36 @@ public final class RuyiImager extends Application {
             LOGGER.warn("Default GUI font could not be loaded.");
         } else {
             LOGGER.atInfo().log(() -> "Loaded default GUI font. family=" + font.getFamily() + ", name=" + font.getName());
+        }
+    }
+
+    /// Installs bundled application icons on a JavaFX stage.
+    ///
+    /// @param stage stage receiving the application icons.
+    private static void installWindowIcons(Stage stage) {
+        for (String resource : APPLICATION_ICON_RESOURCES) {
+            @Nullable URL iconResource = RuyiImager.class.getResource(resource);
+            if (iconResource == null) {
+                LOGGER.warn("Application icon resource is missing: {}", resource);
+                continue;
+            }
+
+            Image icon = new Image(iconResource.toExternalForm());
+            if (icon.isError()) {
+                @Nullable Throwable failure = icon.getException();
+                if (failure == null) {
+                    LOGGER.warn("Application icon could not be loaded: {}", resource);
+                } else {
+                    LOGGER.warn("Application icon could not be loaded: " + resource, failure);
+                }
+                continue;
+            }
+
+            stage.getIcons().add(icon);
+        }
+
+        if (stage.getIcons().isEmpty()) {
+            LOGGER.warn("No application icon resources were loaded.");
         }
     }
 }
