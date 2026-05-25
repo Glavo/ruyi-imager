@@ -23,6 +23,14 @@
     -fx-text-fill: #18212b;
 }
 
+.app-logo {
+    -fx-effect: dropshadow(gaussian, rgba(24, 33, 43, 0.12), 8, 0.18, 0, 2);
+}
+
+.app-title-text {
+    -fx-alignment: center-left;
+}
+
 .app-subtitle {
     -fx-font-size: 14px;
     -fx-text-fill: #657282;

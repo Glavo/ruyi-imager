@@ -19,6 +19,8 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -129,6 +131,12 @@ public final class MainWindow {
 
     /// Compact bottom inset between modal selection lists and dialog actions.
     private static final double SELECTION_CONTENT_BOTTOM_INSET = 14.0;
+
+    /// Large logo resource shown beside the main title.
+    private static final String HEADER_LOGO_RESOURCE = "/ruyi-logo-128.png";
+
+    /// Rendered logo size used in the application header.
+    private static final double HEADER_LOGO_SIZE = 58.0;
 
     /// Fixed width used by the independent local-image option.
     private static final double LOCAL_IMAGE_OPTION_WIDTH = 340.0;
@@ -318,10 +326,13 @@ public final class MainWindow {
 
         MFXComboBox<LanguageOption> languageSelector = createLanguageSelector();
 
+        VBox titleText = new VBox(2, title, subtitle);
+        titleText.getStyleClass().add("app-title-text");
+
         Region titleSpacer = new Region();
         HBox.setHgrow(titleSpacer, Priority.ALWAYS);
 
-        HBox titleRow = new HBox(16, title, titleSpacer, languageSelector);
+        HBox titleRow = new HBox(16, createHeaderLogo(), titleText, titleSpacer, languageSelector);
         titleRow.setAlignment(Pos.CENTER_LEFT);
 
         repoUpdateButton.setOnAction(_ -> updateRepository());
@@ -335,9 +346,39 @@ public final class MainWindow {
         progressBar.setPrefWidth(180);
         progressBar.setVisible(false);
 
-        VBox header = new VBox(8, titleRow, subtitle, status);
+        VBox header = new VBox(10, titleRow, status);
         header.getStyleClass().add("app-header");
         return header;
+    }
+
+    /// Creates the logo node shown beside the application title.
+    ///
+    /// @return header logo node.
+    private static Node createHeaderLogo() {
+        @Nullable URL logoResource = MainWindow.class.getResource(HEADER_LOGO_RESOURCE);
+        if (logoResource == null) {
+            LOGGER.warn("Header logo resource is missing: {}", HEADER_LOGO_RESOURCE);
+            return new Region();
+        }
+
+        Image image = new Image(logoResource.toExternalForm());
+        if (image.isError()) {
+            @Nullable Throwable failure = image.getException();
+            if (failure == null) {
+                LOGGER.warn("Header logo could not be loaded: {}", HEADER_LOGO_RESOURCE);
+            } else {
+                LOGGER.warn("Header logo could not be loaded: " + HEADER_LOGO_RESOURCE, failure);
+            }
+            return new Region();
+        }
+
+        ImageView logo = new ImageView(image);
+        logo.getStyleClass().add("app-logo");
+        logo.setFitWidth(HEADER_LOGO_SIZE);
+        logo.setFitHeight(HEADER_LOGO_SIZE);
+        logo.setPreserveRatio(true);
+        logo.setSmooth(true);
+        return logo;
     }
 
     /// Creates the runtime language selector.
