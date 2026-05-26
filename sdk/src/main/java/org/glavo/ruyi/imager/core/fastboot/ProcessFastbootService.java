@@ -80,6 +80,18 @@ public final class ProcessFastbootService implements FastbootService {
     private static final Pattern FASTBOOT_WRITING_PATTERN =
             Pattern.compile("^Writing\\s+'([^']+)'.*");
 
+    /// Pattern for completed fastboot write output.
+    private static final Pattern FASTBOOT_WRITING_OKAY_PATTERN =
+            Pattern.compile("(?im)^\\s*Writing\\s+'[^']+'.*\\bOKAY\\b.*$");
+
+    /// Pattern for fastboot command completion output.
+    private static final Pattern FASTBOOT_FINISHED_PATTERN =
+            Pattern.compile("(?im)^\\s*Finished\\.\\s+Total time:.*$");
+
+    /// Pattern for explicit fastboot failure output.
+    private static final Pattern FASTBOOT_FAILURE_PATTERN =
+            Pattern.compile("(?im)(^|\\s)FAILED(\\s|\\(|:|$)|^\\s*fastboot:\\s+error:.*$");
+
     /// Required SpacemiT K1 eMMC partitions in the flashing order used by Ruyi.
     private static final @Unmodifiable List<String> SPACEMIT_K1_PARTITION_ORDER =
             List.of("gpt", "bootinfo", "fsbl", "env", "opensbi", "uboot", "bootfs", "rootfs");
@@ -612,7 +624,7 @@ public final class ProcessFastbootService implements FastbootService {
             LOGGER.atWarn().log(() -> "fastboot command timed out. command=" + LogRedactor.redactCommand(command));
             return OperationResult.failure(SdkMessages.get("core.fastboot.timeout", commandText));
         }
-        if (result.exitCode() != 0) {
+        if (result.exitCode() != 0 && !nonZeroFlashExitLooksSuccessful(arguments, result.output())) {
             LOGGER.atWarn().log(() -> "fastboot command failed. command="
                     + LogRedactor.redactCommand(command)
                     + ", exitCode="
@@ -624,6 +636,14 @@ public final class ProcessFastbootService implements FastbootService {
                     result.exitCode(),
                     commandText,
                     outputSummary(result.output())));
+        }
+        if (result.exitCode() != 0) {
+            LOGGER.atWarn().log(() -> "fastboot command returned a non-zero exit code after successful flash output. command="
+                    + LogRedactor.redactCommand(command)
+                    + ", exitCode="
+                    + result.exitCode()
+                    + ", output="
+                    + LogRedactor.redactOutput(result.output(), MAX_OUTPUT_CHARS));
         }
         LOGGER.atInfo().log(() -> "fastboot command completed. command=" + LogRedactor.redactCommand(command));
         return OperationResult.success(SdkMessages.get("core.fastboot.commandSucceeded", commandText));
@@ -803,6 +823,19 @@ public final class ProcessFastbootService implements FastbootService {
             return LogRedactor.redactText(trimmed);
         }
         return LogRedactor.redactOutput(trimmed, MAX_OUTPUT_CHARS);
+    }
+
+    /// Returns whether a non-zero fastboot flash result still has complete successful output.
+    ///
+    /// @param arguments fastboot arguments after the serial selector.
+    /// @param output command output.
+    /// @return whether the non-zero exit code can be treated as a fastboot false negative.
+    private static boolean nonZeroFlashExitLooksSuccessful(@Unmodifiable List<String> arguments, String output) {
+        return !arguments.isEmpty()
+                && "flash".equals(arguments.getFirst())
+                && !FASTBOOT_FAILURE_PATTERN.matcher(output).find()
+                && FASTBOOT_WRITING_OKAY_PATTERN.matcher(output).find()
+                && FASTBOOT_FINISHED_PATTERN.matcher(output).find();
     }
 
     /// Runs one command with a timeout.

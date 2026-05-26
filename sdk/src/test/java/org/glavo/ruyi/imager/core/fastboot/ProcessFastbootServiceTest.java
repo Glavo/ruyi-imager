@@ -312,6 +312,39 @@ public final class ProcessFastbootServiceTest {
         assertEquals(List.of(250L, 500L, 750L, 1000L), writingProgress);
     }
 
+    /// Accepts fastboot flash commands that complete successfully despite a non-zero exit code.
+    @Test
+    public void standardFastbootAcceptsSuccessfulSparseFlashWithNonZeroExitCode() throws Exception {
+        ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
+            assertEquals(Duration.ofHours(4), timeout);
+            assertEquals(List.of("fastboot-test", "-s", "abc123", "flash", "root", "root.ext4"), command);
+            return new ProcessFastbootService.CommandResult(
+                    1,
+                    """
+                            Warning: skip copying root image avb footer (root partition size: 0, root image size: 4294967296).
+                            Invalid sparse file format at header magic
+                            Sending sparse 'root' 1/2 (1148 KB) OKAY [  0.304s]
+                            Writing 'root' OKAY [  0.002s]
+                            Sending sparse 'root' 2/2 (1148 KB) OKAY [  0.304s]
+                            Writing 'root' OKAY [  0.002s]
+                            Finished. Total time: 1.234s
+                            """,
+                    false);
+        });
+
+        ArrayList<ProgressEvent> progress = new ArrayList<>();
+        OperationResult result = service.flash(
+                "fastboot-v1",
+                Map.of("root", Path.of("root.ext4")),
+                new FastbootDevice("abc123", "abc123", "fastboot"),
+                progress::add);
+
+        assertTrue(result.success(), result.message());
+        ProgressEvent last = progress.getLast();
+        assertEquals(1000L, last.currentBytes());
+        assertEquals(1000L, last.totalBytes());
+    }
+
     /// Runs the SpacemiT K1 handoff and partition flashing sequence used by Bianbu eMMC images.
     @Test
     public void spacemitK1StagesBootloadersBeforeFlashingPartitions() throws Exception {
