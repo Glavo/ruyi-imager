@@ -1602,7 +1602,7 @@ public final class MainWindow {
             } else {
                 LOGGER.error("GUI background task failed.", failure);
             }
-            showError(failureTitle, failure == null ? "Unknown failure." : failure.getMessage());
+            showError(failureTitle, failure == null ? null : failure.getMessage());
         });
 
         Thread thread = new Thread(task, "ruyi-imager-background");
@@ -2768,7 +2768,7 @@ public final class MainWindow {
     /// @param title dialog title.
     /// @param message dialog message.
     private void showError(String title, @Nullable String message) {
-        String text = message == null ? Messages.get("gui.dialog.unknownFailure") : message;
+        String text = message == null || message.isBlank() ? Messages.get("gui.dialog.unknownFailure") : message;
         @Nullable String logFile = RuyiLogging.currentLogFileText();
         if (logFile != null) {
             text = text + System.lineSeparator() + System.lineSeparator() + Messages.get("gui.dialog.logFile", logFile);

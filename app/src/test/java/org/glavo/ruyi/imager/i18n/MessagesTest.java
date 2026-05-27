@@ -54,6 +54,21 @@ public final class MessagesTest {
         }
     }
 
+    /// Verifies that GUI detail labels use the active application locale.
+    @Test
+    public void guiDetailLabelsUseApplicationLocale() {
+        Locale originalLocale = Messages.locale();
+        try {
+            Messages.setLocale(Locale.ENGLISH);
+            assertEquals("Serial: abc - State: fastboot", Messages.get("gui.fastboot.details", "abc", "fastboot"));
+
+            Messages.setLocale(Locale.SIMPLIFIED_CHINESE);
+            assertEquals("序列号：abc - 状态：fastboot", Messages.get("gui.fastboot.details", "abc", "fastboot"));
+        } finally {
+            Messages.setLocale(originalLocale);
+        }
+    }
+
     /// Verifies that SDK diagnostic messages use the active application locale.
     @Test
     public void sdkMessagesUseApplicationLocale() {
