@@ -31,7 +31,7 @@
 - Gradle `run` 会为当前平台解包 bundled fastboot，并通过 `ruyi.imager.fastboot.executable` 系统属性指向该可执行文件，开发运行不再依赖 PATH 中预装 fastboot。
 - JLink 包只依赖和打入与 `jlink.jdk.platform` 匹配的 fastboot bundle；没有配置 fastboot bundle 的目标平台会跳过 bundled fastboot，普通发行包仍保留全部已配置平台的 fastboot。
 - `dd-flasher` 已提供每个发行平台的 Gradle 构建/打包任务，可通过 `ddFlasher.buildTool=cross` 切换到 `cross`；JLink 包会自动依赖与 `jlink.jdk.platform` 匹配的 helper，并只打入对应平台目录。
-- GitHub Actions 已接入 nightly release workflow：每天定时或手动构建 Windows x86_64、Linux x86_64/aarch64 和 macOS x86_64/aarch64 JLink zip，并更新固定 `nightly` prerelease 的说明、tag 和 assets。
+- GitHub Actions 已接入 nightly release workflow：每天定时或手动构建 Windows x86_64、Linux x86_64/aarch64 和 macOS x86_64/aarch64 JLink zip，并更新固定 `nightly` prerelease 的说明、tag 和 assets；workflow 使用 Node 24-native 官方 action 主版本和明确 runner 标签，避免 Node 20 action/runtime 与 `*-latest` 漂移警告。
 
 ### Remaining
 

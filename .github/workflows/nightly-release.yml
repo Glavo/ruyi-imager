@@ -19,7 +19,6 @@ env:
     --enable-native-access=ALL-UNNAMED
     --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   NIGHTLY_TAG: nightly
   NIGHTLY_RELEASE_NAME: Nightly Build
 
@@ -79,7 +78,7 @@ jobs:
   publish:
     name: Update nightly release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out sources
