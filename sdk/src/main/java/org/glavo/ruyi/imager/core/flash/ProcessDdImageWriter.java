@@ -152,18 +152,16 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         }
 
         HelperEventState state = new HelperEventState(stage, message, reporter);
+        ProcessEventCollector stdout = ProcessEventCollector.start(process.getInputStream(), state, "dd-flasher-stdout");
         ProcessStreamCollector stderr = ProcessStreamCollector.start(process.getErrorStream(), "dd-flasher-stderr");
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                state.accept(line);
-            }
-
+        try {
             int exitCode = waitFor(process, command);
+            stdout.await(command);
             stderr.await(command);
             return finish(operation, state, exitCode, stderr.text());
         } catch (IOException exception) {
             destroyForcibly(process);
+            stdout.awaitQuietly();
             stderr.awaitQuietly();
             throw exception;
         }
@@ -185,10 +183,19 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             String message,
             ProgressReporter reporter) throws IOException {
         Path eventLog = Files.createTempFile("ruyi-imager-dd-flasher-", ".ndjson");
-        ArrayList<String> elevatedArguments = new ArrayList<>(arguments.size() + 3);
+        Path cancelFile;
+        try {
+            cancelFile = temporarySignalPath("ruyi-imager-dd-flasher-cancel-", ".signal");
+        } catch (IOException exception) {
+            deleteEventLog(eventLog);
+            throw exception;
+        }
+        ArrayList<String> elevatedArguments = new ArrayList<>(arguments.size() + 5);
         elevatedArguments.addAll(arguments);
         elevatedArguments.add("--event-log");
         elevatedArguments.add(eventLog.toString());
+        elevatedArguments.add("--cancel-file");
+        elevatedArguments.add(cancelFile.toString());
         elevatedArguments.add("--no-stdout");
 
         List<String> command;
@@ -199,6 +206,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
                     System.getProperty("os.name", ""));
         } catch (IOException exception) {
             deleteEventLog(eventLog);
+            deleteCancelFile(cancelFile);
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", executable), exception);
         }
         LOGGER.atInfo().log(() -> "Running elevated dd-flasher helper. command=" + LogRedactor.redactCommand(command));
@@ -208,6 +216,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             process = new ProcessBuilder(command).start();
         } catch (IOException exception) {
             deleteEventLog(eventLog);
+            deleteCancelFile(cancelFile);
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", commandText(command)), exception);
         }
 
@@ -223,8 +232,16 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             exitCode = process.exitValue();
             readEventLog(eventLog, offset, state);
         } catch (InterruptedException exception) {
+            signalCancelFile(cancelFile);
+            try {
+                if (!process.waitFor(10L, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                }
+            } catch (InterruptedException cleanupException) {
+                exception.addSuppressed(cleanupException);
+                process.destroyForcibly();
+            }
             Thread.currentThread().interrupt();
-            process.destroyForcibly();
             stdout.awaitQuietly();
             stderr.awaitQuietly();
             throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
@@ -235,6 +252,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw exception;
         } finally {
             deleteEventLog(eventLog);
+            deleteCancelFile(cancelFile);
         }
         stdout.await(command);
         stderr.await(command);
@@ -398,6 +416,46 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         }
     }
 
+    /// Creates a temporary signal path that does not currently exist.
+    ///
+    /// @param prefix temporary file prefix.
+    /// @param suffix temporary file suffix.
+    /// @return non-existing temporary path.
+    /// @throws IOException when the path cannot be reserved.
+    private static Path temporarySignalPath(String prefix, String suffix) throws IOException {
+        Path path = Files.createTempFile(prefix, suffix);
+        Files.delete(path);
+        return path;
+    }
+
+    /// Creates a helper cancellation signal file.
+    ///
+    /// @param cancelFile cancellation signal path.
+    private static void signalCancelFile(Path cancelFile) {
+        try {
+            Files.writeString(
+                    cancelFile,
+                    "cancel",
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE);
+        } catch (IOException exception) {
+            LOGGER.debug("Failed to signal dd-flasher cancellation.", exception);
+        }
+    }
+
+    /// Deletes one temporary cancellation signal file.
+    ///
+    /// @param cancelFile cancellation signal path.
+    private static void deleteCancelFile(Path cancelFile) {
+        try {
+            Files.deleteIfExists(cancelFile);
+        } catch (IOException exception) {
+            LOGGER.debug("Failed to delete dd-flasher cancellation signal.", exception);
+        }
+    }
+
     /// Destroys a helper process that is no longer needed.
     ///
     /// @param process helper process.
@@ -426,6 +484,82 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @return command text.
     private static String commandText(List<String> command) {
         return String.join(" ", LogRedactor.redactCommand(command));
+    }
+
+    /// Concurrently drains helper stdout and parses NDJSON events.
+    private static final class ProcessEventCollector {
+        /// Background collector thread.
+        private final Thread thread;
+
+        /// Source stream consumed by the collector.
+        private final InputStream input;
+
+        /// Mutable event parser state.
+        private final HelperEventState state;
+
+        /// Failure raised while reading or parsing the stream.
+        private @Nullable IOException failure;
+
+        /// Starts an event collector.
+        ///
+        /// @param input input stream to drain.
+        /// @param state parsed helper event state.
+        /// @param name background thread name.
+        /// @return started collector.
+        private static ProcessEventCollector start(InputStream input, HelperEventState state, String name) {
+            ProcessEventCollector collector = new ProcessEventCollector(input, state, name);
+            collector.thread.start();
+            return collector;
+        }
+
+        /// Creates an event collector.
+        ///
+        /// @param input input stream to drain.
+        /// @param state parsed helper event state.
+        /// @param name background thread name.
+        private ProcessEventCollector(InputStream input, HelperEventState state, String name) {
+            this.input = input;
+            this.state = state;
+            this.thread = new Thread(this::drain, name);
+            this.thread.setDaemon(true);
+        }
+
+        /// Drains and parses the stream until EOF or read failure.
+        private void drain() {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    state.accept(line);
+                }
+            } catch (IOException exception) {
+                failure = exception;
+            }
+        }
+
+        /// Waits for the collector to finish.
+        ///
+        /// @param command helper command for interruption diagnostics.
+        /// @throws IOException when waiting is interrupted or stream parsing fails.
+        private void await(List<String> command) throws IOException {
+            try {
+                thread.join();
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
+            }
+            if (failure != null) {
+                throw failure;
+            }
+        }
+
+        /// Waits for the collector during exceptional cleanup.
+        private void awaitQuietly() {
+            try {
+                thread.join(TimeUnit.SECONDS.toMillis(1L));
+            } catch (InterruptedException _) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     /// Concurrently drains one process stream into a bounded diagnostic buffer.

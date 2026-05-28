@@ -234,19 +234,23 @@ public final class RuyiDistfileDownloader {
     /// @param initialBytes bytes already present in the partial file.
     /// @param append whether the response should be appended.
     /// @throws IOException when the response cannot be written.
+    /// @throws InterruptedException when cancellation is requested while writing.
     private static void writeResponse(
             InputStream body,
             Path partial,
             RuyiDistfile distfile,
             ProgressReporter reporter,
             long initialBytes,
-            boolean append) throws IOException {
+            boolean append) throws IOException, InterruptedException {
         StandardOpenOption writeMode = append ? StandardOpenOption.APPEND : StandardOpenOption.TRUNCATE_EXISTING;
         try (InputStream input = body;
              OutputStream output = Files.newOutputStream(partial, StandardOpenOption.CREATE, StandardOpenOption.WRITE, writeMode)) {
             byte[] buffer = new byte[256 * 1024];
             long currentBytes = initialBytes;
             while (true) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new InterruptedException();
+                }
                 int read = input.read(buffer);
                 if (read < 0) {
                     break;

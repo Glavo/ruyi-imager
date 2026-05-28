@@ -129,6 +129,7 @@ public final class SdkMessages {
             Map.entry("core.materialize.materializing", "Materializing {0}."),
             Map.entry("core.materialize.noPartitionMap", "Image has no partition map: {0}"),
             Map.entry("core.materialize.partitionMissing", "Image partition artifact is missing: {0}"),
+            Map.entry("core.materialize.interrupted", "Interrupted while materializing {0}."),
             Map.entry("core.materialize.unsupportedMethod", "Unsupported Ruyi unpack method {0} for distfile {1}. Supported methods: {2}. Downloaded file: {3}. Artifact directory: {4}. Extract the file manually into the artifact directory, or update package metadata to use a supported unpack method."),
             Map.entry("core.materialize.compressorFailed", "Failed to open {0} compressed stream for {1}. The file may be corrupt or the compressor provider may be unavailable."),
             Map.entry("core.materialize.archiveEscape", "{0} entry escapes artifact directory: {1}"),

@@ -51,6 +51,9 @@ struct Request {
     /// Optional NDJSON event log used when stdout is not available.
     event_log: Option<PathBuf>,
 
+    /// Optional file whose existence requests cancellation.
+    cancel_file: Option<PathBuf>,
+
     /// Whether NDJSON events should be written to stdout.
     stdout: bool,
 }
@@ -119,12 +122,16 @@ where
     let mut total_bytes = None;
     let mut removable = None;
     let mut event_log = None;
+    let mut cancel_file = None;
     let mut stdout = true;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--source" => source = Some(PathBuf::from(next_value(&mut args, "--source")?)),
             "--target" => target = Some(PathBuf::from(next_value(&mut args, "--target")?)),
             "--event-log" => event_log = Some(PathBuf::from(next_value(&mut args, "--event-log")?)),
+            "--cancel-file" => {
+                cancel_file = Some(PathBuf::from(next_value(&mut args, "--cancel-file")?))
+            }
             "--no-stdout" => stdout = false,
             "--total-bytes" => {
                 let value = next_value(&mut args, "--total-bytes")?;
@@ -150,6 +157,7 @@ where
         total_bytes: total_bytes.ok_or_else(|| "missing --total-bytes".to_string())?,
         removable: removable.ok_or_else(|| "missing --removable".to_string())?,
         event_log,
+        cancel_file,
         stdout,
     })
 }
@@ -174,7 +182,7 @@ fn parse_bool(value: &str, name: &str) -> Result<bool, String> {
 
 /// Returns the CLI usage text.
 fn usage() -> String {
-    "usage: dd-flasher <write|verify> --source <path> --target <path> --total-bytes <bytes> --removable <true|false> [--event-log <path>] [--no-stdout]".to_string()
+    "usage: dd-flasher <write|verify> --source <path> --target <path> --total-bytes <bytes> --removable <true|false> [--event-log <path>] [--cancel-file <path>] [--no-stdout]".to_string()
 }
 
 /// Validates source metadata, event sink configuration, and self-write safety.
@@ -226,6 +234,7 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
     let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut written = 0u64;
     while written < request.total_bytes {
+        check_cancelled(request)?;
         let remaining = request.total_bytes - written;
         let chunk_size = if remaining < BUFFER_SIZE as u64 {
             remaining as usize
@@ -278,6 +287,7 @@ fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String>
     let mut target_buffer = vec![0u8; BUFFER_SIZE];
     let mut verified = 0u64;
     while verified < request.total_bytes {
+        check_cancelled(request)?;
         let chunk_size = BUFFER_SIZE.min((request.total_bytes - verified) as usize);
         let source_read = read_exact_or_eof(&mut source, &mut source_buffer[..chunk_size])
             .map_err(|error| format!("failed to read source: {error}"))?;
@@ -293,6 +303,18 @@ fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String>
         sink.progress(request.operation, verified, request.total_bytes)?;
     }
     Ok(true)
+}
+
+/// Returns an error when the caller has requested cancellation.
+fn check_cancelled(request: &Request) -> Result<(), String> {
+    if request
+        .cancel_file
+        .as_deref()
+        .is_some_and(|path| path.exists())
+    {
+        return Err("operation cancelled".to_string());
+    }
+    Ok(())
 }
 
 /// Fills a buffer unless EOF is reached first.
@@ -448,6 +470,27 @@ mod tests {
         assert!(error.contains("missing --removable"));
     }
 
+    /// Verifies the helper wire contract accepts a cancellation signal file.
+    #[test]
+    fn parses_cancel_file_argument() {
+        let request = parse_args([
+            "write".to_string(),
+            "--source".to_string(),
+            "source.raw".to_string(),
+            "--target".to_string(),
+            "target.raw".to_string(),
+            "--total-bytes".to_string(),
+            "4".to_string(),
+            "--removable".to_string(),
+            "true".to_string(),
+            "--cancel-file".to_string(),
+            "cancel.signal".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(request.cancel_file, Some(PathBuf::from("cancel.signal")));
+    }
+
     /// Verifies a successful write and verification cycle against temporary files.
     #[test]
     fn writes_and_verifies_raw_image() {
@@ -465,6 +508,7 @@ mod tests {
             total_bytes: image.len() as u64,
             removable: true,
             event_log: None,
+            cancel_file: None,
             stdout: true,
         };
         validate_request(&write_request).unwrap();
@@ -479,6 +523,7 @@ mod tests {
             total_bytes: image.len() as u64,
             removable: true,
             event_log: None,
+            cancel_file: None,
             stdout: true,
         };
         assert!(verify_image(&verify_request, &mut sink).unwrap());
@@ -500,6 +545,7 @@ mod tests {
             total_bytes: 4,
             removable: true,
             event_log: None,
+            cancel_file: None,
             stdout: true,
         };
         let mut sink = EventSink::new(None, true).unwrap();
@@ -522,6 +568,7 @@ mod tests {
             total_bytes: 3,
             removable: true,
             event_log: None,
+            cancel_file: None,
             stdout: true,
         };
         assert!(
@@ -548,6 +595,7 @@ mod tests {
             total_bytes: image.len() as u64,
             removable: true,
             event_log: None,
+            cancel_file: None,
             stdout: true,
         };
         validate_request(&request).unwrap();
@@ -560,6 +608,38 @@ mod tests {
                 .contains("source size changed")
         );
         assert_eq!(fs::read(target).unwrap(), [1u8, 2, 3, 4, 0, 0, 0, 0]);
+    }
+
+    /// Verifies an existing cancellation signal stops writes before data is copied.
+    #[test]
+    fn cancels_write_when_signal_exists() {
+        let temp = TempDirectory::new("cancels_write_when_signal_exists");
+        let source = temp.path().join("source.raw");
+        let target = temp.path().join("target.raw");
+        let cancel_file = temp.path().join("cancel.signal");
+        fs::write(&source, [1u8, 2, 3, 4]).unwrap();
+        fs::write(&target, [0u8; 8]).unwrap();
+        fs::write(&cancel_file, "cancel").unwrap();
+
+        let request = Request {
+            operation: Operation::Write,
+            source,
+            target: target.clone(),
+            total_bytes: 4,
+            removable: true,
+            event_log: None,
+            cancel_file: Some(cancel_file),
+            stdout: true,
+        };
+        validate_request(&request).unwrap();
+
+        let mut sink = EventSink::new(None, true).unwrap();
+        assert!(
+            write_image(&request, &mut sink)
+                .unwrap_err()
+                .contains("operation cancelled")
+        );
+        assert_eq!(fs::read(target).unwrap(), [0u8; 8]);
     }
 
     /// Verifies self-writes are rejected before opening the target for writing.
@@ -576,6 +656,7 @@ mod tests {
             total_bytes: 4,
             removable: true,
             event_log: None,
+            cancel_file: None,
             stdout: true,
         };
         assert!(
@@ -601,6 +682,7 @@ mod tests {
             total_bytes: 4,
             removable: false,
             event_log: None,
+            cancel_file: None,
             stdout: true,
         };
         assert!(
@@ -627,6 +709,7 @@ mod tests {
             total_bytes: 4,
             removable: true,
             event_log: Some(event_log.clone()),
+            cancel_file: None,
             stdout: false,
         };
         let mut sink = EventSink::new(request.event_log.as_deref(), request.stdout).unwrap();

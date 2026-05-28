@@ -135,6 +135,7 @@
 .step-button,
 .primary-action-button,
 .secondary-action-button,
+.cancel-flash-button,
 .header-button,
 .dialog-button,
 .language-selector,
@@ -145,6 +146,7 @@
 .step-button:disabled,
 .primary-action-button:disabled,
 .secondary-action-button:disabled,
+.cancel-flash-button:disabled,
 .header-button:disabled,
 .dialog-button:disabled,
 .language-selector:disabled,
@@ -175,11 +177,12 @@
     -fx-padding: 12 14;
 }
 
-.active-flash-summary-item {
-    -fx-min-width: 0;
+.active-flash-actions {
+    -fx-alignment: center-right;
 }
 
 .active-flash-summary-title {
+    -fx-min-width: 96px;
     -fx-font-size: 11px;
     -fx-font-weight: 700;
     -fx-text-fill: #637384;
@@ -188,6 +191,17 @@
 .active-flash-summary-value {
     -fx-font-size: 13px;
     -fx-text-fill: #18212b;
+}
+
+.cancel-flash-button {
+    -fx-min-width: 120px;
+    -fx-padding: 9 14;
+    -fx-background-color: #fff7f7;
+    -fx-text-fill: #b42c36;
+    -fx-font-weight: 700;
+    -fx-background-radius: 8;
+    -fx-border-color: #e6b9bd;
+    -fx-border-radius: 8;
 }
 
 .phase-progress-box {

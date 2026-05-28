@@ -17,6 +17,7 @@ import org.jetbrains.annotations.Unmodifiable;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -280,7 +281,10 @@ public final class RuyiImageMaterializer {
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+        try (InputStream input = Files.newInputStream(source);
+             OutputStream output = Files.newOutputStream(target)) {
+            copyInterruptibly(input, output, source.toString());
+        }
     }
 
     /// Decompresses a bare gzip stream.
@@ -296,7 +300,7 @@ public final class RuyiImageMaterializer {
         }
         try (InputStream input = new GZIPInputStream(Files.newInputStream(source));
              OutputStream output = Files.newOutputStream(target)) {
-            input.transferTo(output);
+            copyInterruptibly(input, output, source.toString());
         }
     }
 
@@ -331,7 +335,35 @@ public final class RuyiImageMaterializer {
         }
         try (InputStream input = compressedInputStream(source, compressorName);
              OutputStream output = Files.newOutputStream(target)) {
-            input.transferTo(output);
+            copyInterruptibly(input, output, distfile.name());
+        }
+    }
+
+    /// Copies stream data while checking for cancellation.
+    ///
+    /// @param input source stream.
+    /// @param output target stream.
+    /// @param name name shown in interruption diagnostics.
+    /// @throws IOException when copying fails or cancellation is requested.
+    private static void copyInterruptibly(InputStream input, OutputStream output, String name) throws IOException {
+        byte[] buffer = new byte[256 * 1024];
+        while (true) {
+            ensureNotInterrupted(name);
+            int read = input.read(buffer);
+            if (read < 0) {
+                return;
+            }
+            output.write(buffer, 0, read);
+        }
+    }
+
+    /// Throws when the current operation has been interrupted.
+    ///
+    /// @param name name shown in interruption diagnostics.
+    /// @throws IOException when cancellation is requested.
+    private static void ensureNotInterrupted(String name) throws IOException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedIOException(SdkMessages.get("core.materialize.interrupted", name));
         }
     }
 
@@ -409,6 +441,7 @@ public final class RuyiImageMaterializer {
         Path normalizedRoot = artifactDirectory.toAbsolutePath().normalize();
         try (ZipInputStream input = new ZipInputStream(Files.newInputStream(source))) {
             while (true) {
+                ensureNotInterrupted(source.toString());
                 @Nullable ZipEntry entry = input.getNextEntry();
                 if (entry == null) {
                     break;
@@ -429,7 +462,7 @@ public final class RuyiImageMaterializer {
                         Files.createDirectories(parent);
                     }
                     try (OutputStream output = Files.newOutputStream(target)) {
-                        input.transferTo(output);
+                        copyInterruptibly(input, output, source.toString());
                     }
                 }
                 input.closeEntry();
@@ -471,6 +504,7 @@ public final class RuyiImageMaterializer {
         try (TarArchiveInputStream tarInput = new TarArchiveInputStream(input)) {
             @Nullable TarArchiveEntry entry;
             while ((entry = tarInput.getNextEntry()) != null) {
+                ensureNotInterrupted(artifactDirectory.toString());
                 String entryName = entry.getName();
                 if (!matchesArchivePrefixes(entryName, prefixesToUnpack)) {
                     continue;
@@ -495,7 +529,7 @@ public final class RuyiImageMaterializer {
                     Files.createDirectories(parent);
                 }
                 try (OutputStream output = Files.newOutputStream(target)) {
-                    tarInput.transferTo(output);
+                    copyInterruptibly(tarInput, output, entryName);
                 }
             }
         }
@@ -591,6 +625,7 @@ public final class RuyiImageMaterializer {
             }
 
             while (true) {
+                ensureNotInterrupted(distfile.name());
                 @Nullable ArMember member = readArMember(input, source);
                 if (member == null) {
                     break;

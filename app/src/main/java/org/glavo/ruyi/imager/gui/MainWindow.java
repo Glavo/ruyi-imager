@@ -225,11 +225,23 @@ public final class MainWindow {
     /// Flash action button.
     private final Button flashButton = localizedButton("gui.button.flash");
 
+    /// Cancel action shown while a flash operation is active.
+    private final Button cancelFlashButton = localizedButton("gui.button.cancelFlash");
+
+    /// Currently running background task, or null when idle.
+    private @Nullable Task<?> currentBackgroundTask;
+
+    /// Thread running the current background task, or null when idle.
+    private @Nullable Thread currentBackgroundThread;
+
     /// Whether a background operation is active.
     private boolean busy;
 
     /// Whether the active background operation is a flash operation.
     private boolean flashInProgress;
+
+    /// Whether cancellation has already been requested for the current flash operation.
+    private boolean cancellationRequested;
 
     /// Creates the main window.
     ///
@@ -445,9 +457,11 @@ public final class MainWindow {
         storageButton.setOnAction(_ -> chooseStorage());
 
         flashButton.setOnAction(_ -> flash());
+        cancelFlashButton.setOnAction(_ -> requestFlashCancellation());
 
         localImageButton.getStyleClass().add("secondary-action-button");
         flashButton.getStyleClass().add("primary-action-button");
+        cancelFlashButton.getStyleClass().add("cancel-flash-button");
         targetTitle.getStyleClass().add("step-title");
 
         HBox writeActions = new HBox(flashButton);
@@ -534,38 +548,44 @@ public final class MainWindow {
         activeFlashBox.setVisible(false);
         activeFlashBox.setManaged(false);
 
-        HBox summary = new HBox(12,
-                createActiveFlashSummaryItem("gui.dialog.confirmFlash.manufacturer", activeManufacturerValue),
-                createActiveFlashSummaryItem("gui.dialog.confirmFlash.board", activeBoardValue),
-                createActiveFlashSummaryItem("gui.dialog.confirmFlash.imageSource", activeImageValue),
-                createActiveFlashSummaryItem("gui.dialog.confirmFlash.target", activeTargetValue));
+        GridPane summary = new GridPane();
         summary.getStyleClass().add("active-flash-summary");
-        summary.setAlignment(Pos.CENTER_LEFT);
+        summary.setHgap(14);
+        summary.setVgap(8);
         summary.setMaxWidth(Double.MAX_VALUE);
+        addActiveFlashSummaryRow(summary, 0, "gui.dialog.confirmFlash.manufacturer", activeManufacturerValue);
+        addActiveFlashSummaryRow(summary, 1, "gui.dialog.confirmFlash.board", activeBoardValue);
+        addActiveFlashSummaryRow(summary, 2, "gui.dialog.confirmFlash.imageSource", activeImageValue);
+        addActiveFlashSummaryRow(summary, 3, "gui.dialog.confirmFlash.target", activeTargetValue);
 
-        activeFlashBox.getChildren().setAll(summary, phaseProgressBox);
-        VBox.setVgrow(phaseProgressBox, Priority.ALWAYS);
+        HBox actions = new HBox(cancelFlashButton);
+        actions.getStyleClass().add("active-flash-actions");
+        actions.setAlignment(Pos.CENTER_RIGHT);
+        actions.setMaxWidth(Double.MAX_VALUE);
+
+        activeFlashBox.getChildren().setAll(summary, phaseProgressBox, actions);
         return activeFlashBox;
     }
 
-    /// Creates one compact active-flash summary item.
+    /// Adds one active-flash summary row.
     ///
-    /// @param titleKey localized summary title key.
+    /// @param summary summary grid.
+    /// @param row row index.
+    /// @param titleKey localized title key.
     /// @param value summary value label.
-    /// @return summary item.
-    private static VBox createActiveFlashSummaryItem(String titleKey, Label value) {
+    private static void addActiveFlashSummaryRow(GridPane summary, int row, String titleKey, Label value) {
         Label title = localizedLabel(titleKey);
         title.getStyleClass().add("active-flash-summary-title");
 
         value.getStyleClass().add("active-flash-summary-value");
+        value.setMinWidth(0);
         value.setWrapText(true);
         value.setMaxWidth(Double.MAX_VALUE);
 
-        VBox item = new VBox(3, title, value);
-        item.getStyleClass().add("active-flash-summary-item");
-        item.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(item, Priority.ALWAYS);
-        return item;
+        summary.add(title, 0, row);
+        summary.add(value, 1, row);
+        GridPane.setHgrow(value, Priority.ALWAYS);
+        GridPane.setFillWidth(value, true);
     }
 
     /// Creates the independent local-image option outside the catalog selection flow.
@@ -1577,6 +1597,8 @@ public final class MainWindow {
     private <T> void startBackgroundTask(Task<T> task, String failureTitle, Consumer<T> onSuccess) {
         LOGGER.atDebug().log(() -> "Starting GUI background task. failureTitle=" + failureTitle);
         busy = true;
+        cancellationRequested = false;
+        currentBackgroundTask = task;
         refreshState();
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
         progressBar.setVisible(!flashInProgress);
@@ -1604,10 +1626,41 @@ public final class MainWindow {
             }
             showError(failureTitle, failure == null ? null : failure.getMessage());
         });
+        task.setOnCancelled(_ -> {
+            boolean cancelledFlash = flashInProgress;
+            finishBackgroundTask();
+            LOGGER.info("GUI background task cancelled.");
+            if (cancelledFlash) {
+                showInfo(
+                        Messages.get("gui.dialog.flashCancelled"),
+                        Messages.get("gui.dialog.flashCancelled.message"));
+            }
+        });
 
         Thread thread = new Thread(task, "ruyi-imager-background");
         thread.setDaemon(true);
+        currentBackgroundThread = thread;
         thread.start();
+    }
+
+    /// Requests cancellation for the active flash operation.
+    private void requestFlashCancellation() {
+        if (!flashInProgress || cancellationRequested) {
+            return;
+        }
+        LOGGER.info("GUI flash cancellation requested.");
+        cancellationRequested = true;
+        cancelFlashButton.setDisable(true);
+
+        @Nullable Task<?> task = currentBackgroundTask;
+        if (task != null) {
+            task.cancel(true);
+        }
+
+        @Nullable Thread thread = currentBackgroundThread;
+        if (thread != null) {
+            thread.interrupt();
+        }
     }
 
     /// Clears background task UI bindings.
@@ -1619,6 +1672,9 @@ public final class MainWindow {
         progressBar.setVisible(false);
         resetPhaseProgress();
         flashInProgress = false;
+        cancellationRequested = false;
+        currentBackgroundTask = null;
+        currentBackgroundThread = null;
         busy = false;
         refreshState();
     }
@@ -1772,6 +1828,7 @@ public final class MainWindow {
         localImageButton.setDisable(busy);
         storageButton.setDisable(busy || !hasImageSource());
         flashButton.setDisable(!canFlash());
+        cancelFlashButton.setDisable(!flashInProgress || cancellationRequested);
     }
 
     /// Refreshes the compact selection summary shown while flashing.
