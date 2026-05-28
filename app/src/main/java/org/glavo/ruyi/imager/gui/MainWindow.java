@@ -1555,7 +1555,7 @@ public final class MainWindow {
         }
 
         flashInProgress = true;
-        long progressGeneration = beginPhaseProgress();
+        long progressGeneration = beginPhaseProgress(selectedImage, selectedLocalImage, selectedTarget);
         Task<OperationResult> task = new Task<>() {
             /// Runs the flash operation outside the JavaFX application thread.
             ///
@@ -1701,10 +1701,66 @@ public final class MainWindow {
     /// Starts a fresh visible phase-progress generation for one flash task.
     ///
     /// @return generation token for the task.
-    private long beginPhaseProgress() {
+    private long beginPhaseProgress(
+            @Nullable ImageEntry image,
+            @Nullable Path localImage,
+            FlashTarget target) {
         phaseProgressGeneration++;
         clearPhaseProgressRows();
+        initializePhaseProgressRows(image, localImage, target);
         return phaseProgressGeneration;
+    }
+
+    /// Creates pending progress rows for the selected flash flow.
+    ///
+    /// @param image selected catalog image, or null for a local image.
+    /// @param localImage selected local image, or null for a catalog image.
+    /// @param target selected target.
+    private void initializePhaseProgressRows(
+            @Nullable ImageEntry image,
+            @Nullable Path localImage,
+            FlashTarget target) {
+        phaseProgressBox.setVisible(true);
+        phaseProgressBox.setManaged(true);
+        for (String stage : initialPhaseProgressStages(image, localImage, target)) {
+            PhaseProgressRow row = phaseProgressRows.computeIfAbsent(stage, this::createPhaseProgressRow);
+            row.message().setText(Messages.get("gui.progress.pending"));
+            row.progressBar().setProgress(0.0);
+            row.percent().setText("");
+        }
+    }
+
+    /// Returns the progress stages to show before the first backend event arrives.
+    ///
+    /// @param image selected catalog image, or null for a local image.
+    /// @param localImage selected local image, or null for a catalog image.
+    /// @param target selected target.
+    /// @return stages to create immediately.
+    static @Unmodifiable List<String> initialPhaseProgressStages(
+            @Nullable ImageEntry image,
+            @Nullable Path localImage,
+            FlashTarget target) {
+        ArrayList<String> stages = new ArrayList<>();
+        if (image != null) {
+            stages.add("download");
+            stages.add("materialize");
+        }
+
+        if (target.isFastbootDevice()) {
+            stages.add("fastboot");
+        } else {
+            if (target.blockDevice() != null || !target.blockDevices().isEmpty()) {
+                stages.add("prepare");
+            }
+            stages.add("flash");
+            stages.add("verify");
+        }
+
+        if (localImage != null && stages.isEmpty()) {
+            stages.add("flash");
+            stages.add("verify");
+        }
+        return List.copyOf(stages);
     }
 
     /// Hides and invalidates phase progress rows.

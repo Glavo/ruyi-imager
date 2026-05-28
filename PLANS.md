@@ -22,7 +22,7 @@
 - 平台设备枚举和 Windows 目标准备命令已改为并发消费 stdout/stderr，避免外部命令输出填满管道导致误超时。
 - Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
-- GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒、目标确认、窗口图标和页头 Logo；元数据更新成功后会重置镜像来源和目标设备选择；刷写期间会折叠选择流程，仅保留当前制造商、开发板、镜像和目标摘要栏，长文本摘要使用全宽行式布局避免逐字换行，并按后端 `ProgressEvent.stage` 分阶段显示下载、准备、写入、校验和 fastboot 等多个进度条；刷写中可从 GUI 取消，GUI 会中断后台任务、等待后台刷写流程实际退出后再恢复控件，若后台已成功完成则保留成功结果，只有中断导致的停止才显示取消提示；SDK 进度和诊断消息会在 app 层通过资源包本地化，下载相关短状态消息不带末尾句号，后台任务未知错误兜底和 fastboot 设备详情标签也会随 GUI locale 切换，CLI/GUI 不再混用英文 SDK 文本。
+- GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒、目标确认、窗口图标和页头 Logo；元数据更新成功后会重置镜像来源和目标设备选择；刷写期间会折叠选择流程，仅保留当前制造商、开发板、镜像和目标摘要栏，长文本摘要使用全宽行式布局避免逐字换行，并在开始刷写时预显示本次流程涉及的下载、准备镜像、准备目标、写入、校验和 fastboot 等阶段进度条，后续按后端 `ProgressEvent.stage` 更新；刷写中可从 GUI 取消，GUI 会中断后台任务、等待后台刷写流程实际退出后再恢复控件，若后台已成功完成则保留成功结果，只有中断导致的停止才显示取消提示；SDK 进度和诊断消息会在 app 层通过资源包本地化，下载相关短状态消息不带末尾句号，后台任务未知错误兜底和 fastboot 设备详情标签也会随 GUI locale 切换，CLI/GUI 不再混用英文 SDK 文本。
 - SDK 刷写测试覆盖 fake `DdImageWriter` 编排路径，包括跳过校验、校验失败、多分区顺序和分区 target 拒绝条件，不依赖真实 helper 写目标内容。
 - 日志已改用 SLF4J API，运行时接 JUL 文件后端；CLI/GUI 错误都会暴露日志路径，日志默认脱敏和截断敏感外部输出。
 - 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 JLink zip；Windows JLink 包同时提供 console subsystem 的 `ruyi-imager.exe` 作为 CLI 默认入口，以及 Windows subsystem 的 `ruyi-imager-gui.exe` 作为无黑框双击 GUI 入口，`dd-flasher`/launcher release 构建会追踪 Cargo manifest/lockfile/Rust 源码输入；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。

@@ -183,6 +183,35 @@ public final class MainWindowJavaFxSmokeTest {
         });
     }
 
+    /// Verifies flash progress rows are known before backend progress events arrive.
+    @Test
+    public void createsInitialFlashProgressStages() {
+        ImageEntry ddImage = image(
+                "dd-test",
+                "DD image for Test Board",
+                "generic",
+                "dd-v1",
+                Map.of("disk", "dd.raw"));
+        ImageEntry fastbootImage = image(
+                "fastboot-test",
+                "Fastboot image for Test Board",
+                "generic",
+                "fastboot-v1",
+                Map.of("root", "root.ext4"));
+        BlockDevice block = blockDevice("target", Path.of("target.raw"));
+        FastbootDevice fastboot = new FastbootDevice("serial", "serial", "fastboot");
+
+        assertEquals(
+                List.of("download", "materialize", "prepare", "flash", "verify"),
+                MainWindow.initialPhaseProgressStages(ddImage, null, FlashTarget.blockDevice(block)));
+        assertEquals(
+                List.of("prepare", "flash", "verify"),
+                MainWindow.initialPhaseProgressStages(null, Path.of("local.raw"), FlashTarget.blockDevice(block)));
+        assertEquals(
+                List.of("download", "materialize", "fastboot"),
+                MainWindow.initialPhaseProgressStages(fastbootImage, null, FlashTarget.fastbootDevice(fastboot)));
+    }
+
     /// Runs an action on the JavaFX application thread.
     ///
     /// @param action action to run.
