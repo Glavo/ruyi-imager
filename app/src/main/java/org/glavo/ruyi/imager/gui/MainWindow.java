@@ -62,7 +62,9 @@ import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.net.URL;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -1602,13 +1604,8 @@ public final class MainWindow {
         statusLabel.textProperty().bind(task.messageProperty());
 
         task.setOnSucceeded(_ -> {
-            boolean cancelledFlash = flashInProgress && cancellationRequested;
-            finishBackgroundTask();
-            if (cancelledFlash) {
-                showFlashCancelled();
-                return;
-            }
             @Nullable T result = task.getValue();
+            finishBackgroundTask();
             if (result != null) {
                 LOGGER.debug("GUI background task succeeded.");
                 onSuccess.accept(result);
@@ -1619,9 +1616,9 @@ public final class MainWindow {
         });
         task.setOnFailed(_ -> {
             boolean cancelledFlash = flashInProgress && cancellationRequested;
-            finishBackgroundTask();
             Throwable failure = task.getException();
-            if (cancelledFlash) {
+            finishBackgroundTask();
+            if (cancelledFlash && isInterruptionFailure(failure)) {
                 LOGGER.info("GUI background task stopped after cancellation request.", failure);
                 showFlashCancelled();
                 return;
@@ -1645,6 +1642,12 @@ public final class MainWindow {
         if (!flashInProgress || cancellationRequested) {
             return;
         }
+        @Nullable Thread thread = currentBackgroundThread;
+        if (thread == null || !thread.isAlive()) {
+            LOGGER.info("Ignoring GUI flash cancellation request because the background worker has already stopped.");
+            cancelFlashButton.setDisable(true);
+            return;
+        }
         LOGGER.info("GUI flash cancellation requested.");
         cancellationRequested = true;
         cancelFlashButton.setDisable(true);
@@ -1653,10 +1656,7 @@ public final class MainWindow {
         }
         statusLabel.setText(Messages.get("gui.status.cancellingFlash"));
 
-        @Nullable Thread thread = currentBackgroundThread;
-        if (thread != null) {
-            thread.interrupt();
-        }
+        thread.interrupt();
     }
 
     /// Shows the flash cancellation result dialog.
@@ -1664,6 +1664,23 @@ public final class MainWindow {
         showInfo(
                 Messages.get("gui.dialog.flashCancelled"),
                 Messages.get("gui.dialog.flashCancelled.message"));
+    }
+
+    /// Returns whether a background task failure was caused by interruption.
+    ///
+    /// @param failure task failure, or null when absent.
+    /// @return whether the failure indicates the worker stopped because it was interrupted.
+    private static boolean isInterruptionFailure(@Nullable Throwable failure) {
+        @Nullable Throwable current = failure;
+        while (current != null) {
+            if (current instanceof InterruptedException
+                    || current instanceof InterruptedIOException
+                    || current instanceof ClosedByInterruptException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /// Clears background task UI bindings.
