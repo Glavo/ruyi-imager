@@ -54,6 +54,7 @@ public final class WindowsBlockDevicePreparerTest {
         assertTrue(script.contains("-Verb RunAs"));
         assertTrue(script.contains("$diskNumber = 2"));
         assertTrue(script.contains("Dismount-Volume -Force -Confirm:$false -ErrorAction Stop"));
+        assertTrue(script.contains("$accessPath.StartsWith('\\\\?\\Volume{'"));
     }
 
     /// Verifies that unrecognized mounted devices are left unchanged.

@@ -64,6 +64,9 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
 
                 foreach ($accessPath in @($partition.AccessPaths)) {
                     if ($accessPath) {
+                        if ($accessPath.StartsWith('\\\\?\\Volume{', [System.StringComparison]::OrdinalIgnoreCase)) {
+                            continue
+                        }
                         Remove-PartitionAccessPath `
                             -DiskNumber $diskNumber `
                             -PartitionNumber $partition.PartitionNumber `
