@@ -130,7 +130,9 @@ final class DDFlasherElevation {
     static String windowsElevationScript(String executable, List<String> arguments) {
         StringBuilder builder = new StringBuilder();
         builder.append("$ErrorActionPreference = 'Stop'\n");
-        builder.append("$process = Start-Process -FilePath ");
+        builder.append("$ProgressPreference = 'SilentlyContinue'\n");
+        builder.append("try {\n");
+        builder.append("  $process = Start-Process -FilePath ");
         builder.append(powerShellString(executable));
         builder.append(" -ArgumentList @(");
         for (int i = 0; i < arguments.size(); i++) {
@@ -140,7 +142,11 @@ final class DDFlasherElevation {
             builder.append(powerShellString(arguments.get(i)));
         }
         builder.append(") -Verb RunAs -Wait -PassThru -WindowStyle Hidden\n");
-        builder.append("exit $process.ExitCode\n");
+        builder.append("  exit $process.ExitCode\n");
+        builder.append("} catch {\n");
+        builder.append("  [Console]::Error.WriteLine($_.Exception.Message)\n");
+        builder.append("  exit 1\n");
+        builder.append("}\n");
         return builder.toString();
     }
 

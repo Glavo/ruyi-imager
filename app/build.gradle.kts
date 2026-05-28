@@ -343,6 +343,10 @@ application {
 }
 
 tasks.named<JavaExec>("run") {
+    dependsOn(":dd-flasher:cargoBuild")
+    doFirst {
+        systemProperty("ruyi.imager.ddFlasher.executable", testDDFlasherExecutable.get().asFile.absolutePath)
+    }
     runFastbootBundle?.let { bundle ->
         val executable = bundledFastbootDirectory.map {
             it.file("${bundle.platformDirectory}/${bundle.executableName}")

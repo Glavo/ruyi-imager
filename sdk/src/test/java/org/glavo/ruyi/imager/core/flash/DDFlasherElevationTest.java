@@ -138,8 +138,10 @@ public final class DDFlasherElevationTest {
         assertEquals("-EncodedCommand", command.get(4));
 
         String script = new String(Base64.getDecoder().decode(command.get(5)), StandardCharsets.UTF_16LE);
+        assertTrue(script.contains("$ProgressPreference = 'SilentlyContinue'"));
         assertTrue(script.contains("Start-Process"));
         assertTrue(script.contains("-Verb RunAs"));
+        assertTrue(script.contains("[Console]::Error.WriteLine($_.Exception.Message)"));
         assertTrue(script.contains("'C:\\Tools\\dd-flasher.exe'"));
         assertTrue(script.contains("'C:\\Images\\o''clock.raw'"));
     }
