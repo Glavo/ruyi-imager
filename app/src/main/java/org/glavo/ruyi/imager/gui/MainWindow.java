@@ -1015,7 +1015,7 @@ public final class MainWindow {
 
         startBackgroundTask(task, Messages.get("gui.dialog.metadataUpdateFailed"), result -> {
             if (result.success()) {
-                state = new WizardState(null, null, null, null, state.target());
+                state = new WizardState(null, null, null, null, null);
                 refreshState();
                 showInfo(Messages.get("gui.dialog.metadataUpdated"), result.message());
             } else {
