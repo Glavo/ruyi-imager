@@ -20,7 +20,7 @@
 - `dd-v1` raw 写入已要求目标必须标记为 removable：GUI 默认过滤非可移动块设备，SDK 写前拒绝非 removable 目标，`dd-flasher` helper 也通过必传 wire 参数在打开目标前再次拒绝；容量未知的真实块设备会被 GUI 过滤并在 SDK 写前拒绝，文件型测试 target 仍可用于模拟写入。
 - Java `ProcessDdImageWriter` 已并发消费 helper 诊断输出，避免异常 helper 写满 stdout/stderr 管道后卡住 CLI/GUI；传给 helper 的 Windows `\\.\PHYSICALDRIVE...` 目标会去掉 Java `Path` 追加的末尾分隔符，避免 raw device 打开失败。
 - 平台设备枚举和 Windows 目标准备命令已改为并发消费 stdout/stderr，避免外部命令输出填满管道导致误超时。
-- Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；Windows UAC 启动失败会抑制 PowerShell progress CLIXML 并返回普通错误文本；已挂载 Windows 目标会通过 UAC 提权卸载卷并移除盘符/挂载目录访问路径，跳过不能移除的 volume GUID path，准备失败会提前报错而不是静默继续写入；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
+- Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；Windows UAC 启动失败会抑制 PowerShell progress CLIXML 并返回普通错误文本；已挂载 Windows 目标会通过 UAC 提权移除盘符/挂载目录访问路径并离线磁盘，跳过不能移除的 volume GUID path，准备失败会提前报错而不是静默继续写入；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
 - GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒、目标确认、窗口图标和页头 Logo；元数据更新成功后会重置镜像来源和目标设备选择；刷写期间会折叠选择流程，仅保留当前制造商、开发板、镜像和目标摘要栏，长文本摘要使用全宽行式布局避免逐字换行，并在开始刷写时预显示本次流程涉及的下载、准备镜像、准备目标、写入、校验和 fastboot 等阶段进度条，后续按后端 `ProgressEvent.stage` 更新；刷写中可从 GUI 取消，GUI 会中断后台任务、等待后台刷写流程实际退出后再恢复控件，若后台已成功完成则保留成功结果，只有中断导致的停止才显示取消提示；SDK 进度和诊断消息会在 app 层通过资源包本地化，下载相关短状态消息不带末尾句号，后台任务未知错误兜底和 fastboot 设备详情标签也会随 GUI locale 切换，CLI/GUI 不再混用英文 SDK 文本。
 - SDK 刷写测试覆盖 fake `DdImageWriter` 编排路径，包括跳过校验、校验失败、多分区顺序和分区 target 拒绝条件，不依赖真实 helper 写目标内容。

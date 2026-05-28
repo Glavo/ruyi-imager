@@ -53,15 +53,6 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
             }
 
             foreach ($partition in (Get-Partition -DiskNumber $diskNumber)) {
-                $volume = $null
-                try {
-                    $volume = $partition | Get-Volume -ErrorAction Stop
-                } catch {
-                }
-                if ($null -ne $volume) {
-                    $volume | Dismount-Volume -Force -Confirm:$false -ErrorAction Stop
-                }
-
                 foreach ($accessPath in @($partition.AccessPaths)) {
                     if ($accessPath) {
                         if ($accessPath.StartsWith('\\\\?\\Volume{', [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -76,6 +67,7 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
                 }
             }
 
+            Set-Disk -Number $diskNumber -IsOffline $true -ErrorAction Stop
             Write-Output 'prepared'
             """;
 
@@ -203,12 +195,13 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
                 '@
                   $prepareScript = @"
                 `$ErrorActionPreference = 'Stop'
+                `$utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList `$false
                 try {
                 $prepareBody
-                  [System.IO.File]::WriteAllText('$($outputFile.Replace("'", "''"))', 'prepared', [System.Text.Encoding]::UTF8)
+                  [System.IO.File]::WriteAllText('$($outputFile.Replace("'", "''"))', 'prepared', `$utf8NoBom)
                   exit 0
                 } catch {
-                  [System.IO.File]::WriteAllText('$($errorFile.Replace("'", "''"))', `$_.Exception.Message, [System.Text.Encoding]::UTF8)
+                  [System.IO.File]::WriteAllText('$($errorFile.Replace("'", "''"))', `$_.Exception.Message, `$utf8NoBom)
                   exit 1
                 }
                 "@
@@ -222,10 +215,16 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
                     $encoded
                   ) -Verb RunAs -Wait -PassThru -WindowStyle Hidden
                   if (Test-Path -LiteralPath $outputFile) {
-                    [Console]::Out.Write([System.IO.File]::ReadAllText($outputFile, [System.Text.Encoding]::UTF8))
+                    $outputBytes = [System.IO.File]::ReadAllBytes($outputFile)
+                    $stdout = [Console]::OpenStandardOutput()
+                    $stdout.Write($outputBytes, 0, $outputBytes.Length)
+                    $stdout.Flush()
                   }
                   if (Test-Path -LiteralPath $errorFile) {
-                    [Console]::Error.Write([System.IO.File]::ReadAllText($errorFile, [System.Text.Encoding]::UTF8))
+                    $errorBytes = [System.IO.File]::ReadAllBytes($errorFile)
+                    $stderr = [Console]::OpenStandardError()
+                    $stderr.Write($errorBytes, 0, $errorBytes.Length)
+                    $stderr.Flush()
                   }
                   exit $process.ExitCode
                 } catch {

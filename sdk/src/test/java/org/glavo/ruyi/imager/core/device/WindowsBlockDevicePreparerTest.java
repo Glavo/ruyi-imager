@@ -53,8 +53,10 @@ public final class WindowsBlockDevicePreparerTest {
         assertTrue(script.contains("Start-Process"));
         assertTrue(script.contains("-Verb RunAs"));
         assertTrue(script.contains("$diskNumber = 2"));
-        assertTrue(script.contains("Dismount-Volume -Force -Confirm:$false -ErrorAction Stop"));
+        assertFalse(script.contains("Dismount-Volume"));
+        assertTrue(script.contains("Set-Disk -Number $diskNumber -IsOffline $true -ErrorAction Stop"));
         assertTrue(script.contains("$accessPath.StartsWith('\\\\?\\Volume{'"));
+        assertTrue(script.contains("[Console]::OpenStandardError()"));
     }
 
     /// Verifies that unrecognized mounted devices are left unchanged.
