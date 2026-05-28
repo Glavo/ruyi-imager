@@ -13,26 +13,26 @@ import org.glavo.ruyi.imager.core.SdkMessages;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -139,6 +139,11 @@ public final class RuyiImageMaterializer {
             replaceDirectory(stagingDirectory, artifactDirectory);
             stagingMoved = true;
             LOGGER.atInfo().log(() -> "Image materialized. atom=" + image.atom() + ", result=" + result);
+            reporter.report(new ProgressEvent(
+                    "materialize",
+                    SdkMessages.get("core.materialize.complete", image.atom()),
+                    1L,
+                    1L));
             return result;
         } finally {
             if (!stagingMoved) {

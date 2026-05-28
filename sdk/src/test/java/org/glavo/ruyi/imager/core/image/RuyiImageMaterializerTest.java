@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.core.image;
 import kala.compress.compressors.CompressorException;
 import kala.compress.compressors.CompressorOutputStream;
 import kala.compress.compressors.CompressorStreamFactory;
+import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -21,6 +22,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -58,10 +60,16 @@ public final class RuyiImageMaterializerTest {
 
         Path artifactDirectory = temporaryDirectory.resolve("artifacts");
         ImageEntry image = image("image.raw", null, "image.raw");
-        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+        ArrayList<ProgressEvent> progress = new ArrayList<>();
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, progress::add);
 
         assertEquals(artifactDirectory.resolve("image.raw").toAbsolutePath().normalize(), result);
         assertArrayEquals(content, Files.readAllBytes(result));
+        ProgressEvent last = progress.getLast();
+        assertEquals("materialize", last.stage());
+        assertEquals("Prepared image board-image/test-board(1.0.0)", last.message());
+        assertEquals(1L, last.currentBytes());
+        assertEquals(1L, last.totalBytes());
     }
 
     /// Verifies successful materialization replaces stale files from previous runs.

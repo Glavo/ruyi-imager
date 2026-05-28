@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,7 +91,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
-        if (!run("write", "flash", source, target, totalBytes, targetRemovable, message, reporter)) {
+        if (!run("write", progressSinks("write", "flash", message), source, target, totalBytes, targetRemovable, reporter)) {
             throw new IOException(SdkMessages.get("core.dd.writeFailed"));
         }
     }
@@ -113,33 +114,63 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
-        return run("verify", "verify", source, target, totalBytes, targetRemovable, message, reporter);
+        return run("verify", progressSinks("verify", "verify", message), source, target, totalBytes, targetRemovable, reporter);
+    }
+
+    /// Writes a source image to a target path and verifies the written bytes through one helper process.
+    ///
+    /// @param source source image path.
+    /// @param target target path.
+    /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
+    /// @param writeMessage progress message for writing.
+    /// @param verifyMessage progress message for verification.
+    /// @param reporter progress reporter.
+    /// @return whether the target bytes match the source image after writing.
+    /// @throws IOException when the image cannot be written or read.
+    @Override
+    public boolean writeAndVerify(
+            Path source,
+            Path target,
+            long totalBytes,
+            boolean targetRemovable,
+            String writeMessage,
+            String verifyMessage,
+            ProgressReporter reporter) throws IOException {
+        return run(
+                "write-verify",
+                Map.of(
+                        "write", new ProgressSink("flash", writeMessage),
+                        "verify", new ProgressSink("verify", verifyMessage)),
+                source,
+                target,
+                totalBytes,
+                targetRemovable,
+                reporter);
     }
 
     /// Runs one helper operation.
     ///
     /// @param operation helper operation.
-    /// @param stage SDK progress stage.
+    /// @param progressSinks progress sinks keyed by helper operation.
     /// @param source source image path.
     /// @param target target path.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
-    /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return operation success result.
     /// @throws IOException when helper execution or output parsing fails.
     private boolean run(
             String operation,
-            String stage,
+            Map<String, ProgressSink> progressSinks,
             Path source,
             Path target,
             long totalBytes,
             boolean targetRemovable,
-            String message,
             ProgressReporter reporter) throws IOException {
         List<String> arguments = arguments(operation, source, target, totalBytes, targetRemovable);
         if (DDFlasherElevation.shouldElevate(target)) {
-            return runElevated(operation, stage, arguments, message, reporter);
+            return runElevated(operation, progressSinks, arguments, reporter);
         }
 
         List<String> command = command(arguments);
@@ -151,7 +182,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw new IOException(SdkMessages.get("core.dd.missingExecutable", executable), exception);
         }
 
-        HelperEventState state = new HelperEventState(stage, message, reporter);
+        HelperEventState state = new HelperEventState(progressSinks, reporter);
         ProcessEventCollector stdout = ProcessEventCollector.start(process.getInputStream(), state, "dd-flasher-stdout");
         ProcessStreamCollector stderr = ProcessStreamCollector.start(process.getErrorStream(), "dd-flasher-stderr");
         try {
@@ -170,17 +201,15 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// Runs one helper operation through a platform elevation launcher.
     ///
     /// @param operation helper operation.
-    /// @param stage SDK progress stage.
+    /// @param progressSinks progress sinks keyed by helper operation.
     /// @param arguments helper arguments excluding executable.
-    /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return operation success result.
     /// @throws IOException when helper execution or output parsing fails.
     private boolean runElevated(
             String operation,
-            String stage,
+            Map<String, ProgressSink> progressSinks,
             List<String> arguments,
-            String message,
             ProgressReporter reporter) throws IOException {
         Path eventLog = Files.createTempFile("ruyi-imager-dd-flasher-", ".ndjson");
         Path cancelFile;
@@ -220,7 +249,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", commandText(command)), exception);
         }
 
-        HelperEventState state = new HelperEventState(stage, message, reporter);
+        HelperEventState state = new HelperEventState(progressSinks, reporter);
         ProcessStreamCollector stdout = ProcessStreamCollector.start(process.getInputStream(), "dd-flasher-elevated-stdout");
         ProcessStreamCollector stderr = ProcessStreamCollector.start(process.getErrorStream(), "dd-flasher-elevated-stderr");
         long offset = 0L;
@@ -352,6 +381,16 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         command.addAll(commandPrefix);
         command.addAll(arguments);
         return command;
+    }
+
+    /// Builds a single helper operation progress mapping.
+    ///
+    /// @param operation helper operation name.
+    /// @param stage SDK progress stage.
+    /// @param message SDK progress message.
+    /// @return progress sink mapping.
+    private static Map<String, ProgressSink> progressSinks(String operation, String stage, String message) {
+        return Map.of(operation, new ProgressSink(stage, message));
     }
 
     /// Parses one helper event line.
@@ -700,11 +739,8 @@ public final class ProcessDdImageWriter implements DdImageWriter {
 
     /// Mutable parsed helper event state.
     private static final class HelperEventState {
-        /// SDK progress stage.
-        private final String stage;
-
-        /// SDK progress message.
-        private final String message;
+        /// SDK progress sinks keyed by helper operation.
+        private final Map<String, ProgressSink> progressSinks;
 
         /// SDK progress reporter.
         private final ProgressReporter reporter;
@@ -720,12 +756,10 @@ public final class ProcessDdImageWriter implements DdImageWriter {
 
         /// Creates the event state.
         ///
-        /// @param stage SDK progress stage.
-        /// @param message SDK progress message.
+        /// @param progressSinks SDK progress sinks keyed by helper operation.
         /// @param reporter SDK progress reporter.
-        private HelperEventState(String stage, String message, ProgressReporter reporter) {
-            this.stage = stage;
-            this.message = message;
+        private HelperEventState(Map<String, ProgressSink> progressSinks, ProgressReporter reporter) {
+            this.progressSinks = progressSinks;
             this.reporter = reporter;
         }
 
@@ -741,11 +775,21 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             JsonNode event = parseEvent(line);
             String type = event.path("type").asText();
             switch (type) {
-                case "progress" -> reporter.report(new ProgressEvent(
-                        stage,
-                        message,
-                        event.path("currentBytes").asLong(),
-                        event.path("totalBytes").asLong()));
+                case "progress" -> {
+                    String operation = event.path("operation").asText();
+                    @Nullable ProgressSink sink = progressSinks.get(operation);
+                    if (sink == null && progressSinks.size() == 1) {
+                        sink = progressSinks.values().iterator().next();
+                    }
+                    if (sink == null) {
+                        throw new IOException(SdkMessages.get("core.dd.unexpectedEvent", "progress:" + operation));
+                    }
+                    reporter.report(new ProgressEvent(
+                            sink.stage(),
+                            sink.message(),
+                            event.path("currentBytes").asLong(),
+                            event.path("totalBytes").asLong()));
+                }
                 case "complete" -> {
                     completed = true;
                     success = event.path("success").asBoolean(false);
@@ -754,5 +798,13 @@ public final class ProcessDdImageWriter implements DdImageWriter {
                 default -> throw new IOException(SdkMessages.get("core.dd.unexpectedEvent", type));
             }
         }
+    }
+
+    /// SDK progress sink for one helper operation.
+    ///
+    /// @param stage SDK progress stage.
+    /// @param message SDK progress message.
+    @NotNullByDefault
+    private record ProgressSink(String stage, String message) {
     }
 }

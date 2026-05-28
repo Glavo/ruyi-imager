@@ -372,22 +372,22 @@ public final class LocalFlashService implements FlashService {
                 + verify);
 
         reporter.report(new ProgressEvent("flash", writeMessage, 0L, sourceSize));
-        ddImageWriter.write(source, blockDevice.path(), sourceSize, blockDevice.removable(), writeMessage, reporter);
-        LOGGER.atInfo().log(() -> "Block image write completed. target=" + blockDevice.path());
-
         if (verify) {
-            reporter.report(new ProgressEvent("verify", verifyMessage, 0L, sourceSize));
-            if (!ddImageWriter.verify(
+            if (!ddImageWriter.writeAndVerify(
                     source,
                     blockDevice.path(),
                     sourceSize,
                     blockDevice.removable(),
+                    writeMessage,
                     verifyMessage,
                     reporter)) {
                 LOGGER.atWarn().log(() -> "Block image verification failed. target=" + blockDevice.path());
                 return OperationResult.failure(SdkMessages.get("core.flash.verifyFailed"));
             }
-            LOGGER.atInfo().log(() -> "Block image verification completed. target=" + blockDevice.path());
+            LOGGER.atInfo().log(() -> "Block image write and verification completed. target=" + blockDevice.path());
+        } else {
+            ddImageWriter.write(source, blockDevice.path(), sourceSize, blockDevice.removable(), writeMessage, reporter);
+            LOGGER.atInfo().log(() -> "Block image write completed. target=" + blockDevice.path());
         }
 
         return OperationResult.success(SdkMessages.get("core.flash.success"));

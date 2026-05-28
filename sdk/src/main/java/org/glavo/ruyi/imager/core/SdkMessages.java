@@ -127,6 +127,7 @@ public final class SdkMessages {
             Map.entry("core.image.invalidSemVer", "Invalid SemVer version: {0}"),
             Map.entry("core.materialize.countMismatch", "Downloaded distfile count does not match image metadata."),
             Map.entry("core.materialize.materializing", "Preparing image file {0}"),
+            Map.entry("core.materialize.complete", "Prepared image {0}"),
             Map.entry("core.materialize.noPartitionMap", "Image has no partition map: {0}"),
             Map.entry("core.materialize.partitionMissing", "Image partition artifact is missing: {0}"),
             Map.entry("core.materialize.interrupted", "Interrupted while preparing image file {0}."),

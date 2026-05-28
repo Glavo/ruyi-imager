@@ -82,6 +82,7 @@ public final class MessagesTest {
             assertEquals("Downloading image.raw", SdkMessages.get("core.download.downloading", "image.raw"));
             assertEquals("Downloaded test-image", SdkMessages.get("core.download.imageComplete", "test-image"));
             assertEquals("Preparing image file image.tar.zst", SdkMessages.get("core.materialize.materializing", "image.tar.zst"));
+            assertEquals("Prepared image test-image", SdkMessages.get("core.materialize.complete", "test-image"));
 
             Messages.setLocale(Locale.SIMPLIFIED_CHINESE);
             assertEquals("正在将镜像写入目标设备。", SdkMessages.get("core.flash.writing"));
@@ -91,6 +92,7 @@ public final class MessagesTest {
             assertEquals("正在下载 image.raw", SdkMessages.get("core.download.downloading", "image.raw"));
             assertEquals("已下载 test-image", SdkMessages.get("core.download.imageComplete", "test-image"));
             assertEquals("正在准备镜像文件 image.tar.zst", SdkMessages.get("core.materialize.materializing", "image.tar.zst"));
+            assertEquals("镜像 test-image 已准备", SdkMessages.get("core.materialize.complete", "test-image"));
         } finally {
             Messages.setLocale(originalLocale);
         }

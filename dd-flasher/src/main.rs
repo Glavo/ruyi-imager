@@ -3,7 +3,7 @@
 
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -18,6 +18,9 @@ enum Operation {
 
     /// Compare target bytes with the source image without modifying the target.
     Verify,
+
+    /// Copy bytes and then compare them before releasing the target handle.
+    WriteVerify,
 }
 
 impl Operation {
@@ -26,6 +29,7 @@ impl Operation {
         match self {
             Operation::Write => "write",
             Operation::Verify => "verify",
+            Operation::WriteVerify => "write-verify",
         }
     }
 }
@@ -101,6 +105,7 @@ fn run_request(request: &Request, sink: &mut EventSink) -> Result<bool, String> 
             Ok(true)
         }
         Operation::Verify => verify_image(request, sink),
+        Operation::WriteVerify => write_and_verify_image(request, sink),
     }
 }
 
@@ -113,6 +118,7 @@ where
     let operation = match args.next().as_deref() {
         Some("write") => Operation::Write,
         Some("verify") => Operation::Verify,
+        Some("write-verify") => Operation::WriteVerify,
         Some(other) => return Err(format!("unsupported operation: {other}")),
         None => return Err("missing operation".to_string()),
     };
@@ -182,7 +188,7 @@ fn parse_bool(value: &str, name: &str) -> Result<bool, String> {
 
 /// Returns the CLI usage text.
 fn usage() -> String {
-    "usage: dd-flasher <write|verify> --source <path> --target <path> --total-bytes <bytes> --removable <true|false> [--event-log <path>] [--cancel-file <path>] [--no-stdout]".to_string()
+    "usage: dd-flasher <write|verify|write-verify> --source <path> --target <path> --total-bytes <bytes> --removable <true|false> [--event-log <path>] [--cancel-file <path>] [--no-stdout]".to_string()
 }
 
 /// Validates source metadata, event sink configuration, and self-write safety.
@@ -231,6 +237,37 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
         .open(&request.target)
         .map_err(|error| format!("failed to open target for writing: {error}"))?;
 
+    write_image_stream(request, &mut source, &mut target, sink)
+}
+
+/// Streams source image bytes to the target, verifies them, and releases the target afterward.
+fn write_and_verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
+    let mut source =
+        File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
+    let mut target = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&request.target)
+        .map_err(|error| format!("failed to open target for writing: {error}"))?;
+
+    write_image_stream(request, &mut source, &mut target, sink)?;
+    source
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| format!("failed to seek source: {error}"))?;
+    target
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| format!("failed to seek target: {error}"))?;
+    sink.progress(Operation::Verify, 0, request.total_bytes)?;
+    verify_image_stream(request, &mut source, &mut target, sink)
+}
+
+/// Streams source image bytes to an already opened target and fsyncs before returning.
+fn write_image_stream(
+    request: &Request,
+    source: &mut File,
+    target: &mut File,
+    sink: &mut EventSink,
+) -> Result<(), String> {
     let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut written = 0u64;
     while written < request.total_bytes {
@@ -251,7 +288,7 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
             .write_all(&buffer[..read])
             .map_err(|error| format!("failed to write target: {error}"))?;
         written += read as u64;
-        sink.progress(request.operation, written, request.total_bytes)?;
+        sink.progress(Operation::Write, written, request.total_bytes)?;
     }
 
     if written != request.total_bytes {
@@ -283,15 +320,25 @@ fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String>
     let mut target = File::open(&request.target)
         .map_err(|error| format!("failed to open target for reading: {error}"))?;
 
+    verify_image_stream(request, &mut source, &mut target, sink)
+}
+
+/// Compares target bytes with an already opened source image and reports progress snapshots.
+fn verify_image_stream(
+    request: &Request,
+    source: &mut File,
+    target: &mut File,
+    sink: &mut EventSink,
+) -> Result<bool, String> {
     let mut source_buffer = vec![0u8; BUFFER_SIZE];
     let mut target_buffer = vec![0u8; BUFFER_SIZE];
     let mut verified = 0u64;
     while verified < request.total_bytes {
         check_cancelled(request)?;
         let chunk_size = BUFFER_SIZE.min((request.total_bytes - verified) as usize);
-        let source_read = read_exact_or_eof(&mut source, &mut source_buffer[..chunk_size])
+        let source_read = read_exact_or_eof(&mut *source, &mut source_buffer[..chunk_size])
             .map_err(|error| format!("failed to read source: {error}"))?;
-        let target_read = read_exact_or_eof(&mut target, &mut target_buffer[..chunk_size])
+        let target_read = read_exact_or_eof(&mut *target, &mut target_buffer[..chunk_size])
             .map_err(|error| format!("failed to read target: {error}"))?;
         if source_read != target_read || source_read != chunk_size {
             return Ok(false);
@@ -527,6 +574,37 @@ mod tests {
             stdout: true,
         };
         assert!(verify_image(&verify_request, &mut sink).unwrap());
+    }
+
+    /// Verifies a combined write and verification cycle against temporary files.
+    #[test]
+    fn writes_and_verifies_raw_image_in_one_request() {
+        let temp = TempDirectory::new("writes_and_verifies_raw_image_in_one_request");
+        let source = temp.path().join("source.raw");
+        let target = temp.path().join("target.raw");
+        let event_log = temp.path().join("events.ndjson");
+        let image = image_bytes(4096);
+        fs::write(&source, &image).unwrap();
+        fs::write(&target, vec![0u8; 8192]).unwrap();
+
+        let request = Request {
+            operation: Operation::WriteVerify,
+            source,
+            target: target.clone(),
+            total_bytes: image.len() as u64,
+            removable: true,
+            event_log: Some(event_log.clone()),
+            cancel_file: None,
+            stdout: false,
+        };
+        validate_request(&request).unwrap();
+        let mut sink = EventSink::new(request.event_log.as_deref(), request.stdout).unwrap();
+        assert!(write_and_verify_image(&request, &mut sink).unwrap());
+
+        assert_eq!(&fs::read(&target).unwrap()[..image.len()], image.as_slice());
+        let events = fs::read_to_string(event_log).unwrap();
+        assert!(events.contains("\"operation\":\"write\""));
+        assert!(events.contains("\"operation\":\"verify\""));
     }
 
     /// Verifies byte mismatches are reported as verification failures.

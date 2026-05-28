@@ -3,6 +3,7 @@
 
 package org.glavo.ruyi.imager.core.flash;
 
+import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 
@@ -35,6 +36,30 @@ public interface DdImageWriter {
             boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException;
+
+    /// Writes a source image to a target path and verifies the written bytes.
+    ///
+    /// @param source source image path.
+    /// @param target target path.
+    /// @param totalBytes source size.
+    /// @param targetRemovable whether the target was identified as removable.
+    /// @param writeMessage progress message for writing.
+    /// @param verifyMessage progress message for verification.
+    /// @param reporter progress reporter.
+    /// @return whether the target bytes match the source image after writing.
+    /// @throws IOException when the image cannot be written or read.
+    default boolean writeAndVerify(
+            Path source,
+            Path target,
+            long totalBytes,
+            boolean targetRemovable,
+            String writeMessage,
+            String verifyMessage,
+            ProgressReporter reporter) throws IOException {
+        write(source, target, totalBytes, targetRemovable, writeMessage, reporter);
+        reporter.report(new ProgressEvent("verify", verifyMessage, 0L, totalBytes));
+        return verify(source, target, totalBytes, targetRemovable, verifyMessage, reporter);
+    }
 
     /// Verifies target bytes against a source image.
     ///
