@@ -304,12 +304,43 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         command.add("--source");
         command.add(source.toString());
         command.add("--target");
-        command.add(target.toString());
+        command.add(helperTargetArgument(target));
         command.add("--total-bytes");
         command.add(Long.toString(totalBytes));
         command.add("--removable");
         command.add(Boolean.toString(targetRemovable));
         return command;
+    }
+
+    /// Converts a target path to the string passed to the helper.
+    ///
+    /// @param target target path.
+    /// @return helper target argument.
+    static String helperTargetArgument(Path target) {
+        String text = target.toString();
+        String prefix = "\\\\.\\PHYSICALDRIVE";
+        if (!text.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            return text;
+        }
+
+        int end = text.length();
+        while (end > 0 && text.charAt(end - 1) == '\\') {
+            end--;
+        }
+        if (end == text.length()) {
+            return text;
+        }
+
+        String candidate = text.substring(0, end);
+        if (candidate.length() == prefix.length()) {
+            return text;
+        }
+        for (int index = prefix.length(); index < candidate.length(); index++) {
+            if (!Character.isDigit(candidate.charAt(index))) {
+                return text;
+            }
+        }
+        return candidate;
     }
 
     /// Builds a helper command line.

@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -52,6 +53,20 @@ public final class ProcessDdImageWriterTest {
                         "Writing test image.",
                         NO_PROGRESS)));
         assertTrue(exception.getMessage().contains("stderr-marker-0"), exception.getMessage());
+    }
+
+    /// Verifies Windows physical drive targets are passed without a trailing separator.
+    @Test
+    public void trimsWindowsPhysicalDriveTargetTrailingSeparator() {
+        assertEquals(
+                "\\\\.\\PHYSICALDRIVE3",
+                ProcessDdImageWriter.helperTargetArgument(Path.of("\\\\.\\PHYSICALDRIVE3\\")));
+        assertEquals(
+                "\\\\.\\physicaldrive4",
+                ProcessDdImageWriter.helperTargetArgument(Path.of("\\\\.\\physicaldrive4\\")));
+        assertEquals(
+                Path.of("target.raw").toString(),
+                ProcessDdImageWriter.helperTargetArgument(Path.of("target.raw")));
     }
 
     /// Returns the current Java executable path.

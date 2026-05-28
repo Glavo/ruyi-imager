@@ -18,7 +18,7 @@
 - `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)` 和 Bianbu eMMC 使用的 `spacemit-k1-v1` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度，提权 helper 会接收 cancel-file 信号以支持取消时停止写入/校验；普通 fastboot 按 Ruyi 元数据 `partition_map` 顺序刷写，LicheePi 4A U-Boot handoff 在 reboot 后短暂等待并重新校验目标：serial 不变时继续限定原设备，serial 变化时会排除 handoff 前已经存在的非目标 fastboot 设备，只接受唯一新出现的 fastboot 设备，`flash ram` 缺少 RAM handoff 目标时会提示进入 BootROM/download fastboot 模式并确认 U-Boot RAM 容量匹配；fastboot 命令输出会被实时解析为发送、写入和 sparse chunk 子阶段进度，长耗时 root fastboot 刷写不会被 30 分钟超时提前杀掉，`fastboot flash` 在完整成功输出下误返回非零退出码时不会被误判失败；SpacemiT K1 fastboot 流程会先 stage/continue FSBL 和 U-Boot，再按 Ruyi 插件顺序刷写 gpt、bootinfo、fsbl、env、opensbi、uboot、bootfs、rootfs。
 - Rust `dd-flasher` 写入路径已限制最多写入声明的镜像字节数，并覆盖源文件变大时不越界写目标的回归测试。
 - `dd-v1` raw 写入已要求目标必须标记为 removable：GUI 默认过滤非可移动块设备，SDK 写前拒绝非 removable 目标，`dd-flasher` helper 也通过必传 wire 参数在打开目标前再次拒绝；容量未知的真实块设备会被 GUI 过滤并在 SDK 写前拒绝，文件型测试 target 仍可用于模拟写入。
-- Java `ProcessDdImageWriter` 已并发消费 helper 诊断输出，避免异常 helper 写满 stdout/stderr 管道后卡住 CLI/GUI。
+- Java `ProcessDdImageWriter` 已并发消费 helper 诊断输出，避免异常 helper 写满 stdout/stderr 管道后卡住 CLI/GUI；传给 helper 的 Windows `\\.\PHYSICALDRIVE...` 目标会去掉 Java `Path` 追加的末尾分隔符，避免 raw device 打开失败。
 - 平台设备枚举和 Windows 目标准备命令已改为并发消费 stdout/stderr，避免外部命令输出填满管道导致误超时。
 - Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；Windows UAC 启动失败会抑制 PowerShell progress CLIXML 并返回普通错误文本；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
