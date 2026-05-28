@@ -53,21 +53,26 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
             }
 
             foreach ($partition in (Get-Partition -DiskNumber $diskNumber)) {
+                $removableAccessPaths = @()
                 foreach ($accessPath in @($partition.AccessPaths)) {
                     if ($accessPath) {
                         if ($accessPath.StartsWith('\\\\?\\Volume{', [System.StringComparison]::OrdinalIgnoreCase)) {
                             continue
                         }
-                        Remove-PartitionAccessPath `
-                            -DiskNumber $diskNumber `
-                            -PartitionNumber $partition.PartitionNumber `
-                            -AccessPath $accessPath `
-                            -ErrorAction Stop
+                        $removableAccessPaths += $accessPath
+                    }
+                }
+
+                for ($index = 0; $index -lt $removableAccessPaths.Count; $index++) {
+                    $accessPath = $removableAccessPaths[$index]
+                    $mode = if ($index -eq ($removableAccessPaths.Count - 1)) { '/p' } else { '/d' }
+                    & "$env:SystemRoot\\System32\\mountvol.exe" $accessPath $mode
+                    if ($LASTEXITCODE -ne 0) {
+                        throw "mountvol $mode failed for access path $accessPath with exit code $LASTEXITCODE."
                     }
                 }
             }
 
-            Set-Disk -Number $diskNumber -IsOffline $true -ErrorAction Stop
             Write-Output 'prepared'
             """;
 

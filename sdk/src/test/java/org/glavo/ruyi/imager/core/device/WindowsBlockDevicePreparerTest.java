@@ -54,7 +54,9 @@ public final class WindowsBlockDevicePreparerTest {
         assertTrue(script.contains("-Verb RunAs"));
         assertTrue(script.contains("$diskNumber = 2"));
         assertFalse(script.contains("Dismount-Volume"));
-        assertTrue(script.contains("Set-Disk -Number $diskNumber -IsOffline $true -ErrorAction Stop"));
+        assertFalse(script.contains("Set-Disk -Number $diskNumber -IsOffline $true"));
+        assertTrue(script.contains("mountvol.exe"));
+        assertTrue(script.contains("{ '/p' } else { '/d' }"));
         assertTrue(script.contains("$accessPath.StartsWith('\\\\?\\Volume{'"));
         assertTrue(script.contains("[Console]::OpenStandardError()"));
     }
