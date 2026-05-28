@@ -228,9 +228,6 @@ public final class MainWindow {
     /// Cancel action shown while a flash operation is active.
     private final Button cancelFlashButton = localizedButton("gui.button.cancelFlash");
 
-    /// Currently running background task, or null when idle.
-    private @Nullable Task<?> currentBackgroundTask;
-
     /// Thread running the current background task, or null when idle.
     private @Nullable Thread currentBackgroundThread;
 
@@ -1598,7 +1595,6 @@ public final class MainWindow {
         LOGGER.atDebug().log(() -> "Starting GUI background task. failureTitle=" + failureTitle);
         busy = true;
         cancellationRequested = false;
-        currentBackgroundTask = task;
         refreshState();
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
         progressBar.setVisible(!flashInProgress);
@@ -1606,7 +1602,12 @@ public final class MainWindow {
         statusLabel.textProperty().bind(task.messageProperty());
 
         task.setOnSucceeded(_ -> {
+            boolean cancelledFlash = flashInProgress && cancellationRequested;
             finishBackgroundTask();
+            if (cancelledFlash) {
+                showFlashCancelled();
+                return;
+            }
             @Nullable T result = task.getValue();
             if (result != null) {
                 LOGGER.debug("GUI background task succeeded.");
@@ -1617,24 +1618,20 @@ public final class MainWindow {
             }
         });
         task.setOnFailed(_ -> {
+            boolean cancelledFlash = flashInProgress && cancellationRequested;
             finishBackgroundTask();
             Throwable failure = task.getException();
+            if (cancelledFlash) {
+                LOGGER.info("GUI background task stopped after cancellation request.", failure);
+                showFlashCancelled();
+                return;
+            }
             if (failure == null) {
                 LOGGER.error("GUI background task failed without an exception.");
             } else {
                 LOGGER.error("GUI background task failed.", failure);
             }
             showError(failureTitle, failure == null ? null : failure.getMessage());
-        });
-        task.setOnCancelled(_ -> {
-            boolean cancelledFlash = flashInProgress;
-            finishBackgroundTask();
-            LOGGER.info("GUI background task cancelled.");
-            if (cancelledFlash) {
-                showInfo(
-                        Messages.get("gui.dialog.flashCancelled"),
-                        Messages.get("gui.dialog.flashCancelled.message"));
-            }
         });
 
         Thread thread = new Thread(task, "ruyi-imager-background");
@@ -1651,16 +1648,22 @@ public final class MainWindow {
         LOGGER.info("GUI flash cancellation requested.");
         cancellationRequested = true;
         cancelFlashButton.setDisable(true);
-
-        @Nullable Task<?> task = currentBackgroundTask;
-        if (task != null) {
-            task.cancel(true);
+        if (statusLabel.textProperty().isBound()) {
+            statusLabel.textProperty().unbind();
         }
+        statusLabel.setText(Messages.get("gui.status.cancellingFlash"));
 
         @Nullable Thread thread = currentBackgroundThread;
         if (thread != null) {
             thread.interrupt();
         }
+    }
+
+    /// Shows the flash cancellation result dialog.
+    private void showFlashCancelled() {
+        showInfo(
+                Messages.get("gui.dialog.flashCancelled"),
+                Messages.get("gui.dialog.flashCancelled.message"));
     }
 
     /// Clears background task UI bindings.
@@ -1673,7 +1676,6 @@ public final class MainWindow {
         resetPhaseProgress();
         flashInProgress = false;
         cancellationRequested = false;
-        currentBackgroundTask = null;
         currentBackgroundThread = null;
         busy = false;
         refreshState();
