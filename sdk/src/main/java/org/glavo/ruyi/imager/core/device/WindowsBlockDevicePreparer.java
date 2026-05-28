@@ -14,7 +14,9 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,8 +29,8 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
     /// Logger for Windows block-device preparation.
     private static final Logger LOGGER = LoggerFactory.getLogger(WindowsBlockDevicePreparer.class);
 
-    /// Maximum time allowed for preparing one Windows disk.
-    private static final Duration PREPARE_TIMEOUT = Duration.ofSeconds(30);
+    /// Maximum time allowed for preparing one Windows disk, including the UAC approval window.
+    private static final Duration PREPARE_TIMEOUT = Duration.ofMinutes(2);
 
     /// Pattern for Windows block-device ids.
     private static final Pattern WINDOWS_DISK_ID = Pattern.compile("windows-disk-(\\d+)");
@@ -51,24 +53,22 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
             }
 
             foreach ($partition in (Get-Partition -DiskNumber $diskNumber)) {
+                $volume = $null
                 try {
                     $volume = $partition | Get-Volume -ErrorAction Stop
-                    if ($null -ne $volume) {
-                        $volume | Dismount-Volume -Force -Confirm:$false -ErrorAction Stop
-                    }
                 } catch {
+                }
+                if ($null -ne $volume) {
+                    $volume | Dismount-Volume -Force -Confirm:$false -ErrorAction Stop
                 }
 
                 foreach ($accessPath in @($partition.AccessPaths)) {
                     if ($accessPath) {
-                        try {
-                            Remove-PartitionAccessPath `
-                                -DiskNumber $diskNumber `
-                                -PartitionNumber $partition.PartitionNumber `
-                                -AccessPath $accessPath `
-                                -ErrorAction Stop
-                        } catch {
-                        }
+                        Remove-PartitionAccessPath `
+                            -DiskNumber $diskNumber `
+                            -PartitionNumber $partition.PartitionNumber `
+                            -AccessPath $accessPath `
+                            -ErrorAction Stop
                     }
                 }
             }
@@ -179,8 +179,67 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
                 "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
-                "-Command",
-                "$diskNumber = " + diskNumber + System.lineSeparator() + PREPARE_SCRIPT_BODY);
+                "-EncodedCommand",
+                encodedPowerShell(elevationLauncherScript(diskNumber)));
+    }
+
+    /// Builds the non-elevated launcher script that starts disk preparation through UAC.
+    ///
+    /// @param diskNumber Windows disk number.
+    /// @return PowerShell launcher script.
+    private static String elevationLauncherScript(int diskNumber) {
+        String prepareBody = "$diskNumber = " + diskNumber + System.lineSeparator() + PREPARE_SCRIPT_BODY;
+        return """
+                $ErrorActionPreference = 'Stop'
+                $ProgressPreference = 'SilentlyContinue'
+                $outputFile = [System.IO.Path]::GetTempFileName()
+                $errorFile = [System.IO.Path]::GetTempFileName()
+                try {
+                  $prepareBody = @'
+                %s
+                '@
+                  $prepareScript = @"
+                `$ErrorActionPreference = 'Stop'
+                try {
+                $prepareBody
+                  [System.IO.File]::WriteAllText('$($outputFile.Replace("'", "''"))', 'prepared', [System.Text.Encoding]::UTF8)
+                  exit 0
+                } catch {
+                  [System.IO.File]::WriteAllText('$($errorFile.Replace("'", "''"))', `$_.Exception.Message, [System.Text.Encoding]::UTF8)
+                  exit 1
+                }
+                "@
+                  $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($prepareScript))
+                  $process = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+                    '-NoProfile',
+                    '-NonInteractive',
+                    '-ExecutionPolicy',
+                    'Bypass',
+                    '-EncodedCommand',
+                    $encoded
+                  ) -Verb RunAs -Wait -PassThru -WindowStyle Hidden
+                  if (Test-Path -LiteralPath $outputFile) {
+                    [Console]::Out.Write([System.IO.File]::ReadAllText($outputFile, [System.Text.Encoding]::UTF8))
+                  }
+                  if (Test-Path -LiteralPath $errorFile) {
+                    [Console]::Error.Write([System.IO.File]::ReadAllText($errorFile, [System.Text.Encoding]::UTF8))
+                  }
+                  exit $process.ExitCode
+                } catch {
+                  [Console]::Error.WriteLine($_.Exception.Message)
+                  exit 1
+                } finally {
+                  Remove-Item -LiteralPath $outputFile, $errorFile -Force -ErrorAction SilentlyContinue
+                }
+                """.formatted(prepareBody);
+    }
+
+    /// Encodes a PowerShell script for the `-EncodedCommand` argument.
+    ///
+    /// @param script PowerShell script.
+    /// @return Base64-encoded UTF-16LE command text.
+    private static String encodedPowerShell(String script) {
+        return Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
     }
 
     /// Runs one command with a timeout.

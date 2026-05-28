@@ -9,8 +9,10 @@ import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -46,8 +48,12 @@ public final class WindowsBlockDevicePreparerTest {
         assertEquals(1, commands.size());
         @Unmodifiable List<String> command = commands.get(0);
         assertTrue(command.contains("powershell.exe"));
-        int scriptIndex = command.indexOf("-Command") + 1;
-        assertTrue(command.get(scriptIndex).contains("$diskNumber = 2"));
+        int scriptIndex = command.indexOf("-EncodedCommand") + 1;
+        String script = new String(Base64.getDecoder().decode(command.get(scriptIndex)), StandardCharsets.UTF_16LE);
+        assertTrue(script.contains("Start-Process"));
+        assertTrue(script.contains("-Verb RunAs"));
+        assertTrue(script.contains("$diskNumber = 2"));
+        assertTrue(script.contains("Dismount-Volume -Force -Confirm:$false -ErrorAction Stop"));
     }
 
     /// Verifies that unrecognized mounted devices are left unchanged.
