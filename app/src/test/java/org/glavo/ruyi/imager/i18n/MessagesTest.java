@@ -79,12 +79,16 @@ public final class MessagesTest {
             assertEquals(
                     "Sending fastboot partition root chunk 1/4.",
                     SdkMessages.get("core.fastboot.sendingSparsePartition", "root", 1, 4));
+            assertEquals("Downloading image.raw", SdkMessages.get("core.download.downloading", "image.raw"));
+            assertEquals("Downloaded test-image", SdkMessages.get("core.download.imageComplete", "test-image"));
 
             Messages.setLocale(Locale.SIMPLIFIED_CHINESE);
             assertEquals("正在将镜像写入目标设备。", SdkMessages.get("core.flash.writing"));
             assertEquals(
                     "正在发送 fastboot 分区 root 的 sparse chunk 1/4。",
                     SdkMessages.get("core.fastboot.sendingSparsePartition", "root", 1, 4));
+            assertEquals("正在下载 image.raw", SdkMessages.get("core.download.downloading", "image.raw"));
+            assertEquals("已下载 test-image", SdkMessages.get("core.download.imageComplete", "test-image"));
         } finally {
             Messages.setLocale(originalLocale);
         }
