@@ -7,6 +7,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
@@ -130,20 +131,24 @@ public final class DDFlasherElevationTest {
 
     /// Verifies Windows elevation uses a PowerShell UAC launcher.
     @Test
-    public void buildsWindowsUacCommand() {
+    public void buildsWindowsUacCommand() throws Exception {
         List<String> command = DDFlasherElevation.windowsElevatedCommand(
                 "C:\\Tools\\dd-flasher.exe",
                 List.of("write", "--source", "C:\\Images\\o'clock.raw"));
         assertEquals("powershell.exe", command.getFirst());
-        assertEquals("-EncodedCommand", command.get(4));
+        assertEquals("-File", command.get(5));
+        assertEquals("-FilePath", command.get(7));
+        assertEquals("C:\\Tools\\dd-flasher.exe", command.get(8));
+        assertEquals("-ArgumentsBase64", command.get(9));
 
-        String script = new String(Base64.getDecoder().decode(command.get(5)), StandardCharsets.UTF_16LE);
+        String script = Files.readString(Path.of(command.get(6)));
         assertTrue(script.contains("$ProgressPreference = 'SilentlyContinue'"));
         assertTrue(script.contains("Start-Process"));
         assertTrue(script.contains("-Verb RunAs"));
         assertTrue(script.contains("[Console]::Error.WriteLine($_.Exception.Message)"));
-        assertTrue(script.contains("'C:\\Tools\\dd-flasher.exe'"));
-        assertTrue(script.contains("'C:\\Images\\o''clock.raw'"));
+
+        String argumentPayload = new String(Base64.getDecoder().decode(command.get(10)), StandardCharsets.UTF_8);
+        assertEquals("write\0--source\0C:\\Images\\o'clock.raw", argumentPayload);
     }
 
     /// Verifies macOS elevation uses osascript administrator privileges and shell quoting.

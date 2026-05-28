@@ -3,6 +3,7 @@
 
 package org.glavo.ruyi.imager.core.flash;
 
+import org.glavo.ruyi.imager.core.PowerShellScripts;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
@@ -110,44 +111,20 @@ final class DDFlasherElevation {
     /// @param executable helper executable.
     /// @param arguments helper arguments excluding executable.
     /// @return PowerShell command that starts the helper through UAC.
-    static List<String> windowsElevatedCommand(String executable, List<String> arguments) {
-        String script = windowsElevationScript(executable, arguments);
-        String encoded = Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
+    /// @throws IOException when the fixed launcher script cannot be loaded.
+    static List<String> windowsElevatedCommand(String executable, List<String> arguments) throws IOException {
         return List.of(
                 "powershell.exe",
                 "-NoProfile",
+                "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
-                "-EncodedCommand",
-                encoded);
-    }
-
-    /// Builds the PowerShell script used for Windows UAC elevation.
-    ///
-    /// @param executable helper executable.
-    /// @param arguments helper arguments excluding executable.
-    /// @return PowerShell script.
-    static String windowsElevationScript(String executable, List<String> arguments) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("$ErrorActionPreference = 'Stop'\n");
-        builder.append("$ProgressPreference = 'SilentlyContinue'\n");
-        builder.append("try {\n");
-        builder.append("  $process = Start-Process -FilePath ");
-        builder.append(powerShellString(executable));
-        builder.append(" -ArgumentList @(");
-        for (int i = 0; i < arguments.size(); i++) {
-            if (i > 0) {
-                builder.append(", ");
-            }
-            builder.append(powerShellString(arguments.get(i)));
-        }
-        builder.append(") -Verb RunAs -Wait -PassThru -WindowStyle Hidden\n");
-        builder.append("  exit $process.ExitCode\n");
-        builder.append("} catch {\n");
-        builder.append("  [Console]::Error.WriteLine($_.Exception.Message)\n");
-        builder.append("  exit 1\n");
-        builder.append("}\n");
-        return builder.toString();
+                "-File",
+                PowerShellScripts.path("start-elevated-process.ps1").toString(),
+                "-FilePath",
+                executable,
+                "-ArgumentsBase64",
+                encodedArguments(arguments));
     }
 
     /// Builds a macOS administrator launcher command.
@@ -222,14 +199,6 @@ final class DDFlasherElevation {
         };
     }
 
-    /// Quotes one PowerShell string literal.
-    ///
-    /// @param value raw value.
-    /// @return quoted PowerShell string literal.
-    private static String powerShellString(String value) {
-        return "'" + value.replace("'", "''") + "'";
-    }
-
     /// Builds a shell command with safely quoted arguments.
     ///
     /// @param executable executable path.
@@ -273,6 +242,14 @@ final class DDFlasherElevation {
             return null;
         }
         return value.strip();
+    }
+
+    /// Encodes helper process arguments for the fixed PowerShell launcher script.
+    ///
+    /// @param arguments helper arguments excluding executable.
+    /// @return Base64-encoded UTF-8 argument payload.
+    private static String encodedArguments(List<String> arguments) {
+        return Base64.getEncoder().encodeToString(String.join("\0", arguments).getBytes(StandardCharsets.UTF_8));
     }
 
     /// dd-flasher elevation policy.

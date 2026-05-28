@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.device;
 
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
+import org.glavo.ruyi.imager.core.PowerShellScripts;
 import org.glavo.ruyi.imager.core.flash.BlockDevicePreparer;
 import org.glavo.ruyi.imager.core.ProcessOutputCapture;
 import org.glavo.ruyi.imager.core.SdkMessages;
@@ -14,9 +15,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,44 +36,6 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
 
     /// Pattern for Windows raw physical drive paths.
     private static final Pattern PHYSICAL_DRIVE_PATH = Pattern.compile("(?i).*PHYSICALDRIVE(\\d+)$");
-
-    /// PowerShell script body used after `$diskNumber` is assigned.
-    private static final String PREPARE_SCRIPT_BODY = """
-            $ErrorActionPreference = 'Stop'
-            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-            $OutputEncoding = [System.Text.Encoding]::UTF8
-
-            $disk = Get-Disk -Number $diskNumber
-            if ($disk.IsBoot -or $disk.IsSystem) {
-                throw 'Refusing to prepare a system disk.'
-            }
-            if ($disk.IsReadOnly) {
-                throw 'Refusing to prepare a read-only disk.'
-            }
-
-            foreach ($partition in (Get-Partition -DiskNumber $diskNumber)) {
-                $removableAccessPaths = @()
-                foreach ($accessPath in @($partition.AccessPaths)) {
-                    if ($accessPath) {
-                        if ($accessPath.StartsWith('\\\\?\\Volume{', [System.StringComparison]::OrdinalIgnoreCase)) {
-                            continue
-                        }
-                        $removableAccessPaths += $accessPath
-                    }
-                }
-
-                for ($index = 0; $index -lt $removableAccessPaths.Count; $index++) {
-                    $accessPath = $removableAccessPaths[$index]
-                    $mode = if ($index -eq ($removableAccessPaths.Count - 1)) { '/p' } else { '/d' }
-                    & "$env:SystemRoot\\System32\\mountvol.exe" $accessPath $mode
-                    if ($LASTEXITCODE -ne 0) {
-                        throw "mountvol $mode failed for access path $accessPath with exit code $LASTEXITCODE."
-                    }
-                }
-            }
-
-            Write-Output 'prepared'
-            """;
 
     /// Command runner used to execute PowerShell.
     private final CommandRunner runner;
@@ -172,81 +133,22 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
     ///
     /// @param diskNumber Windows disk number.
     /// @return immutable command argument list.
-    private static @Unmodifiable List<String> command(int diskNumber) {
+    /// @throws IOException when a fixed PowerShell script cannot be loaded.
+    private static @Unmodifiable List<String> command(int diskNumber) throws IOException {
+        String launcherScript = PowerShellScripts.path("prepare-windows-disk-launcher.ps1").toString();
+        String prepareScript = PowerShellScripts.path("prepare-windows-disk.ps1").toString();
         return List.of(
                 "powershell.exe",
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
-                "-EncodedCommand",
-                encodedPowerShell(elevationLauncherScript(diskNumber)));
-    }
-
-    /// Builds the non-elevated launcher script that starts disk preparation through UAC.
-    ///
-    /// @param diskNumber Windows disk number.
-    /// @return PowerShell launcher script.
-    private static String elevationLauncherScript(int diskNumber) {
-        String prepareBody = "$diskNumber = " + diskNumber + System.lineSeparator() + PREPARE_SCRIPT_BODY;
-        return """
-                $ErrorActionPreference = 'Stop'
-                $ProgressPreference = 'SilentlyContinue'
-                $outputFile = [System.IO.Path]::GetTempFileName()
-                $errorFile = [System.IO.Path]::GetTempFileName()
-                try {
-                  $prepareBody = @'
-                %s
-                '@
-                  $prepareScript = @"
-                `$ErrorActionPreference = 'Stop'
-                `$utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList `$false
-                try {
-                $prepareBody
-                  [System.IO.File]::WriteAllText('$($outputFile.Replace("'", "''"))', 'prepared', `$utf8NoBom)
-                  exit 0
-                } catch {
-                  [System.IO.File]::WriteAllText('$($errorFile.Replace("'", "''"))', `$_.Exception.Message, `$utf8NoBom)
-                  exit 1
-                }
-                "@
-                  $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($prepareScript))
-                  $process = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-                    '-NoProfile',
-                    '-NonInteractive',
-                    '-ExecutionPolicy',
-                    'Bypass',
-                    '-EncodedCommand',
-                    $encoded
-                  ) -Verb RunAs -Wait -PassThru -WindowStyle Hidden
-                  if (Test-Path -LiteralPath $outputFile) {
-                    $outputBytes = [System.IO.File]::ReadAllBytes($outputFile)
-                    $stdout = [Console]::OpenStandardOutput()
-                    $stdout.Write($outputBytes, 0, $outputBytes.Length)
-                    $stdout.Flush()
-                  }
-                  if (Test-Path -LiteralPath $errorFile) {
-                    $errorBytes = [System.IO.File]::ReadAllBytes($errorFile)
-                    $stderr = [Console]::OpenStandardError()
-                    $stderr.Write($errorBytes, 0, $errorBytes.Length)
-                    $stderr.Flush()
-                  }
-                  exit $process.ExitCode
-                } catch {
-                  [Console]::Error.WriteLine($_.Exception.Message)
-                  exit 1
-                } finally {
-                  Remove-Item -LiteralPath $outputFile, $errorFile -Force -ErrorAction SilentlyContinue
-                }
-                """.formatted(prepareBody);
-    }
-
-    /// Encodes a PowerShell script for the `-EncodedCommand` argument.
-    ///
-    /// @param script PowerShell script.
-    /// @return Base64-encoded UTF-16LE command text.
-    private static String encodedPowerShell(String script) {
-        return Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
+                "-File",
+                launcherScript,
+                "-PrepareScript",
+                prepareScript,
+                "-DiskNumber",
+                Integer.toString(diskNumber));
     }
 
     /// Runs one command with a timeout.

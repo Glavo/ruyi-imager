@@ -3,16 +3,16 @@
 
 package org.glavo.ruyi.imager.core.device;
 
+import org.glavo.ruyi.imager.core.PowerShellScripts;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -48,17 +48,23 @@ public final class WindowsBlockDevicePreparerTest {
         assertEquals(1, commands.size());
         @Unmodifiable List<String> command = commands.get(0);
         assertTrue(command.contains("powershell.exe"));
-        int scriptIndex = command.indexOf("-EncodedCommand") + 1;
-        String script = new String(Base64.getDecoder().decode(command.get(scriptIndex)), StandardCharsets.UTF_16LE);
-        assertTrue(script.contains("Start-Process"));
-        assertTrue(script.contains("-Verb RunAs"));
-        assertTrue(script.contains("$diskNumber = 2"));
-        assertFalse(script.contains("Dismount-Volume"));
-        assertFalse(script.contains("Set-Disk -Number $diskNumber -IsOffline $true"));
-        assertTrue(script.contains("mountvol.exe"));
-        assertTrue(script.contains("{ '/p' } else { '/d' }"));
-        assertTrue(script.contains("$accessPath.StartsWith('\\\\?\\Volume{'"));
-        assertTrue(script.contains("[Console]::OpenStandardError()"));
+        assertFalse(command.contains("-EncodedCommand"));
+        assertTrue(command.contains("-File"));
+        assertTrue(command.contains("-PrepareScript"));
+        assertTrue(command.contains("-DiskNumber"));
+        assertTrue(command.contains("2"));
+
+        String launcherScript = Files.readString(PowerShellScripts.path("prepare-windows-disk-launcher.ps1"));
+        assertTrue(launcherScript.contains("Start-Process"));
+        assertTrue(launcherScript.contains("-Verb RunAs"));
+        assertTrue(launcherScript.contains("[Console]::OpenStandardError()"));
+
+        String prepareScript = Files.readString(PowerShellScripts.path("prepare-windows-disk.ps1"));
+        assertFalse(prepareScript.contains("Dismount-Volume"));
+        assertFalse(prepareScript.contains("Set-Disk"));
+        assertTrue(prepareScript.contains("mountvol.exe"));
+        assertTrue(prepareScript.contains("{ '/p' } else { '/d' }"));
+        assertTrue(prepareScript.contains("Volume{"));
     }
 
     /// Verifies that unrecognized mounted devices are left unchanged.
