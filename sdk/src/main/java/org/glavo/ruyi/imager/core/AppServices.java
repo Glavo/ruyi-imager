@@ -52,7 +52,7 @@ public record AppServices(
         RepositoryService repository = new RuyiRepositoryService(repositoryStore, images::invalidateCache);
         BlockDeviceService devices = new PlatformBlockDeviceService();
         FastbootService fastboot = new ProcessFastbootService();
-        FlashService flash = new LocalFlashService(images, fastboot, createBlockDevicePreparer());
+        FlashService flash = new LocalFlashService(images, devices, fastboot, createBlockDevicePreparer());
         LOGGER.info("Default application services created.");
         return new AppServices(directories, repository, images, devices, fastboot, flash);
     }

@@ -181,6 +181,7 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
                 target.readOnly(),
                 target.model(),
                 target.busType(),
+                target.hardwareId(),
                 List.of());
     }
 

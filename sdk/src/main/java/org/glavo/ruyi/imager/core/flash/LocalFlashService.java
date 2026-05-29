@@ -8,6 +8,7 @@ import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.ProvisionStrategies;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
+import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.fastboot.ProcessFastbootService;
@@ -27,6 +28,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +45,9 @@ public final class LocalFlashService implements FlashService {
     /// Fastboot backend used for fastboot provision strategies.
     private final FastbootService fastboot;
 
+    /// Block-device service used to re-resolve destructive write targets.
+    private final @Nullable BlockDeviceService devices;
+
     /// Block-device preparation hook used before destructive writes.
     private final BlockDevicePreparer blockDevicePreparer;
 
@@ -53,7 +58,15 @@ public final class LocalFlashService implements FlashService {
     ///
     /// @param images image catalog service.
     public LocalFlashService(ImageCatalogService images) {
-        this(images, new ProcessFastbootService());
+        this(images, (BlockDeviceService) null, new ProcessFastbootService());
+    }
+
+    /// Creates the local flash service.
+    ///
+    /// @param images image catalog service.
+    /// @param devices block-device service used to re-resolve targets.
+    public LocalFlashService(ImageCatalogService images, BlockDeviceService devices) {
+        this(images, devices, new ProcessFastbootService());
     }
 
     /// Creates the local flash service.
@@ -61,7 +74,19 @@ public final class LocalFlashService implements FlashService {
     /// @param images image catalog service.
     /// @param fastboot fastboot backend.
     public LocalFlashService(ImageCatalogService images, FastbootService fastboot) {
-        this(images, fastboot, BlockDevicePreparer.none());
+        this(images, null, fastboot, BlockDevicePreparer.none());
+    }
+
+    /// Creates the local flash service.
+    ///
+    /// @param images image catalog service.
+    /// @param devices block-device service used to re-resolve targets.
+    /// @param fastboot fastboot backend.
+    public LocalFlashService(
+            ImageCatalogService images,
+            @Nullable BlockDeviceService devices,
+            FastbootService fastboot) {
+        this(images, devices, fastboot, BlockDevicePreparer.none());
     }
 
     /// Creates the local flash service.
@@ -73,7 +98,21 @@ public final class LocalFlashService implements FlashService {
             ImageCatalogService images,
             FastbootService fastboot,
             BlockDevicePreparer blockDevicePreparer) {
-        this(images, fastboot, blockDevicePreparer, DdImageWriter.process());
+        this(images, null, fastboot, blockDevicePreparer, DdImageWriter.process());
+    }
+
+    /// Creates the local flash service.
+    ///
+    /// @param images image catalog service.
+    /// @param devices block-device service used to re-resolve targets.
+    /// @param fastboot fastboot backend.
+    /// @param blockDevicePreparer block-device preparation hook.
+    public LocalFlashService(
+            ImageCatalogService images,
+            @Nullable BlockDeviceService devices,
+            FastbootService fastboot,
+            BlockDevicePreparer blockDevicePreparer) {
+        this(images, devices, fastboot, blockDevicePreparer, DdImageWriter.process());
     }
 
     /// Creates the local flash service.
@@ -87,7 +126,24 @@ public final class LocalFlashService implements FlashService {
             FastbootService fastboot,
             BlockDevicePreparer blockDevicePreparer,
             DdImageWriter ddImageWriter) {
+        this(images, null, fastboot, blockDevicePreparer, ddImageWriter);
+    }
+
+    /// Creates the local flash service.
+    ///
+    /// @param images image catalog service.
+    /// @param devices block-device service used to re-resolve targets.
+    /// @param fastboot fastboot backend.
+    /// @param blockDevicePreparer block-device preparation hook.
+    /// @param ddImageWriter dd-style raw image writer backend.
+    public LocalFlashService(
+            ImageCatalogService images,
+            @Nullable BlockDeviceService devices,
+            FastbootService fastboot,
+            BlockDevicePreparer blockDevicePreparer,
+            DdImageWriter ddImageWriter) {
         this.images = images;
+        this.devices = devices;
         this.fastboot = fastboot;
         this.blockDevicePreparer = blockDevicePreparer;
         this.ddImageWriter = ddImageWriter;
@@ -156,29 +212,43 @@ public final class LocalFlashService implements FlashService {
             return OperationResult.failure(SdkMessages.get("core.flash.blockTargetRequired"));
         }
 
+        @Nullable BlockDevice refreshedBlockDevice = refreshBlockTarget(blockDevice);
+        if (refreshedBlockDevice == null) {
+            return targetChangedFailure(blockDevice);
+        }
+        blockDevice = refreshedBlockDevice;
+
         @Nullable String validationError = validateBlockImage(
                 source,
                 blockDevice,
                 blockDevicePreparer.canPrepareMounted(blockDevice));
         if (validationError != null) {
             String message = validationError;
+            Path targetPath = blockDevice.path();
             LOGGER.atWarn().log(() -> "Block target validation failed before preparation. source="
                     + source
                     + ", target="
-                    + blockDevice.path()
+                    + targetPath
                     + ", message="
                     + message);
             return OperationResult.failure(validationError);
         }
         BlockDevice preparedBlockDevice = prepareBlockTarget(blockDevice, reporter);
 
+        refreshedBlockDevice = refreshBlockTarget(preparedBlockDevice);
+        if (refreshedBlockDevice == null) {
+            return targetChangedFailure(preparedBlockDevice);
+        }
+        preparedBlockDevice = refreshedBlockDevice;
+
         validationError = validateBlockImage(source, preparedBlockDevice, false);
         if (validationError != null) {
             String message = validationError;
+            Path targetPath = preparedBlockDevice.path();
             LOGGER.atWarn().log(() -> "Block target validation failed after preparation. source="
                     + source
                     + ", target="
-                    + preparedBlockDevice.path()
+                    + targetPath
                     + ", message="
                     + message);
             return OperationResult.failure(validationError);
@@ -229,6 +299,11 @@ public final class LocalFlashService implements FlashService {
                 LOGGER.atWarn().log(() -> "Missing partition target. partition=" + partition);
                 return OperationResult.failure(SdkMessages.get("core.flash.missingPartitionTarget", partition));
             }
+            @Nullable BlockDevice refreshedBlockDevice = refreshBlockTarget(blockDevice);
+            if (refreshedBlockDevice == null) {
+                return targetChangedFailure(blockDevice);
+            }
+            blockDevice = refreshedBlockDevice;
 
             Path normalizedTargetPath = blockDevice.path().toAbsolutePath().normalize();
             if (!targetPaths.add(normalizedTargetPath)) {
@@ -241,10 +316,11 @@ public final class LocalFlashService implements FlashService {
                     blockDevicePreparer.canPrepareMounted(blockDevice));
             if (validationError != null) {
                 String message = validationError;
+                Path targetPath = blockDevice.path();
                 LOGGER.atWarn().log(() -> "Partition target validation failed before preparation. partition="
                         + partition
                         + ", target="
-                        + blockDevice.path()
+                        + targetPath
                         + ", message="
                         + message);
                 return OperationResult.failure(SdkMessages.get(
@@ -254,13 +330,19 @@ public final class LocalFlashService implements FlashService {
             }
 
             BlockDevice preparedBlockDevice = prepareBlockTarget(blockDevice, reporter);
+            refreshedBlockDevice = refreshBlockTarget(preparedBlockDevice);
+            if (refreshedBlockDevice == null) {
+                return targetChangedFailure(preparedBlockDevice);
+            }
+            preparedBlockDevice = refreshedBlockDevice;
             validationError = validateBlockImage(entry.getValue(), preparedBlockDevice, false);
             if (validationError != null) {
                 String message = validationError;
+                Path targetPath = preparedBlockDevice.path();
                 LOGGER.atWarn().log(() -> "Partition target validation failed after preparation. partition="
                         + partition
                         + ", target="
-                        + preparedBlockDevice.path()
+                        + targetPath
                         + ", message="
                         + message);
                 return OperationResult.failure(SdkMessages.get(
@@ -344,6 +426,99 @@ public final class LocalFlashService implements FlashService {
         return blockDevicePreparer.prepare(blockDevice, reporter);
     }
 
+    /// Re-resolves a selected block target before destructive writes.
+    ///
+    /// @param selected selected target metadata.
+    /// @return current target metadata, or null when the target no longer matches.
+    /// @throws IOException when target enumeration fails.
+    private @Nullable BlockDevice refreshBlockTarget(BlockDevice selected) throws IOException {
+        if (devices == null || selected.fileBacked()) {
+            return selected;
+        }
+
+        @Nullable BlockDevice current = devices.findDevice(selected.id());
+        if (current == null) {
+            LOGGER.atWarn().log(() -> "Selected block target is no longer visible. id="
+                    + selected.id()
+                    + ", path="
+                    + selected.path());
+            return null;
+        }
+        if (!sameBlockTarget(selected, current)) {
+            LOGGER.atWarn().log(() -> "Selected block target identity changed. selected="
+                    + targetIdentitySummary(selected)
+                    + ", current="
+                    + targetIdentitySummary(current));
+            return null;
+        }
+        return current;
+    }
+
+    /// Builds a target-change failure result.
+    ///
+    /// @param selected selected target metadata.
+    /// @return failure result.
+    private static OperationResult targetChangedFailure(BlockDevice selected) {
+        return OperationResult.failure(SdkMessages.get("core.flash.targetChanged", selected.displayName()));
+    }
+
+    /// Returns whether two target snapshots describe the same block device.
+    ///
+    /// @param selected selected target snapshot.
+    /// @param current current target snapshot.
+    /// @return whether the target identity still matches.
+    private static boolean sameBlockTarget(BlockDevice selected, BlockDevice current) {
+        if (!selected.id().equals(current.id())) {
+            return false;
+        }
+        if (!normalizedDevicePath(selected.path()).equals(normalizedDevicePath(current.path()))) {
+            return false;
+        }
+        if ((selected.hardwareId() != null || current.hardwareId() != null)
+                && !Objects.equals(selected.hardwareId(), current.hardwareId())) {
+            return false;
+        }
+        if (selected.sizeBytes() > 0L && current.sizeBytes() > 0L && selected.sizeBytes() != current.sizeBytes()) {
+            return false;
+        }
+        return sameKnownText(selected.model(), current.model()) && sameKnownText(selected.busType(), current.busType());
+    }
+
+    /// Normalizes a platform device path for identity comparison.
+    ///
+    /// @param path device path.
+    /// @return normalized path text.
+    private static String normalizedDevicePath(Path path) {
+        return path.toAbsolutePath().normalize().toString();
+    }
+
+    /// Compares optional text fields when both values are known.
+    ///
+    /// @param selected selected value.
+    /// @param current current value.
+    /// @return whether the values are compatible.
+    private static boolean sameKnownText(@Nullable String selected, @Nullable String current) {
+        return selected == null || current == null || selected.equals(current);
+    }
+
+    /// Summarizes block target identity metadata for logs.
+    ///
+    /// @param target target metadata.
+    /// @return identity summary.
+    private static String targetIdentitySummary(BlockDevice target) {
+        return target.id()
+                + ":"
+                + target.path()
+                + ":"
+                + target.sizeBytes()
+                + ":"
+                + target.hardwareId()
+                + ":"
+                + target.model()
+                + ":"
+                + target.busType();
+    }
+
     /// Writes one already validated raw image to a block device target.
     ///
     /// @param source source image path.
@@ -361,11 +536,31 @@ public final class LocalFlashService implements FlashService {
             String writeMessage,
             String verifyMessage,
             ProgressReporter reporter) throws IOException {
+        @Nullable BlockDevice refreshedBlockDevice = refreshBlockTarget(blockDevice);
+        if (refreshedBlockDevice == null) {
+            return targetChangedFailure(blockDevice);
+        }
+        blockDevice = refreshedBlockDevice;
+
+        @Nullable String validationError = validateBlockImage(source, blockDevice, false);
+        if (validationError != null) {
+            String message = validationError;
+            Path targetPath = blockDevice.path();
+            LOGGER.atWarn().log(() -> "Block target validation failed before write. source="
+                    + source
+                    + ", target="
+                    + targetPath
+                    + ", message="
+                    + message);
+            return OperationResult.failure(validationError);
+        }
+
+        BlockDevice writeTarget = blockDevice;
         long sourceSize = Files.size(source);
         LOGGER.atInfo().log(() -> "Writing block image. source="
                 + source
                 + ", target="
-                + blockDevice.path()
+                + writeTarget.path()
                 + ", bytes="
                 + sourceSize
                 + ", verify="
@@ -375,19 +570,19 @@ public final class LocalFlashService implements FlashService {
         if (verify) {
             if (!ddImageWriter.writeAndVerify(
                     source,
-                    blockDevice.path(),
+                    writeTarget.path(),
                     sourceSize,
-                    blockDevice.removable(),
+                    writeTarget.removable(),
                     writeMessage,
                     verifyMessage,
                     reporter)) {
-                LOGGER.atWarn().log(() -> "Block image verification failed. target=" + blockDevice.path());
+                LOGGER.atWarn().log(() -> "Block image verification failed. target=" + writeTarget.path());
                 return OperationResult.failure(SdkMessages.get("core.flash.verifyFailed"));
             }
-            LOGGER.atInfo().log(() -> "Block image write and verification completed. target=" + blockDevice.path());
+            LOGGER.atInfo().log(() -> "Block image write and verification completed. target=" + writeTarget.path());
         } else {
-            ddImageWriter.write(source, blockDevice.path(), sourceSize, blockDevice.removable(), writeMessage, reporter);
-            LOGGER.atInfo().log(() -> "Block image write completed. target=" + blockDevice.path());
+            ddImageWriter.write(source, writeTarget.path(), sourceSize, writeTarget.removable(), writeMessage, reporter);
+            LOGGER.atInfo().log(() -> "Block image write completed. target=" + writeTarget.path());
         }
 
         return OperationResult.success(SdkMessages.get("core.flash.success"));
@@ -540,7 +735,7 @@ public final class LocalFlashService implements FlashService {
 
         if (partitionMap.size() == 1 && Files.isRegularFile(materialized)) {
             Map.Entry<String, String> entry = partitionMap.entrySet().iterator().next();
-            return Map.of(entry.getKey(), materialized);
+            return Map.of(entry.getKey(), resolveSinglePartitionFile(entry.getValue(), materialized));
         }
 
         if (!Files.isDirectory(materialized)) {
@@ -565,6 +760,31 @@ public final class LocalFlashService implements FlashService {
             result.put(entry.getKey(), realPath);
         }
         return Collections.unmodifiableMap(result);
+    }
+
+    /// Resolves one materialized partition file without allowing symlink escape from its parent.
+    ///
+    /// @param partitionPath partition path from image metadata.
+    /// @param materialized materialized partition file.
+    /// @return real partition file path.
+    /// @throws IOException when the path cannot be resolved safely.
+    private static Path resolveSinglePartitionFile(String partitionPath, Path materialized) throws IOException {
+        Path normalizedPath = materialized.toAbsolutePath().normalize();
+        if (!Files.isRegularFile(normalizedPath)) {
+            throw new IOException(SdkMessages.get("core.materialize.partitionMissing", normalizedPath));
+        }
+
+        @Nullable Path normalizedParent = normalizedPath.getParent();
+        if (normalizedParent == null) {
+            return normalizedPath.toRealPath();
+        }
+
+        Path realParent = normalizedParent.toRealPath();
+        Path realPath = normalizedPath.toRealPath();
+        if (!realPath.startsWith(realParent)) {
+            throw new IOException(SdkMessages.get("core.materialize.partitionEscape", partitionPath));
+        }
+        return realPath;
     }
 
 }

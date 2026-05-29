@@ -146,7 +146,7 @@ public final class ProcessFastbootService implements FastbootService {
                     commandText(List.of(executable, "devices")),
                     outputSummary(result.output())));
         }
-        @Unmodifiable List<FastbootDevice> devices = parseDevices(result.output());
+        @Unmodifiable List<FastbootDevice> devices = uniqueSerialDevices(parseDevices(result.output()));
         LOGGER.atInfo().log(() -> "fastboot devices listed. count=" + devices.size());
         return devices;
     }
@@ -200,6 +200,32 @@ public final class ProcessFastbootService implements FastbootService {
             devices.add(new FastbootDevice(serial, serial, state));
         }
         return List.copyOf(devices);
+    }
+
+    /// Removes devices whose serial appears more than once.
+    ///
+    /// @param devices parsed fastboot devices.
+    /// @return devices with unique serials.
+    private static @Unmodifiable List<FastbootDevice> uniqueSerialDevices(@Unmodifiable List<FastbootDevice> devices) {
+        HashSet<String> seen = new HashSet<>();
+        HashSet<String> duplicated = new HashSet<>();
+        for (FastbootDevice device : devices) {
+            if (!seen.add(device.serial())) {
+                duplicated.add(device.serial());
+            }
+        }
+        if (duplicated.isEmpty()) {
+            return devices;
+        }
+
+        ArrayList<FastbootDevice> result = new ArrayList<>();
+        for (FastbootDevice device : devices) {
+            if (!duplicated.contains(device.serial())) {
+                result.add(device);
+            }
+        }
+        LOGGER.atWarn().log(() -> "Ignoring fastboot devices with duplicate serials. serials=" + duplicated);
+        return List.copyOf(result);
     }
 
     /// Flashes a standard fastboot-v1 image.

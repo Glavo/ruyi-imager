@@ -34,6 +34,7 @@ public final class WindowsBlockDeviceServiceTest {
                     "removable": false,
                     "system": true,
                     "mounted": true,
+                    "hardwareId": "uniqueId=system",
                     "mountPoints": ["C:\\\\", "D:\\\\"],
                     "readOnly": false
                   },
@@ -47,6 +48,7 @@ public final class WindowsBlockDeviceServiceTest {
                     "removable": true,
                     "system": false,
                     "mounted": false,
+                    "hardwareId": "pnpDeviceId=USBSTOR\\\\DISK&VEN_TEST",
                     "readOnly": false
                   }
                 ]
@@ -66,6 +68,7 @@ public final class WindowsBlockDeviceServiceTest {
         assertFalse(systemDisk.removable());
         assertEquals("Internal NVMe", systemDisk.model());
         assertEquals("NVMe", systemDisk.busType());
+        assertEquals("uniqueId=system", systemDisk.hardwareId());
 
         BlockDevice removableDisk = devices.get(1);
         assertEquals("windows-disk-2", removableDisk.id());
@@ -75,6 +78,7 @@ public final class WindowsBlockDeviceServiceTest {
         assertFalse(removableDisk.mounted());
         assertTrue(removableDisk.displayName().contains("USB Reader"));
         assertTrue(removableDisk.displayName().contains("USB"));
+        assertEquals("pnpDeviceId=USBSTOR\\DISK&VEN_TEST", removableDisk.hardwareId());
     }
 
     /// Parses a single-object payload and fills missing optional fields.

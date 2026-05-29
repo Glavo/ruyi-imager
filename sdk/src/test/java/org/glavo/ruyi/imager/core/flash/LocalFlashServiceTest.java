@@ -7,6 +7,7 @@ import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
+import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
@@ -122,6 +123,34 @@ public final class LocalFlashServiceTest {
         assertEquals(target, writer.writeCalls.getFirst().target());
         assertEquals(4L, writer.writeCalls.getFirst().totalBytes());
         assertTrue(writer.writeCalls.getFirst().targetRemovable());
+    }
+
+    /// Refuses to write when the selected block target no longer matches a fresh enumeration.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesChangedBlockTargetBeforeWriting(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1, 2, 3, 4});
+        Files.write(target, new byte[64]);
+        BlockDevice selected = target(target, 32, false, false, false, true, "USB");
+        BlockDevice current = target(target, 64, false, false, false, true, "USB");
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new FixedBlockDeviceService(List.of(current)),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(null, image, selected, false),
+                NO_PROGRESS);
+
+        assertFalse(result.success());
+        assertTrue(result.message().startsWith("Selected target device changed or is no longer available:"));
+        assertEquals(0, writer.writeCalls.size());
     }
 
     /// Reports a failed post-write verification without touching the target file in the writer.
@@ -276,6 +305,40 @@ public final class LocalFlashServiceTest {
                 NO_PROGRESS));
 
         assertEquals("Partition path escapes artifact directory: boot.img", exception.getMessage());
+        assertEquals(0, writer.writeCalls.size());
+    }
+
+    /// Refuses a single materialized file that resolves outside its parent through a symbolic link.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void refusesSingleMaterializedPartitionSymlinkEscapingParent(@TempDir Path temporaryDirectory) throws Exception {
+        Path artifactDirectory = temporaryDirectory.resolve("artifact");
+        Files.createDirectories(artifactDirectory);
+        Path externalImage = temporaryDirectory.resolve("external.img");
+        Files.write(externalImage, new byte[]{1, 2, 3});
+        Path symlink = artifactDirectory.resolve("disk.img");
+        try {
+            Files.createSymbolicLink(symlink, externalImage);
+        } catch (IOException | SecurityException | UnsupportedOperationException exception) {
+            assumeTrue(false, "Symbolic links are not available: " + exception);
+        }
+
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(target, new byte[32]);
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+        ImageEntry image = imageEntry("dd-v1", Map.of("disk", "disk.img"));
+
+        IOException exception = assertThrows(IOException.class, () -> new LocalFlashService(
+                new FixedImageCatalogService(symlink),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(image, null, FlashTarget.blockDevice(target(target, 32, false, false)), false),
+                NO_PROGRESS));
+
+        assertEquals("Partition path escapes artifact directory: disk.img", exception.getMessage());
         assertEquals(0, writer.writeCalls.size());
     }
 
@@ -831,6 +894,7 @@ public final class LocalFlashServiceTest {
                 target.readOnly(),
                 target.model(),
                 target.busType(),
+                target.hardwareId(),
                 target.mountPoints());
     }
 
@@ -863,6 +927,28 @@ public final class LocalFlashServiceTest {
                 partitionMap,
                 List.of(),
                 StrategySupport.SUPPORTED);
+    }
+
+    /// Block-device service returning fixed test devices.
+    @NotNullByDefault
+    private static final class FixedBlockDeviceService implements BlockDeviceService {
+        /// Fixed block-device list.
+        private final @Unmodifiable List<BlockDevice> devices;
+
+        /// Creates the fixed service.
+        ///
+        /// @param devices fixed devices.
+        private FixedBlockDeviceService(@Unmodifiable List<BlockDevice> devices) {
+            this.devices = List.copyOf(devices);
+        }
+
+        /// Lists the fixed devices.
+        ///
+        /// @return fixed devices.
+        @Override
+        public @Unmodifiable List<BlockDevice> listDevices() {
+            return devices;
+        }
     }
 
     /// Fastboot service that captures flash requests.

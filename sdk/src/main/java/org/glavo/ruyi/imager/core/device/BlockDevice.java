@@ -22,6 +22,7 @@ import java.util.List;
 /// @param readOnly whether the device is read-only.
 /// @param model hardware model when available.
 /// @param busType bus type when available.
+/// @param hardwareId stable hardware identity when available.
 /// @param mountPoints mounted volume paths when available.
 @NotNullByDefault
 public record BlockDevice(
@@ -35,6 +36,7 @@ public record BlockDevice(
         boolean readOnly,
         @Nullable String model,
         @Nullable String busType,
+        @Nullable String hardwareId,
         @Unmodifiable List<String> mountPoints) {
     /// Creates a block device without known mount points.
     ///
@@ -59,7 +61,35 @@ public record BlockDevice(
             boolean readOnly,
             @Nullable String model,
             @Nullable String busType) {
-        this(id, displayName, path, sizeBytes, removable, system, mounted, readOnly, model, busType, List.of());
+        this(id, displayName, path, sizeBytes, removable, system, mounted, readOnly, model, busType, null, List.of());
+    }
+
+    /// Creates a block device without a stable hardware identity.
+    ///
+    /// @param id stable identifier used by CLI and GUI selections.
+    /// @param displayName human-readable device name.
+    /// @param path platform path to the raw target.
+    /// @param sizeBytes total device size in bytes.
+    /// @param removable whether the device appears removable.
+    /// @param system whether the device appears to be a system disk.
+    /// @param mounted whether the device appears to have mounted volumes.
+    /// @param readOnly whether the device is read-only.
+    /// @param model hardware model when available.
+    /// @param busType bus type when available.
+    /// @param mountPoints mounted volume paths when available.
+    public BlockDevice(
+            String id,
+            String displayName,
+            Path path,
+            long sizeBytes,
+            boolean removable,
+            boolean system,
+            boolean mounted,
+            boolean readOnly,
+            @Nullable String model,
+            @Nullable String busType,
+            @Unmodifiable List<String> mountPoints) {
+        this(id, displayName, path, sizeBytes, removable, system, mounted, readOnly, model, busType, null, mountPoints);
     }
 
     /// Copies mutable inputs into immutable collections.

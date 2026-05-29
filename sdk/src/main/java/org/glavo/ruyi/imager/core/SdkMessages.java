@@ -45,6 +45,7 @@ public final class SdkMessages {
             Map.entry("core.flash.refuseMounted", "Refusing to write to a mounted device."),
             Map.entry("core.flash.refuseMountedWithPoints", "Refusing to write to a mounted device: {0}"),
             Map.entry("core.flash.refuseReadOnly", "Refusing to write to a read-only device."),
+            Map.entry("core.flash.targetChanged", "Selected target device changed or is no longer available: {0}"),
             Map.entry("core.flash.localImageMissing", "Local image does not exist: {0}"),
             Map.entry("core.flash.noSource", "No image source was selected."),
             Map.entry("core.flash.oneTarget", "dd-v1 image requires exactly one partition mapping in this flow."),

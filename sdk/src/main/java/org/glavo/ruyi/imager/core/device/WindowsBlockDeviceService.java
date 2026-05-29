@@ -134,6 +134,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
         boolean system = booleanValue(node, "system", false);
         boolean mounted = booleanValue(node, "mounted", false);
         boolean readOnly = booleanValue(node, "readOnly", false);
+        @Nullable String hardwareId = nullableTextValue(node, "hardwareId");
         @Unmodifiable List<String> mountPoints = stringListValue(node, "mountPoints");
 
         return new BlockDevice(
@@ -147,6 +148,7 @@ public final class WindowsBlockDeviceService implements BlockDeviceService {
                 readOnly,
                 model,
                 busType,
+                hardwareId,
                 mountPoints);
     }
 

@@ -38,6 +38,26 @@ public final class ProcessFastbootServiceTest {
         assertEquals("fastbootd", devices.get(1).state());
     }
 
+    /// Filters fastboot devices whose serial is not unique.
+    ///
+    /// @throws Exception when listing fails unexpectedly.
+    @Test
+    public void listDevicesFiltersDuplicateSerials() throws Exception {
+        ProcessFastbootService service = new ProcessFastbootService("fastboot-test", (command, timeout) -> {
+            assertEquals(List.of("fastboot-test", "devices"), command);
+            assertEquals(Duration.ofSeconds(15), timeout);
+            return new ProcessFastbootService.CommandResult(
+                    0,
+                    "same\tfastboot\nunique\tfastboot\nsame\tfastbootd\n",
+                    false);
+        });
+
+        List<FastbootDevice> devices = service.listDevices();
+
+        assertEquals(1, devices.size());
+        assertEquals("unique", devices.getFirst().serial());
+    }
+
     /// Keeps using the selected serial when LPi4A U-Boot exposes the same fastboot serial.
     @Test
     public void lpi4aUbootKeepsStableSerial() throws Exception {
