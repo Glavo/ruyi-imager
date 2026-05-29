@@ -14,74 +14,42 @@ $ProgressPreference = 'SilentlyContinue'
 $outputFile = [System.IO.Path]::GetTempFileName()
 $errorFile = [System.IO.Path]::GetTempFileName()
 
-function Quote-ProcessArgument {
-    param(
-        [AllowEmptyString()]
-        [string]$Argument
-    )
-
-    if ($Argument.Length -gt 0 -and $Argument.IndexOfAny([char[]]@(' ', "`t", "`r", "`n", '"')) -lt 0) {
-        return $Argument
-    }
-
-    $builder = [System.Text.StringBuilder]::new()
-    [void]$builder.Append('"')
-    $backslashes = 0
-    foreach ($character in $Argument.ToCharArray()) {
-        if ($character -eq '\') {
-            $backslashes++
-            continue
-        }
-        if ($character -eq '"') {
-            [void]$builder.Append(('\' * (($backslashes * 2) + 1)))
-            [void]$builder.Append('"')
-            $backslashes = 0
-            continue
-        }
-        if ($backslashes -gt 0) {
-            [void]$builder.Append(('\' * $backslashes))
-            $backslashes = 0
-        }
-        [void]$builder.Append($character)
-    }
-    if ($backslashes -gt 0) {
-        [void]$builder.Append(('\' * ($backslashes * 2)))
-    }
-    [void]$builder.Append('"')
-    return $builder.ToString()
-}
-
-function Join-ProcessArguments {
+function Join-NullSeparated {
     param(
         [string[]]$Arguments
     )
 
-    $quoted = @()
-    foreach ($argument in $Arguments) {
-        $quoted += Quote-ProcessArgument $argument
-    }
-    return ($quoted -join ' ')
+    return ($Arguments -join [char]0)
 }
 
 try {
-    $arguments = @(
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        $PrepareScript,
-        '-DiskNumber',
-        [string]$DiskNumber,
-        '-OutputFile',
-        $outputFile,
-        '-ErrorFile',
-        $errorFile
-    )
+    $payloadBase64 = [Convert]::ToBase64String(
+        [System.Text.Encoding]::UTF8.GetBytes((Join-NullSeparated @(
+            $PrepareScript,
+            [string]$DiskNumber,
+            $outputFile,
+            $errorFile
+        ))))
+    $runner = @"
+`$ErrorActionPreference = 'Stop'
+try {
+    `$payloadText = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$payloadBase64'))
+    `$parts = `$payloadText.Split([char]0)
+    & `$parts[0] -DiskNumber ([int]`$parts[1]) -OutputFile `$parts[2] -ErrorFile `$parts[3]
+    if (`$null -ne `$global:LASTEXITCODE) {
+        exit `$global:LASTEXITCODE
+    }
+    exit 0
+} catch {
+    [Console]::Error.WriteLine(`$_.Exception.Message)
+    exit 1
+}
+"@
+    $encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($runner))
 
     $process = Start-Process `
         -FilePath 'powershell.exe' `
-        -ArgumentList (Join-ProcessArguments $arguments) `
+        -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encodedCommand) `
         -Verb RunAs `
         -Wait `
         -PassThru `

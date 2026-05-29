@@ -144,9 +144,9 @@ public final class DDFlasherElevationTest {
         String script = Files.readString(Path.of(command.get(6)));
         assertTrue(script.contains("$ProgressPreference = 'SilentlyContinue'"));
         assertTrue(script.contains("Start-Process"));
-        assertTrue(script.contains("Verb = 'RunAs'"));
-        assertTrue(script.contains("Quote-ProcessArgument"));
-        assertTrue(script.contains("Join-ProcessArguments"));
+        assertTrue(script.contains("-Verb RunAs"));
+        assertTrue(script.contains("-EncodedCommand"));
+        assertTrue(script.contains("Join-NullSeparated"));
         assertTrue(script.contains("[Console]::Error.WriteLine($_.Exception.Message)"));
 
         String argumentPayload = new String(Base64.getDecoder().decode(command.get(10)), StandardCharsets.UTF_8);

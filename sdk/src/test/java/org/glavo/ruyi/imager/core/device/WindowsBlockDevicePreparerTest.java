@@ -57,8 +57,8 @@ public final class WindowsBlockDevicePreparerTest {
         String launcherScript = Files.readString(PowerShellScripts.path("prepare-windows-disk-launcher.ps1"));
         assertTrue(launcherScript.contains("Start-Process"));
         assertTrue(launcherScript.contains("-Verb RunAs"));
-        assertTrue(launcherScript.contains("Quote-ProcessArgument"));
-        assertTrue(launcherScript.contains("Join-ProcessArguments"));
+        assertTrue(launcherScript.contains("-EncodedCommand"));
+        assertTrue(launcherScript.contains("Join-NullSeparated"));
         assertTrue(launcherScript.contains("[Console]::OpenStandardError()"));
 
         String prepareScript = Files.readString(PowerShellScripts.path("prepare-windows-disk.ps1"));
