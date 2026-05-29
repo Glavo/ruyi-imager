@@ -77,6 +77,8 @@ val fastbootDownloadRetries = providers.gradleProperty("fastboot.download.retrie
     .orElse(downloadRetries)
 val bundledFastbootDirectory = layout.buildDirectory.dir("bundled-fastboot")
 val bundledDDFlasherDirectory = project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher")
+val powerShellScriptsDirectory =
+    project(":sdk").layout.projectDirectory.dir("src/main/resources/org/glavo/ruyi/imager/core/powershell")
 val ddFlasherExecutableName =
     if (isWindowsOs(System.getProperty("os.name").lowercase())) "dd-flasher.exe" else "dd-flasher"
 val testDDFlasherExecutable = project(":dd-flasher").layout.buildDirectory.file("cargo-target/release/$ddFlasherExecutableName")
@@ -346,6 +348,7 @@ tasks.named<JavaExec>("run") {
     dependsOn(":dd-flasher:cargoBuild")
     doFirst {
         systemProperty("ruyi.imager.ddFlasher.executable", testDDFlasherExecutable.get().asFile.absolutePath)
+        systemProperty("ruyi.imager.powershell.scripts", powerShellScriptsDirectory.asFile.absolutePath)
     }
     runFastbootBundle?.let { bundle ->
         val executable = bundledFastbootDirectory.map {
@@ -366,6 +369,11 @@ distributions {
             }
             into("tools/dd-flasher") {
                 from(bundledDDFlasherDirectory)
+            }
+            into("tools/powershell") {
+                from(powerShellScriptsDirectory) {
+                    include("*.ps1")
+                }
             }
         }
     }
@@ -516,6 +524,10 @@ tasks.register<Sync>("installJlinkDist") {
     }
     from(jlinkDDFlasherPlatformDirectory) {
         into("tools/dd-flasher/$jlinkJdkPlatform")
+    }
+    from(powerShellScriptsDirectory) {
+        into("tools/powershell")
+        include("*.ps1")
     }
 }
 
