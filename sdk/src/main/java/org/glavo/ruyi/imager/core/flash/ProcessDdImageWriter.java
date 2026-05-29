@@ -78,6 +78,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     ///
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
@@ -87,11 +88,20 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     public void write(
             Path source,
             Path target,
+            String targetDisplayName,
             long totalBytes,
             boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
-        if (!run("write", progressSinks("write", "flash", message), source, target, totalBytes, targetRemovable, reporter)) {
+        if (!run(
+                "write",
+                progressSinks("write", "flash", message),
+                source,
+                target,
+                targetDisplayName,
+                totalBytes,
+                targetRemovable,
+                reporter)) {
             throw new IOException(SdkMessages.get("core.dd.writeFailed"));
         }
     }
@@ -100,6 +110,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     ///
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
@@ -110,17 +121,27 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     public boolean verify(
             Path source,
             Path target,
+            String targetDisplayName,
             long totalBytes,
             boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
-        return run("verify", progressSinks("verify", "verify", message), source, target, totalBytes, targetRemovable, reporter);
+        return run(
+                "verify",
+                progressSinks("verify", "verify", message),
+                source,
+                target,
+                targetDisplayName,
+                totalBytes,
+                targetRemovable,
+                reporter);
     }
 
     /// Writes a source image to a target path and verifies the written bytes through one helper process.
     ///
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @param writeMessage progress message for writing.
@@ -132,6 +153,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     public boolean writeAndVerify(
             Path source,
             Path target,
+            String targetDisplayName,
             long totalBytes,
             boolean targetRemovable,
             String writeMessage,
@@ -144,6 +166,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
                         "verify", new ProgressSink("verify", verifyMessage)),
                 source,
                 target,
+                targetDisplayName,
                 totalBytes,
                 targetRemovable,
                 reporter);
@@ -155,6 +178,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param progressSinks progress sinks keyed by helper operation.
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @param reporter progress reporter.
@@ -165,16 +189,27 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             Map<String, ProgressSink> progressSinks,
             Path source,
             Path target,
+            String targetDisplayName,
             long totalBytes,
             boolean targetRemovable,
             ProgressReporter reporter) throws IOException {
-        List<String> arguments = arguments(operation, source, target, totalBytes, targetRemovable);
+        String helperTargetDisplayName = validatedTargetDisplayName(targetDisplayName);
+        List<String> arguments = arguments(
+                operation,
+                source,
+                target,
+                helperTargetDisplayName,
+                totalBytes,
+                targetRemovable);
         if (DDFlasherElevation.shouldElevate(target)) {
-            return runElevated(operation, progressSinks, arguments, reporter);
+            return runElevated(operation, progressSinks, helperTargetDisplayName, arguments, reporter);
         }
 
         List<String> command = command(arguments);
-        LOGGER.atInfo().log(() -> "Running dd-flasher helper. command=" + LogRedactor.redactCommand(command));
+        LOGGER.atInfo().log(() -> "Running dd-flasher helper. targetDisplayName="
+                + LogRedactor.redactText(helperTargetDisplayName)
+                + ", command="
+                + LogRedactor.redactCommand(command));
         Process process;
         try {
             process = new ProcessBuilder(command).start();
@@ -202,6 +237,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     ///
     /// @param operation helper operation.
     /// @param progressSinks progress sinks keyed by helper operation.
+    /// @param targetDisplayName human-readable target display name.
     /// @param arguments helper arguments excluding executable.
     /// @param reporter progress reporter.
     /// @return operation success result.
@@ -209,6 +245,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     private boolean runElevated(
             String operation,
             Map<String, ProgressSink> progressSinks,
+            String targetDisplayName,
             List<String> arguments,
             ProgressReporter reporter) throws IOException {
         Path eventLog = Files.createTempFile("ruyi-imager-dd-flasher-", ".ndjson");
@@ -238,7 +275,10 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             deleteCancelFile(cancelFile);
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", executable), exception);
         }
-        LOGGER.atInfo().log(() -> "Running elevated dd-flasher helper. command=" + LogRedactor.redactCommand(command));
+        LOGGER.atInfo().log(() -> "Running elevated dd-flasher helper. targetDisplayName="
+                + LogRedactor.redactText(targetDisplayName)
+                + ", command="
+                + LogRedactor.redactCommand(command));
 
         Process process;
         try {
@@ -319,6 +359,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param operation helper operation.
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @return helper arguments.
@@ -326,19 +367,36 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             String operation,
             Path source,
             Path target,
+            String targetDisplayName,
             long totalBytes,
             boolean targetRemovable) {
-        ArrayList<String> command = new ArrayList<>(9);
+        ArrayList<String> command = new ArrayList<>(11);
         command.add(operation);
         command.add("--source");
         command.add(source.toString());
         command.add("--target");
         command.add(helperTargetArgument(target));
+        command.add("--target-display-name");
+        command.add(targetDisplayName);
         command.add("--total-bytes");
         command.add(Long.toString(totalBytes));
         command.add("--removable");
         command.add(Boolean.toString(targetRemovable));
         return command;
+    }
+
+    /// Validates the target display name passed to the helper.
+    ///
+    /// @param targetDisplayName target display name.
+    /// @return validated target display name.
+    private static String validatedTargetDisplayName(String targetDisplayName) {
+        if (targetDisplayName.isBlank()) {
+            throw new IllegalArgumentException("Target display name must not be blank.");
+        }
+        if (targetDisplayName.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("Target display name must not contain control characters.");
+        }
+        return targetDisplayName.strip();
     }
 
     /// Converts a target path to the string passed to the helper.

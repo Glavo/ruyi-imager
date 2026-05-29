@@ -50,6 +50,7 @@ public final class ProcessDdImageWriterTest {
                 () -> assertThrows(IOException.class, () -> writer.write(
                         source,
                         target,
+                        "Test Target",
                         4L,
                         true,
                         "Writing test image.",
@@ -69,6 +70,33 @@ public final class ProcessDdImageWriterTest {
         assertEquals(
                 Path.of("target.raw").toString(),
                 ProcessDdImageWriter.helperTargetArgument(Path.of("target.raw")));
+    }
+
+    /// Verifies the helper process receives the selected target display name.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void passesTargetDisplayNameToHelper(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("source.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(source, new byte[]{1, 2, 3, 4});
+        Files.write(target, new byte[8]);
+
+        ProcessDdImageWriter writer = new ProcessDdImageWriter(List.of(
+                javaExecutable().toString(),
+                "-cp",
+                System.getProperty("java.class.path"),
+                ArgumentCaptureHelper.class.getName()));
+
+        assertTrue(writer.verify(
+                source,
+                target,
+                "Test USB Target",
+                4L,
+                true,
+                "Verifying test image.",
+                NO_PROGRESS));
     }
 
     /// Verifies combined write-verify helper progress is mapped to write and verification stages.
@@ -92,6 +120,7 @@ public final class ProcessDdImageWriterTest {
         assertTrue(writer.writeAndVerify(
                 source,
                 target,
+                "Test Target",
                 4L,
                 true,
                 "Writing test image.",
@@ -146,6 +175,42 @@ public final class ProcessDdImageWriterTest {
             System.out.println("{\"type\":\"progress\",\"operation\":\"verify\",\"currentBytes\":0,\"totalBytes\":4}");
             System.out.println("{\"type\":\"progress\",\"operation\":\"verify\",\"currentBytes\":4,\"totalBytes\":4}");
             System.out.println("{\"type\":\"complete\",\"success\":true}");
+        }
+    }
+
+    /// Helper process that verifies selected command-line arguments.
+    @NotNullByDefault
+    public static final class ArgumentCaptureHelper {
+        /// Prevents construction.
+        private ArgumentCaptureHelper() {
+        }
+
+        /// Validates dd-flasher wire arguments and emits a successful completion event.
+        ///
+        /// @param args command-line arguments.
+        @SuppressWarnings("unused")
+        public static void main(String[] args) {
+            List<String> arguments = List.of(args);
+            if (!"verify".equals(arguments.getFirst())
+                    || !"Test USB Target".equals(optionValue(arguments, "--target-display-name"))
+                    || !"true".equals(optionValue(arguments, "--removable"))) {
+                System.out.println("{\"type\":\"error\",\"message\":\"missing expected arguments\"}");
+                System.exit(2);
+            }
+            System.out.println("{\"type\":\"complete\",\"success\":true}");
+        }
+
+        /// Returns one option value from the command line.
+        ///
+        /// @param arguments command-line arguments.
+        /// @param name option name.
+        /// @return option value, or an empty string when absent.
+        private static String optionValue(List<String> arguments, String name) {
+            int index = arguments.indexOf(name);
+            if (index < 0 || index + 1 >= arguments.size()) {
+                return "";
+            }
+            return arguments.get(index + 1);
         }
     }
 }

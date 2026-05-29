@@ -24,6 +24,7 @@ public interface DdImageWriter {
     ///
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
@@ -32,6 +33,7 @@ public interface DdImageWriter {
     void write(
             Path source,
             Path target,
+            String targetDisplayName,
             long totalBytes,
             boolean targetRemovable,
             String message,
@@ -41,6 +43,7 @@ public interface DdImageWriter {
     ///
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @param writeMessage progress message for writing.
@@ -51,20 +54,22 @@ public interface DdImageWriter {
     default boolean writeAndVerify(
             Path source,
             Path target,
+            String targetDisplayName,
             long totalBytes,
             boolean targetRemovable,
             String writeMessage,
             String verifyMessage,
             ProgressReporter reporter) throws IOException {
-        write(source, target, totalBytes, targetRemovable, writeMessage, reporter);
+        write(source, target, targetDisplayName, totalBytes, targetRemovable, writeMessage, reporter);
         reporter.report(new ProgressEvent("verify", verifyMessage, 0L, totalBytes));
-        return verify(source, target, totalBytes, targetRemovable, verifyMessage, reporter);
+        return verify(source, target, targetDisplayName, totalBytes, targetRemovable, verifyMessage, reporter);
     }
 
     /// Verifies target bytes against a source image.
     ///
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
@@ -74,6 +79,7 @@ public interface DdImageWriter {
     boolean verify(
             Path source,
             Path target,
+            String targetDisplayName,
             long totalBytes,
             boolean targetRemovable,
             String message,

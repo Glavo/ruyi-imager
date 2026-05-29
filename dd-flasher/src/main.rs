@@ -46,6 +46,9 @@ struct Request {
     /// Target raw device or file path.
     target: PathBuf,
 
+    /// Human-readable target display name supplied by the caller.
+    target_display_name: String,
+
     /// Exact number of bytes expected in the source image.
     total_bytes: u64,
 
@@ -125,6 +128,7 @@ where
 
     let mut source = None;
     let mut target = None;
+    let mut target_display_name = None;
     let mut total_bytes = None;
     let mut removable = None;
     let mut event_log = None;
@@ -134,6 +138,12 @@ where
         match arg.as_str() {
             "--source" => source = Some(PathBuf::from(next_value(&mut args, "--source")?)),
             "--target" => target = Some(PathBuf::from(next_value(&mut args, "--target")?)),
+            "--target-display-name" => {
+                target_display_name = Some(parse_target_display_name(next_value(
+                    &mut args,
+                    "--target-display-name",
+                )?)?)
+            }
             "--event-log" => event_log = Some(PathBuf::from(next_value(&mut args, "--event-log")?)),
             "--cancel-file" => {
                 cancel_file = Some(PathBuf::from(next_value(&mut args, "--cancel-file")?))
@@ -160,6 +170,8 @@ where
         operation,
         source: source.ok_or_else(|| "missing --source".to_string())?,
         target: target.ok_or_else(|| "missing --target".to_string())?,
+        target_display_name: target_display_name
+            .ok_or_else(|| "missing --target-display-name".to_string())?,
         total_bytes: total_bytes.ok_or_else(|| "missing --total-bytes".to_string())?,
         removable: removable.ok_or_else(|| "missing --removable".to_string())?,
         event_log,
@@ -177,6 +189,25 @@ where
         .ok_or_else(|| format!("missing value for {name}"))
 }
 
+/// Parses and validates a target display name option value.
+fn parse_target_display_name(value: String) -> Result<String, String> {
+    validate_target_display_name(&value)?;
+    Ok(value.trim().to_string())
+}
+
+/// Validates a target display name.
+fn validate_target_display_name(value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err("invalid --target-display-name value: must not be empty".to_string());
+    }
+    if value.chars().any(char::is_control) {
+        return Err(
+            "invalid --target-display-name value: must not contain control characters".to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Parses one boolean option value.
 fn parse_bool(value: &str, name: &str) -> Result<bool, String> {
     match value {
@@ -188,11 +219,12 @@ fn parse_bool(value: &str, name: &str) -> Result<bool, String> {
 
 /// Returns the CLI usage text.
 fn usage() -> String {
-    "usage: dd-flasher <write|verify|write-verify> --source <path> --target <path> --total-bytes <bytes> --removable <true|false> [--event-log <path>] [--cancel-file <path>] [--no-stdout]".to_string()
+    "usage: dd-flasher <write|verify|write-verify> --source <path> --target <path> --target-display-name <name> --total-bytes <bytes> --removable <true|false> [--event-log <path>] [--cancel-file <path>] [--no-stdout]".to_string()
 }
 
 /// Validates source metadata, event sink configuration, and self-write safety.
 fn validate_request(request: &Request) -> Result<(), String> {
+    validate_target_display_name(&request.target_display_name)?;
     let source_metadata = fs::metadata(&request.source)
         .map_err(|error| format!("failed to read source metadata: {error}"))?;
     if !source_metadata.is_file() {
@@ -209,7 +241,10 @@ fn validate_request(request: &Request) -> Result<(), String> {
         return Err("source image is empty".to_string());
     }
     if !request.removable {
-        return Err("target is not removable".to_string());
+        return Err(format!(
+            "target is not removable: {}",
+            request.target_display_name
+        ));
     }
     if !request.stdout && request.event_log.is_none() {
         return Err("--no-stdout requires --event-log".to_string());
@@ -235,7 +270,12 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
     let mut target = OpenOptions::new()
         .write(true)
         .open(&request.target)
-        .map_err(|error| format!("failed to open target for writing: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "failed to open target for writing ({}): {error}",
+                request.target_display_name
+            )
+        })?;
 
     write_image_stream(request, &mut source, &mut target, sink)
 }
@@ -248,15 +288,23 @@ fn write_and_verify_image(request: &Request, sink: &mut EventSink) -> Result<boo
         .read(true)
         .write(true)
         .open(&request.target)
-        .map_err(|error| format!("failed to open target for writing: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "failed to open target for writing ({}): {error}",
+                request.target_display_name
+            )
+        })?;
 
     write_image_stream(request, &mut source, &mut target, sink)?;
     source
         .seek(SeekFrom::Start(0))
         .map_err(|error| format!("failed to seek source: {error}"))?;
-    target
-        .seek(SeekFrom::Start(0))
-        .map_err(|error| format!("failed to seek target: {error}"))?;
+    target.seek(SeekFrom::Start(0)).map_err(|error| {
+        format!(
+            "failed to seek target ({}): {error}",
+            request.target_display_name
+        )
+    })?;
     sink.progress(Operation::Verify, 0, request.total_bytes)?;
     verify_image_stream(request, &mut source, &mut target, sink)
 }
@@ -284,9 +332,12 @@ fn write_image_stream(
         if read == 0 {
             break;
         }
-        target
-            .write_all(&buffer[..read])
-            .map_err(|error| format!("failed to write target: {error}"))?;
+        target.write_all(&buffer[..read]).map_err(|error| {
+            format!(
+                "failed to write target ({}): {error}",
+                request.target_display_name
+            )
+        })?;
         written += read as u64;
         sink.progress(Operation::Write, written, request.total_bytes)?;
     }
@@ -307,9 +358,12 @@ fn write_image_stream(
             request.total_bytes
         ));
     }
-    target
-        .sync_all()
-        .map_err(|error| format!("failed to flush target: {error}"))?;
+    target.sync_all().map_err(|error| {
+        format!(
+            "failed to flush target ({}): {error}",
+            request.target_display_name
+        )
+    })?;
     Ok(())
 }
 
@@ -317,8 +371,12 @@ fn write_image_stream(
 fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let mut target = File::open(&request.target)
-        .map_err(|error| format!("failed to open target for reading: {error}"))?;
+    let mut target = File::open(&request.target).map_err(|error| {
+        format!(
+            "failed to open target for reading ({}): {error}",
+            request.target_display_name
+        )
+    })?;
 
     verify_image_stream(request, &mut source, &mut target, sink)
 }
@@ -339,7 +397,12 @@ fn verify_image_stream(
         let source_read = read_exact_or_eof(&mut *source, &mut source_buffer[..chunk_size])
             .map_err(|error| format!("failed to read source: {error}"))?;
         let target_read = read_exact_or_eof(&mut *target, &mut target_buffer[..chunk_size])
-            .map_err(|error| format!("failed to read target: {error}"))?;
+            .map_err(|error| {
+                format!(
+                    "failed to read target ({}): {error}",
+                    request.target_display_name
+                )
+            })?;
         if source_read != target_read || source_read != chunk_size {
             return Ok(false);
         }
@@ -489,6 +552,8 @@ mod tests {
             "source.raw".to_string(),
             "--target".to_string(),
             "target.raw".to_string(),
+            "--target-display-name".to_string(),
+            "Test Target".to_string(),
             "--total-bytes".to_string(),
             "4".to_string(),
             "--removable".to_string(),
@@ -497,7 +562,48 @@ mod tests {
         .unwrap();
 
         assert_eq!(request.operation, Operation::Write);
+        assert_eq!(request.target_display_name, "Test Target");
         assert!(!request.removable);
+    }
+
+    /// Verifies callers must explicitly provide a target display name.
+    #[test]
+    fn rejects_missing_target_display_name_argument() {
+        let error = parse_args([
+            "write".to_string(),
+            "--source".to_string(),
+            "source.raw".to_string(),
+            "--target".to_string(),
+            "target.raw".to_string(),
+            "--total-bytes".to_string(),
+            "4".to_string(),
+            "--removable".to_string(),
+            "true".to_string(),
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("missing --target-display-name"));
+    }
+
+    /// Verifies callers must provide a non-empty target display name.
+    #[test]
+    fn rejects_blank_target_display_name_argument() {
+        let error = parse_args([
+            "write".to_string(),
+            "--source".to_string(),
+            "source.raw".to_string(),
+            "--target".to_string(),
+            "target.raw".to_string(),
+            "--target-display-name".to_string(),
+            "   ".to_string(),
+            "--total-bytes".to_string(),
+            "4".to_string(),
+            "--removable".to_string(),
+            "true".to_string(),
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("must not be empty"));
     }
 
     /// Verifies callers must explicitly provide target removability.
@@ -509,6 +615,8 @@ mod tests {
             "source.raw".to_string(),
             "--target".to_string(),
             "target.raw".to_string(),
+            "--target-display-name".to_string(),
+            "Test Target".to_string(),
             "--total-bytes".to_string(),
             "4".to_string(),
         ])
@@ -526,6 +634,8 @@ mod tests {
             "source.raw".to_string(),
             "--target".to_string(),
             "target.raw".to_string(),
+            "--target-display-name".to_string(),
+            "Test Target".to_string(),
             "--total-bytes".to_string(),
             "4".to_string(),
             "--removable".to_string(),
@@ -552,6 +662,7 @@ mod tests {
             operation: Operation::Write,
             source: source.clone(),
             target: target.clone(),
+            target_display_name: "Test Target".to_string(),
             total_bytes: image.len() as u64,
             removable: true,
             event_log: None,
@@ -567,6 +678,7 @@ mod tests {
             operation: Operation::Verify,
             source,
             target,
+            target_display_name: "Test Target".to_string(),
             total_bytes: image.len() as u64,
             removable: true,
             event_log: None,
@@ -591,6 +703,7 @@ mod tests {
             operation: Operation::WriteVerify,
             source,
             target: target.clone(),
+            target_display_name: "Test Target".to_string(),
             total_bytes: image.len() as u64,
             removable: true,
             event_log: Some(event_log.clone()),
@@ -620,6 +733,7 @@ mod tests {
             operation: Operation::Verify,
             source,
             target,
+            target_display_name: "Test Target".to_string(),
             total_bytes: 4,
             removable: true,
             event_log: None,
@@ -643,6 +757,7 @@ mod tests {
             operation: Operation::Write,
             source,
             target,
+            target_display_name: "Test Target".to_string(),
             total_bytes: 3,
             removable: true,
             event_log: None,
@@ -670,6 +785,7 @@ mod tests {
             operation: Operation::Write,
             source: source.clone(),
             target: target.clone(),
+            target_display_name: "Test Target".to_string(),
             total_bytes: image.len() as u64,
             removable: true,
             event_log: None,
@@ -703,6 +819,7 @@ mod tests {
             operation: Operation::Write,
             source,
             target: target.clone(),
+            target_display_name: "Test Target".to_string(),
             total_bytes: 4,
             removable: true,
             event_log: None,
@@ -731,6 +848,7 @@ mod tests {
             operation: Operation::Write,
             source: source.clone(),
             target: source,
+            target_display_name: "Test Target".to_string(),
             total_bytes: 4,
             removable: true,
             event_log: None,
@@ -757,17 +875,16 @@ mod tests {
             operation: Operation::Write,
             source,
             target,
+            target_display_name: "Test Target".to_string(),
             total_bytes: 4,
             removable: false,
             event_log: None,
             cancel_file: None,
             stdout: true,
         };
-        assert!(
-            validate_request(&request)
-                .unwrap_err()
-                .contains("not removable")
-        );
+        let error = validate_request(&request).unwrap_err();
+        assert!(error.contains("not removable"));
+        assert!(error.contains("Test Target"));
     }
 
     /// Verifies elevated-mode event logging can run without stdout events.
@@ -784,6 +901,7 @@ mod tests {
             operation: Operation::Write,
             source,
             target,
+            target_display_name: "Test Target".to_string(),
             total_bytes: 4,
             removable: true,
             event_log: Some(event_log.clone()),

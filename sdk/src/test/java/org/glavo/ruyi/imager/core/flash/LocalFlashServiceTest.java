@@ -90,10 +90,12 @@ public final class LocalFlashServiceTest {
         assertTrue(result.success(), result.message());
         assertEquals(image, writer.writeSource);
         assertEquals(target, writer.writeTarget);
+        assertEquals("Test Target", writer.writeTargetDisplayName);
         assertEquals(4L, writer.writeTotalBytes);
         assertTrue(writer.writeTargetRemovable);
         assertEquals(image, writer.verifySource);
         assertEquals(target, writer.verifyTarget);
+        assertEquals("Test Target", writer.verifyTargetDisplayName);
         assertTrue(writer.verifyTargetRemovable);
     }
 
@@ -121,6 +123,7 @@ public final class LocalFlashServiceTest {
         assertEquals(0, writer.verifyCalls.size());
         assertEquals(image, writer.writeCalls.getFirst().source());
         assertEquals(target, writer.writeCalls.getFirst().target());
+        assertEquals("Test Target", writer.writeCalls.getFirst().targetDisplayName());
         assertEquals(4L, writer.writeCalls.getFirst().totalBytes());
         assertTrue(writer.writeCalls.getFirst().targetRemovable());
     }
@@ -269,6 +272,9 @@ public final class LocalFlashServiceTest {
         assertTrue(result.success(), result.message());
         assertEquals(List.of(boot, root), writer.writeCalls.stream().map(DdCall::source).toList());
         assertEquals(List.of(bootTarget, rootTarget), writer.writeCalls.stream().map(DdCall::target).toList());
+        assertEquals(
+                List.of("Test Target", "Test Target"),
+                writer.writeCalls.stream().map(DdCall::targetDisplayName).toList());
         assertEquals(List.of(3L, 4L), writer.writeCalls.stream().map(DdCall::totalBytes).toList());
         assertEquals(List.of(true, true), writer.writeCalls.stream().map(DdCall::targetRemovable).toList());
         assertEquals(List.of(boot, root), writer.verifyCalls.stream().map(DdCall::source).toList());
@@ -1062,6 +1068,9 @@ public final class LocalFlashServiceTest {
         /// Captured write target.
         private @Nullable Path writeTarget;
 
+        /// Captured write target display name.
+        private @Nullable String writeTargetDisplayName;
+
         /// Captured write byte count.
         private long writeTotalBytes;
 
@@ -1073,6 +1082,9 @@ public final class LocalFlashServiceTest {
 
         /// Captured verification target.
         private @Nullable Path verifyTarget;
+
+        /// Captured verification target display name.
+        private @Nullable String verifyTargetDisplayName;
 
         /// Captured verification target removable flag.
         private boolean verifyTargetRemovable;
@@ -1088,6 +1100,7 @@ public final class LocalFlashServiceTest {
         ///
         /// @param source source image path.
         /// @param target target path.
+        /// @param targetDisplayName human-readable target display name.
         /// @param totalBytes source size.
         /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
@@ -1096,21 +1109,24 @@ public final class LocalFlashServiceTest {
         public void write(
                 Path source,
                 Path target,
+                String targetDisplayName,
                 long totalBytes,
                 boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) {
             this.writeSource = source;
             this.writeTarget = target;
+            this.writeTargetDisplayName = targetDisplayName;
             this.writeTotalBytes = totalBytes;
             this.writeTargetRemovable = targetRemovable;
-            this.writeCalls.add(new DdCall(source, target, totalBytes, targetRemovable, message));
+            this.writeCalls.add(new DdCall(source, target, targetDisplayName, totalBytes, targetRemovable, message));
         }
 
         /// Captures one block-image verification.
         ///
         /// @param source source image path.
         /// @param target target path.
+        /// @param targetDisplayName human-readable target display name.
         /// @param totalBytes source size.
         /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
@@ -1120,14 +1136,16 @@ public final class LocalFlashServiceTest {
         public boolean verify(
                 Path source,
                 Path target,
+                String targetDisplayName,
                 long totalBytes,
                 boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) {
             this.verifySource = source;
             this.verifyTarget = target;
+            this.verifyTargetDisplayName = targetDisplayName;
             this.verifyTargetRemovable = targetRemovable;
-            this.verifyCalls.add(new DdCall(source, target, totalBytes, targetRemovable, message));
+            this.verifyCalls.add(new DdCall(source, target, targetDisplayName, totalBytes, targetRemovable, message));
             return verifyResult;
         }
     }
@@ -1136,11 +1154,18 @@ public final class LocalFlashServiceTest {
     ///
     /// @param source source image path.
     /// @param target target path.
+    /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
     /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     @NotNullByDefault
-    private record DdCall(Path source, Path target, long totalBytes, boolean targetRemovable, String message) {
+    private record DdCall(
+            Path source,
+            Path target,
+            String targetDisplayName,
+            long totalBytes,
+            boolean targetRemovable,
+            String message) {
     }
 
     /// Test dd writer that copies bytes inside the JVM.
@@ -1150,6 +1175,7 @@ public final class LocalFlashServiceTest {
         ///
         /// @param source source image path.
         /// @param target target path.
+        /// @param targetDisplayName human-readable target display name.
         /// @param totalBytes source size.
         /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
@@ -1159,6 +1185,7 @@ public final class LocalFlashServiceTest {
         public void write(
                 Path source,
                 Path target,
+                String targetDisplayName,
                 long totalBytes,
                 boolean targetRemovable,
                 String message,
@@ -1180,6 +1207,7 @@ public final class LocalFlashServiceTest {
         ///
         /// @param source source image path.
         /// @param target target path.
+        /// @param targetDisplayName human-readable target display name.
         /// @param totalBytes source size.
         /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
@@ -1190,6 +1218,7 @@ public final class LocalFlashServiceTest {
         public boolean verify(
                 Path source,
                 Path target,
+                String targetDisplayName,
                 long totalBytes,
                 boolean targetRemovable,
                 String message,
