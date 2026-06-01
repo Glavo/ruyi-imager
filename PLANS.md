@@ -26,7 +26,7 @@
 - GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒、目标确认、窗口图标和页头 Logo；元数据更新成功后会重置镜像来源和目标设备选择；刷写期间会折叠选择流程，仅保留当前制造商、开发板、镜像和目标摘要栏，长文本摘要使用全宽行式布局避免逐字换行，并在开始刷写时预显示本次流程涉及的下载、准备镜像、准备目标、写入、校验和 fastboot 等阶段进度条，后续按后端 `ProgressEvent.stage` 更新，镜像准备成功后会发送确定完成进度，避免该阶段一直保持不定进度；刷写中可从 GUI 取消，GUI 会中断后台任务、等待后台刷写流程实际退出后再恢复控件，若后台已成功完成则保留成功结果，只有中断导致的停止才显示取消提示；SDK 进度和诊断消息会在 app 层通过资源包本地化，下载相关短状态消息不带末尾句号，后台任务未知错误兜底和 fastboot 设备详情标签也会随 GUI locale 切换，CLI/GUI 不再混用英文 SDK 文本。
 - SDK 刷写测试覆盖 fake `DdImageWriter` 编排路径，包括跳过校验、校验失败、多分区顺序和分区 target 拒绝条件，不依赖真实 helper 写目标内容。
 - 日志已改用 SLF4J API，运行时接 JUL 文件后端；CLI/GUI 错误都会暴露日志路径，日志默认脱敏和截断敏感外部输出。
-- 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 JLink zip；Windows JLink 包同时提供 console subsystem 的 `ruyi-imager.exe` 作为 CLI 默认入口，以及 Windows subsystem 的 `ruyi-imager-gui.exe` 作为无黑框双击 GUI 入口，`dd-flasher`/launcher release 构建会追踪 Cargo manifest/lockfile/Rust 源码输入；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。
+- 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 JLink zip；Windows JLink 包同时提供 console subsystem 的 `ruyi-imager.exe` 作为 CLI 默认入口，以及 Windows subsystem 的 `ruyi-imager-gui.exe` 作为无黑框双击 GUI 入口，Windows MSVC native launcher 和 `dd-flasher` 启用静态 CRT 链接，避免目标系统缺少 `VCRUNTIME140.dll` 时无法启动；`dd-flasher`/launcher release 构建会追踪 Cargo manifest/lockfile/Rust 源码和 workspace Cargo 配置输入；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。
 - Java/Gradle 代码标识符统一使用 `DDFlasher` 作为 dd-flasher helper 的 acronym 命名；外部可执行文件名、目录名和配置属性保持 `dd-flasher`/`ddFlasher` 兼容。
 - Android Platform Tools 下载已迁移到 `gradle-download-task`，fastboot 打包默认锁定到 Platform-Tools 37.0.0 的版本化归档并校验 SHA-256/大小，支持本地缓存复用、临时文件落盘、重试和主 URL/校验值覆盖，避免临时限流直接阻断 `jlinkZip`。
 - Gradle `run` 会为当前平台解包 bundled fastboot、构建当前平台 `dd-flasher`，并通过 `ruyi.imager.fastboot.executable`、`ruyi.imager.ddFlasher.executable` 系统属性指向对应可执行文件，开发运行不再依赖 PATH 中预装 fastboot 或 `dd-flasher`。
@@ -126,5 +126,10 @@
   - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest`
   - `./gradlew -g .gradle-user-home :dd-flasher:cargoBuild`
   - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest :dd-flasher:cargoBuild :sdk:test --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest`
+  - `./gradlew -g .gradle-user-home :launcher:prepareBundledLauncherWindowsX8664 :dd-flasher:cargoBuild`
+  - `./gradlew -g .gradle-user-home :app:installJlinkDist`
+  - `./gradlew -g .gradle-user-home :launcher:cargoTest`
+  - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest`
+  - `app/build/jlink/windows-x86_64/ruyi-imager/bin/ruyi-imager.exe --help`
 - 已知限制：
   - Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝，需要沙箱外只读运行验证。

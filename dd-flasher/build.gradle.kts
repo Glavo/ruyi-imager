@@ -6,6 +6,7 @@ val cargoExecutable = providers.gradleProperty("cargo.executable").orElse("cargo
 val crossExecutable = providers.gradleProperty("cross.executable").orElse("cross")
 val ddFlasherBuildTool = providers.gradleProperty("ddFlasher.buildTool").orElse("cargo")
 val rustTargetDirectory = layout.buildDirectory.dir("cargo-target")
+val cargoConfigFile = rootProject.layout.projectDirectory.file(".cargo/config.toml")
 val rustSourceFiles = fileTree(layout.projectDirectory.dir("src")) {
     include("**/*.rs")
 }
@@ -193,6 +194,9 @@ fun Exec.configureRustBuild(platform: DDFlasherPlatform, rustTarget: String?) {
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.file(layout.projectDirectory.file("Cargo.lock"))
         .withPropertyName("cargoLock")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(cargoConfigFile)
+        .withPropertyName("cargoConfig")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(rustSourceFiles)
         .withPropertyName("rustSources")
