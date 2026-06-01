@@ -63,9 +63,11 @@ public final class WindowsBlockDevicePreparerTest {
         assertTrue(launcherScript.contains("[Console]::OpenStandardError()"));
 
         String prepareScript = Files.readString(PowerShellScripts.path("prepare-windows-disk.ps1"));
-        assertFalse(prepareScript.contains("Dismount-Volume"));
-        assertTrue(prepareScript.contains("Set-Disk"));
-        assertTrue(prepareScript.contains("-IsOffline"));
+        assertFalse(prepareScript.contains("Dismount-Volume "));
+        assertFalse(prepareScript.contains("Set-Disk"));
+        assertTrue(prepareScript.contains("DeviceIoControl"));
+        assertTrue(prepareScript.contains("FsctlLockVolume"));
+        assertTrue(prepareScript.contains("FsctlDismountVolume"));
         assertTrue(prepareScript.contains("mountvol.exe"));
         assertTrue(prepareScript.contains("{ '/p' } else { '/d' }"));
         assertTrue(prepareScript.contains("Volume{"));
