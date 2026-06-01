@@ -267,15 +267,18 @@ fn same_path(left: &Path, right: &Path) -> bool {
 fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let mut target = OpenOptions::new()
-        .write(true)
-        .open(&request.target)
-        .map_err(|error| {
-            format!(
-                "failed to open target for writing ({}): {error}",
-                request.target_display_name
-            )
-        })?;
+    let _target_locks = lock_target_for_write(&request.target).map_err(|error| {
+        format!(
+            "failed to lock target volumes ({}): {error}",
+            request.target_display_name
+        )
+    })?;
+    let mut target = open_target_for_write(&request.target).map_err(|error| {
+        format!(
+            "failed to open target for writing ({}): {error}",
+            request.target_display_name
+        )
+    })?;
 
     write_image_stream(request, &mut source, &mut target, sink)
 }
@@ -284,16 +287,18 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
 fn write_and_verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let mut target = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&request.target)
-        .map_err(|error| {
-            format!(
-                "failed to open target for writing ({}): {error}",
-                request.target_display_name
-            )
-        })?;
+    let _target_locks = lock_target_for_write(&request.target).map_err(|error| {
+        format!(
+            "failed to lock target volumes ({}): {error}",
+            request.target_display_name
+        )
+    })?;
+    let mut target = open_target_for_write_verify(&request.target).map_err(|error| {
+        format!(
+            "failed to open target for writing ({}): {error}",
+            request.target_display_name
+        )
+    })?;
 
     write_image_stream(request, &mut source, &mut target, sink)?;
     source
@@ -371,7 +376,7 @@ fn write_image_stream(
 fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let mut target = File::open(&request.target).map_err(|error| {
+    let mut target = open_target_for_verify(&request.target).map_err(|error| {
         format!(
             "failed to open target for reading ({}): {error}",
             request.target_display_name
@@ -379,6 +384,475 @@ fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String>
     })?;
 
     verify_image_stream(request, &mut source, &mut target, sink)
+}
+
+/// Opens a target handle for a write request.
+fn open_target_for_write(target: &Path) -> io::Result<File> {
+    platform::open_target_for_write(target)
+}
+
+/// Opens a read/write target handle for combined write and verification.
+fn open_target_for_write_verify(target: &Path) -> io::Result<File> {
+    platform::open_target_for_write_verify(target)
+}
+
+/// Opens a read-only target handle for verification.
+fn open_target_for_verify(target: &Path) -> io::Result<File> {
+    platform::open_target_for_verify(target)
+}
+
+/// Locks mounted target volumes that can block direct disk writes.
+fn lock_target_for_write(target: &Path) -> io::Result<TargetVolumeLocks> {
+    platform::lock_target_for_write(target)
+}
+
+/// Platform-specific target volume locks kept alive during destructive writes.
+struct TargetVolumeLocks {
+    /// Native lock handles released when the write operation finishes.
+    #[cfg(windows)]
+    _locks: Vec<platform::VolumeLock>,
+}
+
+#[cfg(windows)]
+mod platform {
+    use super::*;
+    use std::ffi::c_void;
+    use std::mem;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
+    use std::ptr;
+
+    /// Windows `BOOL`.
+    type Bool = i32;
+
+    /// Windows `DWORD`.
+    type Dword = u32;
+
+    /// Windows raw handle pointer.
+    type Handle = *mut c_void;
+
+    /// Invalid Win32 handle value.
+    const INVALID_HANDLE_VALUE: Handle = -1isize as Handle;
+
+    /// No more entries exist in an enumeration.
+    const ERROR_NO_MORE_FILES: i32 = 18;
+
+    /// The output buffer was too small for every disk extent.
+    const ERROR_MORE_DATA: i32 = 234;
+
+    /// Opens an existing file or device.
+    const OPEN_EXISTING: Dword = 3;
+
+    /// Generic read access.
+    const GENERIC_READ: Dword = 0x80000000;
+
+    /// Generic write access.
+    const GENERIC_WRITE: Dword = 0x40000000;
+
+    /// Shared read access.
+    const FILE_SHARE_READ: Dword = 0x00000001;
+
+    /// Shared write access.
+    const FILE_SHARE_WRITE: Dword = 0x00000002;
+
+    /// Writes through intermediate caches when possible.
+    const FILE_FLAG_WRITE_THROUGH: Dword = 0x80000000;
+
+    /// Hints that verification reads are sequential.
+    const FILE_FLAG_SEQUENTIAL_SCAN: Dword = 0x08000000;
+
+    /// Returns the disk extents backing a volume.
+    const IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: Dword = 0x00560000;
+
+    /// Locks a volume for exclusive access through the lock handle.
+    const FSCTL_LOCK_VOLUME: Dword = 0x00090018;
+
+    /// Dismounts a volume.
+    const FSCTL_DISMOUNT_VOLUME: Dword = 0x00090020;
+
+    /// Unlocks a previously locked volume.
+    const FSCTL_UNLOCK_VOLUME: Dword = 0x0009001c;
+
+    unsafe extern "system" {
+        fn CreateFileW(
+            lp_file_name: *const u16,
+            dw_desired_access: Dword,
+            dw_share_mode: Dword,
+            lp_security_attributes: *mut c_void,
+            dw_creation_disposition: Dword,
+            dw_flags_and_attributes: Dword,
+            h_template_file: Handle,
+        ) -> Handle;
+
+        fn DeviceIoControl(
+            h_device: Handle,
+            dw_io_control_code: Dword,
+            lp_in_buffer: *mut c_void,
+            n_in_buffer_size: Dword,
+            lp_out_buffer: *mut c_void,
+            n_out_buffer_size: Dword,
+            lp_bytes_returned: *mut Dword,
+            lp_overlapped: *mut c_void,
+        ) -> Bool;
+
+        fn FindFirstVolumeW(lpsz_volume_name: *mut u16, cch_buffer_length: Dword) -> Handle;
+
+        fn FindNextVolumeW(
+            h_find_volume: Handle,
+            lpsz_volume_name: *mut u16,
+            cch_buffer_length: Dword,
+        ) -> Bool;
+
+        fn FindVolumeClose(h_find_volume: Handle) -> Bool;
+    }
+
+    /// One disk extent returned by `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS`.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct DiskExtent {
+        /// Physical disk number.
+        disk_number: Dword,
+
+        /// Byte offset at which the extent begins.
+        _starting_offset: i64,
+
+        /// Extent length in bytes.
+        _extent_length: i64,
+    }
+
+    /// Volume handle kept open to preserve a successful `FSCTL_LOCK_VOLUME`.
+    pub struct VolumeLock {
+        /// Locked volume path, used only to retain useful debugger state.
+        _path: String,
+
+        /// Native volume handle. Closing this handle releases the lock.
+        _handle: File,
+    }
+
+    /// Opens a target for a write request.
+    pub fn open_target_for_write(target: &Path) -> io::Result<File> {
+        if let Some(raw_target) = normalized_raw_physical_drive_path(target) {
+            open_existing(
+                &raw_target,
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_FLAG_WRITE_THROUGH,
+            )
+        } else {
+            OpenOptions::new().write(true).open(target)
+        }
+    }
+
+    /// Opens a target for combined writing and verification.
+    pub fn open_target_for_write_verify(target: &Path) -> io::Result<File> {
+        if let Some(raw_target) = normalized_raw_physical_drive_path(target) {
+            open_existing(
+                &raw_target,
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_FLAG_WRITE_THROUGH,
+            )
+        } else {
+            OpenOptions::new().read(true).write(true).open(target)
+        }
+    }
+
+    /// Opens a target for verification.
+    pub fn open_target_for_verify(target: &Path) -> io::Result<File> {
+        if let Some(raw_target) = normalized_raw_physical_drive_path(target) {
+            open_existing(
+                &raw_target,
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_FLAG_SEQUENTIAL_SCAN,
+            )
+        } else {
+            File::open(target)
+        }
+    }
+
+    /// Locks and dismounts all volumes backed by a raw physical drive target.
+    pub fn lock_target_for_write(target: &Path) -> io::Result<TargetVolumeLocks> {
+        let target_text = target.to_string_lossy();
+        let Some(disk_number) = raw_physical_drive_number(target_text.as_ref()) else {
+            return Ok(TargetVolumeLocks { _locks: Vec::new() });
+        };
+
+        let mut locks = Vec::new();
+        for volume in enumerate_volumes()? {
+            if volume_is_on_disk(&volume, disk_number) {
+                locks.push(lock_and_dismount_volume(volume)?);
+            }
+        }
+
+        Ok(TargetVolumeLocks { _locks: locks })
+    }
+
+    /// Returns the canonical raw physical drive path.
+    fn normalized_raw_physical_drive_path(target: &Path) -> Option<String> {
+        let target_text = target.to_string_lossy();
+        raw_physical_drive_number(target_text.as_ref())
+            .map(|number| format!(r"\\.\PHYSICALDRIVE{number}"))
+    }
+
+    /// Returns whether a volume has an extent on a disk.
+    fn volume_is_on_disk(volume: &str, disk_number: u32) -> bool {
+        let normalized = normalize_volume_path(volume);
+        let handle = match open_existing(&normalized, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0) {
+            Ok(handle) => handle,
+            Err(_) => return false,
+        };
+        let disk_numbers = match volume_disk_numbers(&handle) {
+            Ok(disk_numbers) => disk_numbers,
+            Err(_) => return false,
+        };
+        disk_numbers.contains(&disk_number)
+    }
+
+    /// Locks and dismounts a volume, returning a handle that keeps the lock alive.
+    fn lock_and_dismount_volume(volume: String) -> io::Result<VolumeLock> {
+        let normalized = normalize_volume_path(&volume);
+        let handle = open_existing(
+            &normalized,
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            0,
+        )?;
+
+        device_io_control(&handle, FSCTL_LOCK_VOLUME)?;
+        if let Err(error) = device_io_control(&handle, FSCTL_DISMOUNT_VOLUME) {
+            let _ = device_io_control(&handle, FSCTL_UNLOCK_VOLUME);
+            return Err(error);
+        }
+
+        Ok(VolumeLock {
+            _path: volume,
+            _handle: handle,
+        })
+    }
+
+    /// Enumerates known Windows volume GUID paths.
+    fn enumerate_volumes() -> io::Result<Vec<String>> {
+        const VOLUME_BUFFER_LEN: usize = 1024;
+
+        let mut buffer = vec![0u16; VOLUME_BUFFER_LEN];
+        let handle = unsafe { FindFirstVolumeW(buffer.as_mut_ptr(), buffer.len() as Dword) };
+        if handle == INVALID_HANDLE_VALUE {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(ERROR_NO_MORE_FILES) {
+                return Ok(Vec::new());
+            }
+            return Err(error);
+        }
+
+        let finder = FindVolumeHandle(handle);
+        let mut volumes = vec![wide_buffer_to_string(&buffer)];
+        loop {
+            let found =
+                unsafe { FindNextVolumeW(finder.0, buffer.as_mut_ptr(), buffer.len() as Dword) };
+            if found != 0 {
+                volumes.push(wide_buffer_to_string(&buffer));
+                continue;
+            }
+
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(ERROR_NO_MORE_FILES) {
+                break;
+            }
+            return Err(error);
+        }
+
+        Ok(volumes)
+    }
+
+    /// Finds the disk numbers backing a volume handle.
+    fn volume_disk_numbers(volume: &File) -> io::Result<Vec<u32>> {
+        let mut buffer_size = aligned_disk_extents_offset() + mem::size_of::<DiskExtent>() * 16;
+        loop {
+            let mut buffer = vec![0u8; buffer_size];
+            let mut bytes_returned = 0;
+            let ok = unsafe {
+                DeviceIoControl(
+                    volume.as_raw_handle() as Handle,
+                    IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+                    ptr::null_mut(),
+                    0,
+                    buffer.as_mut_ptr() as *mut c_void,
+                    buffer.len() as Dword,
+                    &mut bytes_returned,
+                    ptr::null_mut(),
+                )
+            };
+            if ok != 0 {
+                return parse_volume_disk_extents(&buffer[..bytes_returned as usize]);
+            }
+
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(ERROR_MORE_DATA) {
+                buffer_size *= 2;
+                continue;
+            }
+            return Err(error);
+        }
+    }
+
+    /// Parses `VOLUME_DISK_EXTENTS` output bytes.
+    fn parse_volume_disk_extents(buffer: &[u8]) -> io::Result<Vec<u32>> {
+        if buffer.len() < aligned_disk_extents_offset() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "volume disk extents response is too short",
+            ));
+        }
+
+        let extent_count = u32::from_ne_bytes(buffer[..4].try_into().unwrap()) as usize;
+        let extents_offset = aligned_disk_extents_offset();
+        let extents_size = mem::size_of::<DiskExtent>() * extent_count;
+        if buffer.len() < extents_offset + extents_size {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "volume disk extents response is truncated",
+            ));
+        }
+
+        let mut disk_numbers = Vec::with_capacity(extent_count);
+        for index in 0..extent_count {
+            let extent_offset = extents_offset + mem::size_of::<DiskExtent>() * index;
+            let extent = unsafe {
+                (buffer.as_ptr().add(extent_offset) as *const DiskExtent).read_unaligned()
+            };
+            disk_numbers.push(extent.disk_number);
+        }
+        Ok(disk_numbers)
+    }
+
+    /// Returns the aligned byte offset of `VOLUME_DISK_EXTENTS.Extents`.
+    fn aligned_disk_extents_offset() -> usize {
+        let alignment = mem::align_of::<DiskExtent>();
+        (mem::size_of::<Dword>() + alignment - 1) & !(alignment - 1)
+    }
+
+    /// Sends a no-buffer `DeviceIoControl` request.
+    fn device_io_control(handle: &File, control_code: Dword) -> io::Result<()> {
+        let mut bytes_returned = 0;
+        let ok = unsafe {
+            DeviceIoControl(
+                handle.as_raw_handle() as Handle,
+                control_code,
+                ptr::null_mut(),
+                0,
+                ptr::null_mut(),
+                0,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Opens an existing Windows file or device path.
+    fn open_existing(
+        path: &str,
+        desired_access: Dword,
+        share_mode: Dword,
+        flags: Dword,
+    ) -> io::Result<File> {
+        let path = wide_null(path);
+        let handle = unsafe {
+            CreateFileW(
+                path.as_ptr(),
+                desired_access,
+                share_mode,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                flags,
+                ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(unsafe { File::from_raw_handle(handle as RawHandle) })
+        }
+    }
+
+    /// Converts a Rust string to a nul-terminated UTF-16 buffer.
+    fn wide_null(value: &str) -> Vec<u16> {
+        value.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// Converts a nul-terminated UTF-16 output buffer to a string.
+    fn wide_buffer_to_string(buffer: &[u16]) -> String {
+        let len = buffer
+            .iter()
+            .position(|ch| *ch == 0)
+            .unwrap_or(buffer.len());
+        String::from_utf16_lossy(&buffer[..len])
+    }
+
+    /// Converts a volume GUID path to the form accepted by `CreateFileW`.
+    fn normalize_volume_path(volume: &str) -> String {
+        let mut normalized = volume.trim().to_string();
+        while normalized.ends_with('\\') && normalized.len() > 4 {
+            normalized.pop();
+        }
+        normalized
+    }
+
+    /// Native find-volume handle closed on drop.
+    struct FindVolumeHandle(Handle);
+
+    impl Drop for FindVolumeHandle {
+        fn drop(&mut self) {
+            unsafe {
+                FindVolumeClose(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod platform {
+    use super::*;
+
+    /// Opens a target for a write request.
+    pub fn open_target_for_write(target: &Path) -> io::Result<File> {
+        OpenOptions::new().write(true).open(target)
+    }
+
+    /// Opens a target for combined writing and verification.
+    pub fn open_target_for_write_verify(target: &Path) -> io::Result<File> {
+        OpenOptions::new().read(true).write(true).open(target)
+    }
+
+    /// Opens a target for verification.
+    pub fn open_target_for_verify(target: &Path) -> io::Result<File> {
+        File::open(target)
+    }
+
+    /// Returns an empty target lock holder.
+    pub fn lock_target_for_write(_target: &Path) -> io::Result<TargetVolumeLocks> {
+        Ok(TargetVolumeLocks {})
+    }
+}
+
+/// Parses a Windows raw physical drive path.
+#[cfg(any(windows, test))]
+fn raw_physical_drive_number(path: &str) -> Option<u32> {
+    let path = path.strip_suffix('\\').unwrap_or(path);
+    let prefix = r"\\.\PHYSICALDRIVE";
+    if path.len() <= prefix.len() || !path[..prefix.len()].eq_ignore_ascii_case(prefix) {
+        return None;
+    }
+
+    let disk_number = &path[prefix.len()..];
+    if disk_number.is_empty() || !disk_number.bytes().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    disk_number.parse().ok()
 }
 
 /// Compares target bytes with an already opened source image and reports progress snapshots.
@@ -604,6 +1078,17 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("must not be empty"));
+    }
+
+    /// Verifies Windows raw physical drive paths are recognized without treating similar paths as devices.
+    #[test]
+    fn parses_windows_raw_physical_drive_number() {
+        assert_eq!(raw_physical_drive_number(r"\\.\PHYSICALDRIVE0"), Some(0));
+        assert_eq!(raw_physical_drive_number(r"\\.\PhysicalDrive12"), Some(12));
+        assert_eq!(raw_physical_drive_number(r"\\.\PHYSICALDRIVE3\"), Some(3));
+        assert_eq!(raw_physical_drive_number(r"\\.\PHYSICALDRIVE"), None);
+        assert_eq!(raw_physical_drive_number(r"\\.\PHYSICALDRIVE3\foo"), None);
+        assert_eq!(raw_physical_drive_number(r"C:\target.raw"), None);
     }
 
     /// Verifies callers must explicitly provide target removability.

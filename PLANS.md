@@ -15,7 +15,7 @@
 - Ruyi `image-combo` 实体已接入，组合镜像会保留每个 package component 的独立刷写策略并按 Ruyi strategy priority 排序；LicheePi 4A/Meles 等带 U-Boot 组合会先执行 `fastboot-v1(lpi4a-uboot)`，再刷普通系统 fastboot 分区；同名 distfile 只允许完全相同声明去重，冲突时拒绝该 combo，避免单一 combo 下载目录错误复用文件。
 - Distfile 下载和镜像准备路径已加固：拒绝不安全 distfile 文件名，自动丢弃校验失败的完整 `.part`，并在干净 staging 目录准备成功后替换 artifact cache，避免路径逃逸和旧分区产物复用。
 - 刷写前会解析准备好的分区文件真实路径，并拒绝目录型 artifact 和单分区文件通过符号链接逃出 artifact/父目录，避免被篡改 cache 或自定义 catalog 绕过词法路径检查。
-- `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)` 和 Bianbu eMMC 使用的 `spacemit-k1-v1` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度，提权 helper 会接收 cancel-file 信号以支持取消时停止写入/校验；需要校验的 raw 写入会在同一个 `dd-flasher` helper 中连续完成写入和读回校验，避免 Windows 在两个提权进程之间重新挂载或改变 removable 目标状态；普通 fastboot 按 Ruyi 元数据 `partition_map` 顺序刷写，重复 serial 的 fastboot 设备会被过滤，避免 `fastboot -s <serial>` 目标不唯一；LicheePi 4A U-Boot handoff 在 reboot 后短暂等待并重新校验目标：serial 不变时继续限定原设备，serial 变化时会排除 handoff 前已经存在的非目标 fastboot 设备，只接受唯一新出现的 fastboot 设备，`flash ram` 缺少 RAM handoff 目标时会提示进入 BootROM/download fastboot 模式并确认 U-Boot RAM 容量匹配；fastboot 命令输出会被实时解析为发送、写入和 sparse chunk 子阶段进度，长耗时 root fastboot 刷写不会被 30 分钟超时提前杀掉，`fastboot flash` 在完整成功输出下误返回非零退出码时不会被误判失败；SpacemiT K1 fastboot 流程会先 stage/continue FSBL 和 U-Boot，再按 Ruyi 插件顺序刷写 gpt、bootinfo、fsbl、env、opensbi、uboot、bootfs、rootfs。
+- `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)` 和 Bianbu eMMC 使用的 `spacemit-k1-v1` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度，提权 helper 会接收 cancel-file 信号以支持取消时停止写入/校验；需要校验的 raw 写入会在同一个 `dd-flasher` helper 中连续完成写入和读回校验，避免 Windows 在两个提权进程之间重新挂载或改变 removable 目标状态；Windows raw physical drive 写入会在 helper 进程内枚举相关 volume，使用 `FSCTL_LOCK_VOLUME`/`FSCTL_DISMOUNT_VOLUME` 并保持锁 handle 存活到写入和校验结束，再用显式 Win32 `CreateFileW` raw disk handle 执行写入，避免准备脚本退出后锁被释放或系统重新挂载导致 `ERROR_ACCESS_DENIED`；普通 fastboot 按 Ruyi 元数据 `partition_map` 顺序刷写，重复 serial 的 fastboot 设备会被过滤，避免 `fastboot -s <serial>` 目标不唯一；LicheePi 4A U-Boot handoff 在 reboot 后短暂等待并重新校验目标：serial 不变时继续限定原设备，serial 变化时会排除 handoff 前已经存在的非目标 fastboot 设备，只接受唯一新出现的 fastboot 设备，`flash ram` 缺少 RAM handoff 目标时会提示进入 BootROM/download fastboot 模式并确认 U-Boot RAM 容量匹配；fastboot 命令输出会被实时解析为发送、写入和 sparse chunk 子阶段进度，长耗时 root fastboot 刷写不会被 30 分钟超时提前杀掉，`fastboot flash` 在完整成功输出下误返回非零退出码时不会被误判失败；SpacemiT K1 fastboot 流程会先 stage/continue FSBL 和 U-Boot，再按 Ruyi 插件顺序刷写 gpt、bootinfo、fsbl、env、opensbi、uboot、bootfs、rootfs。
 - Rust `dd-flasher` 写入路径已限制最多写入声明的镜像字节数，并覆盖源文件变大时不越界写目标的回归测试。
 - `dd-v1` raw 写入已要求目标必须标记为 removable：GUI 默认过滤非可移动块设备，SDK 写前拒绝非 removable 目标，`dd-flasher` helper 也通过必传 wire 参数在打开目标前再次拒绝；容量未知的真实块设备会被 GUI 过滤并在 SDK 写前拒绝，文件型测试 target 仍可用于模拟写入；SDK 调用 `dd-flasher` 时会传入块设备显示名称，helper 要求 `--target-display-name` 非空且不含控制字符，并在目标打开/读写失败和日志命令中携带该名称以便定位具体设备。
 - 生产刷写服务会在破坏性块设备写入前重新枚举并核对目标 id、path、硬件身份、容量和已知型号/总线信息；目标消失、路径复用或身份变化时拒绝继续写入。
@@ -120,5 +120,10 @@
   - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.device.WindowsBlockDevicePreparerTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest`
   - `./gradlew -g .gradle-user-home :app:compileJava`
   - `git diff --check`
+  - `cargo test` in `dd-flasher`
+  - `cargo fmt --check` in `dd-flasher`
+  - `cargo clippy --all-targets -- -D warnings` in `dd-flasher`
+  - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest`
+  - `./gradlew -g .gradle-user-home :dd-flasher:cargoBuild`
 - 已知限制：
   - Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝，需要沙箱外只读运行验证。
