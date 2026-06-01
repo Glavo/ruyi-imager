@@ -23,7 +23,7 @@ function Set-TargetDiskOffline {
     )
 
     try {
-        Set-Disk -Number $DiskNumber -IsOffline $true -ErrorAction Stop -Confirm:$false
+        Set-Disk -Number $DiskNumber -IsOffline $true -ErrorAction Stop
     } catch {
         throw "Set-Disk failed to set disk $($DiskNumber) offline: $($_.Exception.Message)"
     }
