@@ -884,7 +884,7 @@ fn verify_image_stream(
             return Ok(false);
         }
         verified += chunk_size as u64;
-        sink.progress(request.operation, verified, request.total_bytes)?;
+        sink.progress(Operation::Verify, verified, request.total_bytes)?;
     }
     Ok(true)
 }
@@ -1203,6 +1203,7 @@ mod tests {
         let events = fs::read_to_string(event_log).unwrap();
         assert!(events.contains("\"operation\":\"write\""));
         assert!(events.contains("\"operation\":\"verify\""));
+        assert!(!events.contains("\"operation\":\"write-verify\""));
     }
 
     /// Verifies byte mismatches are reported as verification failures.
