@@ -41,6 +41,7 @@ public final class WindowsBlockDevicePreparerTest {
         BlockDevice target = device("windows-disk-2", Path.of("\\\\.\\PHYSICALDRIVE2"), true);
 
         assertTrue(preparer.canPrepareMounted(target));
+        assertTrue(preparer.shouldPrepare(target));
         BlockDevice prepared = preparer.prepare(target, NO_PROGRESS);
 
         assertFalse(prepared.mounted());
@@ -63,10 +64,33 @@ public final class WindowsBlockDevicePreparerTest {
 
         String prepareScript = Files.readString(PowerShellScripts.path("prepare-windows-disk.ps1"));
         assertFalse(prepareScript.contains("Dismount-Volume"));
-        assertFalse(prepareScript.contains("Set-Disk"));
+        assertTrue(prepareScript.contains("Set-Disk"));
+        assertTrue(prepareScript.contains("-IsOffline"));
         assertTrue(prepareScript.contains("mountvol.exe"));
         assertTrue(prepareScript.contains("{ '/p' } else { '/d' }"));
         assertTrue(prepareScript.contains("Volume{"));
+    }
+
+    /// Verifies that unmounted Windows disks are still prepared before writing.
+    ///
+    /// @throws Exception when preparation fails unexpectedly.
+    @Test
+    public void preparesUnmountedWindowsDisk() throws Exception {
+        ArrayList<List<String>> commands = new ArrayList<>();
+        WindowsBlockDevicePreparer preparer = new WindowsBlockDevicePreparer((command, _) -> {
+            commands.add(command);
+            return new WindowsBlockDevicePreparer.CommandResult(0, "prepared", "", false);
+        });
+        BlockDevice target = device("windows-disk-2", Path.of("\\\\.\\PHYSICALDRIVE2"), false);
+
+        assertFalse(preparer.canPrepareMounted(target));
+        assertTrue(preparer.shouldPrepare(target));
+        BlockDevice prepared = preparer.prepare(target, NO_PROGRESS);
+
+        assertFalse(prepared.mounted());
+        assertTrue(prepared.mountPoints().isEmpty());
+        assertEquals(1, commands.size());
+        assertTrue(commands.getFirst().contains("2"));
     }
 
     /// Verifies that unrecognized mounted devices are left unchanged.
@@ -80,6 +104,7 @@ public final class WindowsBlockDevicePreparerTest {
         BlockDevice target = device("linux-disk-sdb", Path.of("/dev/sdb"), true);
 
         assertFalse(preparer.canPrepareMounted(target));
+        assertFalse(preparer.shouldPrepare(target));
         assertSame(target, preparer.prepare(target, NO_PROGRESS));
     }
 
@@ -94,6 +119,7 @@ public final class WindowsBlockDevicePreparerTest {
         BlockDevice target = device("windows-disk-2", Path.of("\\\\.\\PHYSICALDRIVE2"), true, false);
 
         assertFalse(preparer.canPrepareMounted(target));
+        assertFalse(preparer.shouldPrepare(target));
         assertSame(target, preparer.prepare(target, NO_PROGRESS));
     }
 

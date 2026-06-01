@@ -419,10 +419,13 @@ public final class LocalFlashService implements FlashService {
     /// @return prepared target metadata.
     /// @throws IOException when the target cannot be prepared.
     private BlockDevice prepareBlockTarget(BlockDevice blockDevice, ProgressReporter reporter) throws IOException {
-        if (!blockDevice.mounted()) {
+        if (!blockDevicePreparer.shouldPrepare(blockDevice)) {
             return blockDevice;
         }
-        LOGGER.atInfo().log(() -> "Preparing mounted block target. target=" + blockDevice.path());
+        LOGGER.atInfo().log(() -> "Preparing block target. target="
+                + blockDevice.path()
+                + ", mounted="
+                + blockDevice.mounted());
         return blockDevicePreparer.prepare(blockDevice, reporter);
     }
 

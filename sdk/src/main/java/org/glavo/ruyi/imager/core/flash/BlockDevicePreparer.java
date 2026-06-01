@@ -27,6 +27,14 @@ public interface BlockDevicePreparer {
         return false;
     }
 
+    /// Returns whether this preparer should run before writing a target.
+    ///
+    /// @param target target block device.
+    /// @return whether preparation should run.
+    default boolean shouldPrepare(BlockDevice target) {
+        return target.mounted();
+    }
+
     /// Prepares a target block device for writing.
     ///
     /// @param target target block device.

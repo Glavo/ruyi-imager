@@ -751,6 +751,32 @@ public final class LocalFlashServiceTest {
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
     }
 
+    /// Prepares an unmounted target when the platform preparer still requires preparation.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void preparesUnmountedTargetWhenPreparerRequests(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] imageBytes = imageBytes(16);
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, imageBytes);
+        Files.write(target, new byte[32]);
+        AlwaysPreparingBlockDevicePreparer preparer = new AlwaysPreparingBlockDevicePreparer();
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                preparer,
+                new CopyingDdImageWriter()).flash(
+                new FlashRequest(null, image, target(target, 32, false, false, false), false),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(1, preparer.calls);
+        assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
+    }
+
     /// Refuses a mounted target when preparation leaves it mounted.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -1047,6 +1073,33 @@ public final class LocalFlashServiceTest {
         @Override
         public boolean canPrepareMounted(BlockDevice target) {
             return true;
+        }
+    }
+
+    /// Test preparer that requests preparation for every target.
+    @NotNullByDefault
+    private static final class AlwaysPreparingBlockDevicePreparer implements BlockDevicePreparer {
+        /// Number of prepare calls.
+        private int calls;
+
+        /// Always requests target preparation.
+        ///
+        /// @param target target block device.
+        /// @return always true.
+        @Override
+        public boolean shouldPrepare(BlockDevice target) {
+            return true;
+        }
+
+        /// Captures one preparation request and returns the original target.
+        ///
+        /// @param target target block device.
+        /// @param reporter progress reporter.
+        /// @return original target.
+        @Override
+        public BlockDevice prepare(BlockDevice target, ProgressReporter reporter) {
+            calls++;
+            return target;
         }
     }
 

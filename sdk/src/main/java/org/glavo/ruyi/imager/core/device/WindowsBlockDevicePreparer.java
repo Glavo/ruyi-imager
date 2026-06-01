@@ -61,7 +61,16 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
         return target.mounted() && target.removable() && diskNumber(target) != null;
     }
 
-    /// Prepares a mounted Windows physical disk for writing.
+    /// Returns whether this Windows target should be prepared before writing.
+    ///
+    /// @param target target block device.
+    /// @return whether preparation should run.
+    @Override
+    public boolean shouldPrepare(BlockDevice target) {
+        return target.removable() && diskNumber(target) != null;
+    }
+
+    /// Prepares a Windows physical disk for writing.
     ///
     /// @param target target block device.
     /// @param reporter progress reporter.
@@ -69,13 +78,8 @@ public final class WindowsBlockDevicePreparer implements BlockDevicePreparer {
     /// @throws IOException when PowerShell preparation fails.
     @Override
     public BlockDevice prepare(BlockDevice target, ProgressReporter reporter) throws IOException {
-        if (!target.mounted()) {
-            LOGGER.atDebug().log(() -> "Windows target is already unmounted. target=" + target.path());
-            return target;
-        }
-
         if (!target.removable()) {
-            LOGGER.atInfo().log(() -> "Windows mounted target is not removable; leaving mounted. target=" + target.path());
+            LOGGER.atInfo().log(() -> "Windows target is not removable; leaving unchanged. target=" + target.path());
             return target;
         }
 

@@ -17,6 +17,18 @@ $ErrorActionPreference = 'Stop'
 $OutputEncoding = [System.Text.Encoding]::UTF8
 $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
 
+function Set-TargetDiskOffline {
+    param(
+        [int]$DiskNumber
+    )
+
+    try {
+        Set-Disk -Number $DiskNumber -IsOffline $true -ErrorAction Stop -Confirm:$false
+    } catch {
+        throw "Set-Disk failed to set disk $($DiskNumber) offline: $($_.Exception.Message)"
+    }
+}
+
 try {
     $disk = Get-Disk -Number $DiskNumber
     if ($disk.IsBoot -or $disk.IsSystem) {
@@ -46,6 +58,8 @@ try {
             }
         }
     }
+
+    Set-TargetDiskOffline $DiskNumber
 
     [System.IO.File]::WriteAllText($OutputFile, 'prepared', $utf8NoBom)
     exit 0
