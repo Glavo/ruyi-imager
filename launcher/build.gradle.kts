@@ -5,6 +5,8 @@ plugins {
 val cargoExecutable = providers.gradleProperty("cargo.executable").orElse("cargo")
 val rustTargetDirectory = layout.buildDirectory.dir("cargo-target")
 val cargoConfigFile = rootProject.layout.projectDirectory.file(".cargo/config.toml")
+val cargoBuildScriptFile = layout.projectDirectory.file("build.rs")
+val launcherIconFile = rootProject.layout.projectDirectory.file("resources/ruyi-logo.ico")
 val rustSourceFiles = fileTree(layout.projectDirectory.dir("src")) {
     include("**/*.rs")
 }
@@ -101,8 +103,14 @@ fun Exec.configureRustBuild(platform: LauncherPlatform) {
     inputs.file(layout.projectDirectory.file("Cargo.lock"))
         .withPropertyName("cargoLock")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(cargoBuildScriptFile)
+        .withPropertyName("cargoBuildScript")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.file(cargoConfigFile)
         .withPropertyName("cargoConfig")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(launcherIconFile)
+        .withPropertyName("launcherIcon")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(rustSourceFiles)
         .withPropertyName("rustSources")
