@@ -777,6 +777,33 @@ public final class LocalFlashServiceTest {
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
     }
 
+    /// Lets the dd writer handle mounted targets without invoking the block-device preparer.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void mountedTargetCapableDdWriterSkipsBlockDevicePreparer(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1, 2, 3, 4});
+        Files.write(target, new byte[32]);
+        AlwaysPreparingBlockDevicePreparer preparer = new AlwaysPreparingBlockDevicePreparer();
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true, true);
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                preparer,
+                writer).flash(
+                new FlashRequest(null, image, target(target, 32, false, true, false), true),
+                NO_PROGRESS);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(0, preparer.calls);
+        assertEquals(1, writer.writeCalls.size());
+        assertEquals(1, writer.verifyCalls.size());
+    }
+
     /// Refuses a mounted target when preparation leaves it mounted.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -1109,6 +1136,9 @@ public final class LocalFlashServiceTest {
         /// Verification result returned by this writer.
         private final boolean verifyResult;
 
+        /// Whether this writer accepts mounted targets.
+        private final boolean mountedTargetSupport;
+
         /// Captured write calls.
         private final ArrayList<DdCall> writeCalls = new ArrayList<>();
 
@@ -1146,7 +1176,25 @@ public final class LocalFlashServiceTest {
         ///
         /// @param verifyResult verification result returned by this writer.
         private CapturingDdImageWriter(boolean verifyResult) {
+            this(verifyResult, false);
+        }
+
+        /// Creates the capturing writer.
+        ///
+        /// @param verifyResult verification result returned by this writer.
+        /// @param mountedTargetSupport whether this writer accepts mounted targets.
+        private CapturingDdImageWriter(boolean verifyResult, boolean mountedTargetSupport) {
             this.verifyResult = verifyResult;
+            this.mountedTargetSupport = mountedTargetSupport;
+        }
+
+        /// Returns whether this writer accepts mounted targets.
+        ///
+        /// @param target target block device.
+        /// @return configured mounted target support.
+        @Override
+        public boolean canWriteMountedTarget(BlockDevice target) {
+            return mountedTargetSupport;
         }
 
         /// Captures one block-image write.

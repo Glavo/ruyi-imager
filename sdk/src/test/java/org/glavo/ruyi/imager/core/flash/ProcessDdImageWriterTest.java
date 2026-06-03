@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -70,6 +71,16 @@ public final class ProcessDdImageWriterTest {
         assertEquals(
                 Path.of("target.raw").toString(),
                 ProcessDdImageWriter.helperTargetArgument(Path.of("target.raw")));
+    }
+
+    /// Verifies Windows physical drive target recognition.
+    @Test
+    public void recognizesWindowsPhysicalDriveTargets() {
+        assertTrue(ProcessDdImageWriter.windowsPhysicalDriveTarget(Path.of("\\\\.\\PHYSICALDRIVE3")));
+        assertTrue(ProcessDdImageWriter.windowsPhysicalDriveTarget(Path.of("\\\\.\\physicaldrive4\\")));
+        assertFalse(ProcessDdImageWriter.windowsPhysicalDriveTarget(Path.of("\\\\.\\PHYSICALDRIVE")));
+        assertFalse(ProcessDdImageWriter.windowsPhysicalDriveTarget(Path.of("\\\\.\\PHYSICALDRIVE3\\foo")));
+        assertFalse(ProcessDdImageWriter.windowsPhysicalDriveTarget(Path.of("target.raw")));
     }
 
     /// Verifies the helper process receives the selected target display name.

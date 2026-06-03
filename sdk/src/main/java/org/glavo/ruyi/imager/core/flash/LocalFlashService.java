@@ -221,7 +221,7 @@ public final class LocalFlashService implements FlashService {
         @Nullable String validationError = validateBlockImage(
                 source,
                 blockDevice,
-                blockDevicePreparer.canPrepareMounted(blockDevice));
+                canPrepareMountedTarget(blockDevice));
         if (validationError != null) {
             String message = validationError;
             Path targetPath = blockDevice.path();
@@ -241,7 +241,7 @@ public final class LocalFlashService implements FlashService {
         }
         preparedBlockDevice = refreshedBlockDevice;
 
-        validationError = validateBlockImage(source, preparedBlockDevice, false);
+        validationError = validateBlockImage(source, preparedBlockDevice, canWriteMountedTarget(preparedBlockDevice));
         if (validationError != null) {
             String message = validationError;
             Path targetPath = preparedBlockDevice.path();
@@ -313,7 +313,7 @@ public final class LocalFlashService implements FlashService {
             @Nullable String validationError = validateBlockImage(
                     entry.getValue(),
                     blockDevice,
-                    blockDevicePreparer.canPrepareMounted(blockDevice));
+                    canPrepareMountedTarget(blockDevice));
             if (validationError != null) {
                 String message = validationError;
                 Path targetPath = blockDevice.path();
@@ -335,7 +335,10 @@ public final class LocalFlashService implements FlashService {
                 return targetChangedFailure(preparedBlockDevice);
             }
             preparedBlockDevice = refreshedBlockDevice;
-            validationError = validateBlockImage(entry.getValue(), preparedBlockDevice, false);
+            validationError = validateBlockImage(
+                    entry.getValue(),
+                    preparedBlockDevice,
+                    canWriteMountedTarget(preparedBlockDevice));
             if (validationError != null) {
                 String message = validationError;
                 Path targetPath = preparedBlockDevice.path();
@@ -412,13 +415,20 @@ public final class LocalFlashService implements FlashService {
         }
     }
 
-    /// Prepares a block target when it is currently mounted.
+    /// Prepares a block target unless the writer can handle target locking itself.
     ///
     /// @param blockDevice target block device.
     /// @param reporter progress reporter.
     /// @return prepared target metadata.
     /// @throws IOException when the target cannot be prepared.
     private BlockDevice prepareBlockTarget(BlockDevice blockDevice, ProgressReporter reporter) throws IOException {
+        if (canWriteMountedTarget(blockDevice)) {
+            LOGGER.atInfo().log(() -> "Skipping block target preparation; dd writer handles mounted target. target="
+                    + blockDevice.path()
+                    + ", mounted="
+                    + blockDevice.mounted());
+            return blockDevice;
+        }
         if (!blockDevicePreparer.shouldPrepare(blockDevice)) {
             return blockDevice;
         }
@@ -427,6 +437,22 @@ public final class LocalFlashService implements FlashService {
                 + ", mounted="
                 + blockDevice.mounted());
         return blockDevicePreparer.prepare(blockDevice, reporter);
+    }
+
+    /// Returns whether mounted target validation can be deferred to the writer.
+    ///
+    /// @param blockDevice target block device.
+    /// @return whether the writer can safely handle a mounted target.
+    private boolean canWriteMountedTarget(BlockDevice blockDevice) {
+        return ddImageWriter.canWriteMountedTarget(blockDevice);
+    }
+
+    /// Returns whether a mounted target can be made writable before or during the write.
+    ///
+    /// @param blockDevice target block device.
+    /// @return whether mounted target preparation is available.
+    private boolean canPrepareMountedTarget(BlockDevice blockDevice) {
+        return blockDevicePreparer.canPrepareMounted(blockDevice) || canWriteMountedTarget(blockDevice);
     }
 
     /// Re-resolves a selected block target before destructive writes.
@@ -545,7 +571,7 @@ public final class LocalFlashService implements FlashService {
         }
         blockDevice = refreshedBlockDevice;
 
-        @Nullable String validationError = validateBlockImage(source, blockDevice, false);
+        @Nullable String validationError = validateBlockImage(source, blockDevice, canWriteMountedTarget(blockDevice));
         if (validationError != null) {
             String message = validationError;
             Path targetPath = blockDevice.path();

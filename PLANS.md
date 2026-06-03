@@ -21,7 +21,7 @@
 - 生产刷写服务会在破坏性块设备写入前重新枚举并核对目标 id、path、硬件身份、容量和已知型号/总线信息；目标消失、路径复用或身份变化时拒绝继续写入。
 - Java `ProcessDdImageWriter` 已并发消费 helper 诊断输出，避免异常 helper 写满 stdout/stderr 管道后卡住 CLI/GUI；传给 helper 的 Windows `\\.\PHYSICALDRIVE...` 目标会去掉 Java `Path` 追加的末尾分隔符，避免 raw device 打开失败。
 - 平台设备枚举和 Windows 目标准备命令已改为并发消费 stdout/stderr，避免外部命令输出填满管道导致误超时。
-- Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；Windows UAC 启动失败会抑制 PowerShell progress CLIXML 并返回普通错误文本；Windows PowerShell launcher 会通过 `-EncodedCommand` 把可变路径/参数放入 base64 payload，并在提权后的 PowerShell 进程内用数组调用真实命令，避免含空格路径被 `Start-Process -ArgumentList` 拆参；Windows removable 物理目标会通过 UAC 提权使用 `FSCTL_LOCK_VOLUME`/`FSCTL_DISMOUNT_VOLUME` 锁定并卸载分区 volume，再用 `mountvol` 移除盘符/挂载目录访问路径，即使枚举时已没有挂载点也会执行准备；准备失败会提前报错而不是静默继续写入；Windows 设备枚举、目标准备和 UAC helper 启动使用固定 `.ps1` 资源文件，JLink/安装包会把脚本放入 `tools/powershell`，`gradlew run` 直接指向源码资源目录，不再运行时写入临时脚本文件；Windows 枚举会读取 `Get-Partition` access paths 以识别目录挂载点，并携带硬件身份用于刷写前目标复核；已挂载目标会按平台能力进行准备或拒绝，并显示挂载点。
+- Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；Windows UAC 启动失败会抑制 PowerShell progress CLIXML 并返回普通错误文本；Windows PowerShell launcher 会通过 `-EncodedCommand` 把可变路径/参数放入 base64 payload，并在提权后的 PowerShell 进程内用数组调用真实命令，避免含空格路径被 `Start-Process -ArgumentList` 拆参；Windows raw physical drive 写入前的 mounted target 处理已由 process-backed `dd-flasher` 接管，SDK 会允许该 writer 处理 mounted target 并跳过 block-device PowerShell preparer；Windows 设备枚举、保留的目标准备脚本和 UAC helper 启动使用固定 `.ps1` 资源文件，JLink/安装包会把脚本放入 `tools/powershell`，`gradlew run` 直接指向源码资源目录，不再运行时写入临时脚本文件；Windows 枚举会读取 `Get-Partition` access paths 以识别目录挂载点，并携带硬件身份用于刷写前目标复核；已挂载目标会按平台能力交给 writer 处理或拒绝，并显示挂载点。
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
 - GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒、目标确认、窗口图标和页头 Logo；元数据更新成功后会重置镜像来源和目标设备选择；刷写期间会折叠选择流程，仅保留当前制造商、开发板、镜像和目标摘要栏，长文本摘要使用全宽行式布局避免逐字换行，并在开始刷写时预显示本次流程涉及的下载、准备镜像、准备目标、写入、校验和 fastboot 等阶段进度条，后续按后端 `ProgressEvent.stage` 更新，镜像准备成功后会发送确定完成进度，避免该阶段一直保持不定进度；刷写中可从 GUI 取消，GUI 会中断后台任务、等待后台刷写流程实际退出后再恢复控件，若后台已成功完成则保留成功结果，只有中断导致的停止才显示取消提示；SDK 进度和诊断消息会在 app 层通过资源包本地化，下载相关短状态消息不带末尾句号，后台任务未知错误兜底和 fastboot 设备详情标签也会随 GUI locale 切换，CLI/GUI 不再混用英文 SDK 文本。
 - SDK 刷写测试覆盖 fake `DdImageWriter` 编排路径，包括跳过校验、校验失败、多分区顺序和分区 target 拒绝条件，不依赖真实 helper 写目标内容。
@@ -131,5 +131,7 @@
   - `./gradlew -g .gradle-user-home :launcher:cargoTest`
   - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest`
   - `app/build/jlink/windows-x86_64/ruyi-imager/bin/ruyi-imager.exe --help`
+  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest`
+  - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava`
 - 已知限制：
   - Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝，需要沙箱外只读运行验证。

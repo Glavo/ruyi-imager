@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.SdkMessages;
+import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -26,6 +27,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
@@ -72,6 +74,15 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         }
         this.executable = commandPrefix.getFirst();
         this.commandPrefix = List.copyOf(commandPrefix);
+    }
+
+    /// Returns whether the helper can lock and dismount a mounted block target itself.
+    ///
+    /// @param target target block device.
+    /// @return whether this writer can handle the mounted target safely.
+    @Override
+    public boolean canWriteMountedTarget(BlockDevice target) {
+        return isWindows() && windowsPhysicalDriveTarget(target.path());
     }
 
     /// Writes a source image to a target path.
@@ -405,29 +416,50 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @return helper target argument.
     static String helperTargetArgument(Path target) {
         String text = target.toString();
-        String prefix = "\\\\.\\PHYSICALDRIVE";
-        if (!text.regionMatches(true, 0, prefix, 0, prefix.length())) {
+        int end = windowsPhysicalDriveEnd(text);
+        if (end < 0) {
             return text;
         }
+        return text.substring(0, end);
+    }
 
+    /// Returns whether a path identifies a Windows physical drive.
+    ///
+    /// @param target target path.
+    /// @return whether the target is a Windows physical drive.
+    static boolean windowsPhysicalDriveTarget(Path target) {
+        return windowsPhysicalDriveEnd(target.toString()) >= 0;
+    }
+
+    /// Returns the end of a Windows physical drive path after trimming trailing separators.
+    ///
+    /// @param text target path text.
+    /// @return physical drive path end, or `-1` when the path is not a physical drive.
+    private static int windowsPhysicalDriveEnd(String text) {
+        String prefix = "\\\\.\\PHYSICALDRIVE";
+        if (!text.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            return -1;
+        }
         int end = text.length();
         while (end > 0 && text.charAt(end - 1) == '\\') {
             end--;
         }
-        if (end == text.length()) {
-            return text;
+        if (end == prefix.length()) {
+            return -1;
         }
-
-        String candidate = text.substring(0, end);
-        if (candidate.length() == prefix.length()) {
-            return text;
-        }
-        for (int index = prefix.length(); index < candidate.length(); index++) {
-            if (!Character.isDigit(candidate.charAt(index))) {
-                return text;
+        for (int index = prefix.length(); index < end; index++) {
+            if (!Character.isDigit(text.charAt(index))) {
+                return -1;
             }
         }
-        return candidate;
+        return end;
+    }
+
+    /// Returns whether the current operating system is Windows.
+    ///
+    /// @return whether the current operating system is Windows.
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
     }
 
     /// Builds a helper command line.

@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.flash;
 
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
+import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.jetbrains.annotations.NotNullByDefault;
 
 import java.io.IOException;
@@ -18,6 +19,14 @@ public interface DdImageWriter {
     /// @return default dd image writer.
     static DdImageWriter process() {
         return ProcessDdImageWriter.createDefault();
+    }
+
+    /// Returns whether this writer can safely handle a mounted target itself.
+    ///
+    /// @param target target block device.
+    /// @return whether mounted target validation may be deferred to this writer.
+    default boolean canWriteMountedTarget(BlockDevice target) {
+        return false;
     }
 
     /// Writes a source image to a target path.
