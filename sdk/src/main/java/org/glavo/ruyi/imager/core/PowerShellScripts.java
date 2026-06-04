@@ -31,11 +31,7 @@ public final class PowerShellScripts {
     private static final String RESOURCE_ROOT = "/org/glavo/ruyi/imager/core/powershell/";
 
     /// Audited PowerShell script resource names.
-    private static final Set<String> SCRIPT_NAMES = Set.of(
-            "list-windows-block-devices.ps1",
-            "prepare-windows-disk-launcher.ps1",
-            "prepare-windows-disk.ps1",
-            "start-elevated-process.ps1");
+    private static final Set<String> SCRIPT_NAMES = Set.of("list-windows-block-devices.ps1");
 
     /// Distribution directory for audited PowerShell scripts.
     private static final String DISTRIBUTION_DIRECTORY = "tools/powershell";

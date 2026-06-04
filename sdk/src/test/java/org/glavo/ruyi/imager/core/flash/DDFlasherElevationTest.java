@@ -6,10 +6,7 @@ package org.glavo.ruyi.imager.core.flash;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Base64;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -129,28 +126,39 @@ public final class DDFlasherElevationTest {
                         "Linux"));
     }
 
-    /// Verifies Windows elevation uses a PowerShell UAC launcher.
+    /// Verifies Windows elevation uses native launching instead of a command wrapper.
+    ///
+    /// @throws Exception when the command cannot be built.
     @Test
-    public void buildsWindowsUacCommand() throws Exception {
-        List<String> command = DDFlasherElevation.windowsElevatedCommand(
-                "C:\\Tools\\dd-flasher.exe",
-                List.of("write", "--source", "C:\\Images\\o'clock.raw"));
-        assertEquals("powershell.exe", command.getFirst());
-        assertEquals("-File", command.get(5));
-        assertEquals("-FilePath", command.get(7));
-        assertEquals("C:\\Tools\\dd-flasher.exe", command.get(8));
-        assertEquals("-ArgumentsBase64", command.get(9));
+    public void rejectsWindowsWrapperCommand() throws Exception {
+        assertTrue(DDFlasherElevation.usesNativeWindowsElevation("Windows 11"));
+        assertEquals(
+                "Windows elevation uses native ShellExecuteExW.",
+                org.junit.jupiter.api.Assertions.assertThrows(
+                                java.io.IOException.class,
+                                () -> DDFlasherElevation.elevatedCommand(
+                                        "C:\\Tools\\dd-flasher.exe",
+                                        List.of("write"),
+                                        "Windows 11"))
+                        .getMessage());
+    }
 
-        String script = Files.readString(Path.of(command.get(6)));
-        assertTrue(script.contains("$ProgressPreference = 'SilentlyContinue'"));
-        assertTrue(script.contains("Start-Process"));
-        assertTrue(script.contains("-Verb RunAs"));
-        assertTrue(script.contains("-EncodedCommand"));
-        assertTrue(script.contains("Join-NullSeparated"));
-        assertTrue(script.contains("[Console]::Error.WriteLine($_.Exception.Message)"));
-
-        String argumentPayload = new String(Base64.getDecoder().decode(command.get(10)), StandardCharsets.UTF_8);
-        assertEquals("write\0--source\0C:\\Images\\o'clock.raw", argumentPayload);
+    /// Verifies Windows argv values are quoted for `ShellExecuteExW` parameters.
+    @Test
+    public void quotesWindowsCommandLineArguments() {
+        assertEquals("simple", DDFlasherElevation.windowsCommandLineArgument("simple"));
+        assertEquals("\"\"", DDFlasherElevation.windowsCommandLineArgument(""));
+        assertEquals("\"two words\"", DDFlasherElevation.windowsCommandLineArgument("two words"));
+        assertEquals("\"quote\\\"x\"", DDFlasherElevation.windowsCommandLineArgument("quote\"x"));
+        assertEquals(
+                "\"C:\\Path With Spaces\\\\\"",
+                DDFlasherElevation.windowsCommandLineArgument("C:\\Path With Spaces\\"));
+        assertEquals(
+                "write --source \"C:\\Path With Spaces\\\\\"",
+                DDFlasherElevation.windowsCommandLine(List.of(
+                        "write",
+                        "--source",
+                        "C:\\Path With Spaces\\")));
     }
 
     /// Verifies macOS elevation uses osascript administrator privileges and shell quoting.

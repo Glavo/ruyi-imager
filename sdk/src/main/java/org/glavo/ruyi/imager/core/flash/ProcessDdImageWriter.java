@@ -275,12 +275,24 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         elevatedArguments.add(cancelFile.toString());
         elevatedArguments.add("--no-stdout");
 
+        String osName = System.getProperty("os.name", "");
+        if (DDFlasherElevation.usesNativeWindowsElevation(osName)) {
+            return runWindowsElevated(
+                    operation,
+                    progressSinks,
+                    targetDisplayName,
+                    elevatedArguments,
+                    eventLog,
+                    cancelFile,
+                    reporter);
+        }
+
         List<String> command;
         try {
             command = DDFlasherElevation.elevatedCommand(
                     executable,
                     elevatedArguments,
-                    System.getProperty("os.name", ""));
+                    osName);
         } catch (IOException exception) {
             deleteEventLog(eventLog);
             deleteCancelFile(cancelFile);
@@ -338,6 +350,63 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         stderr.await(command);
 
         return finish(operation, state, exitCode, diagnosticText(stdout, stderr));
+    }
+
+    /// Runs one helper operation through native Windows UAC.
+    ///
+    /// @param operation helper operation.
+    /// @param progressSinks progress sinks keyed by helper operation.
+    /// @param targetDisplayName human-readable target display name.
+    /// @param arguments helper arguments excluding executable.
+    /// @param eventLog helper event log.
+    /// @param cancelFile helper cancellation signal path.
+    /// @param reporter progress reporter.
+    /// @return operation success result.
+    /// @throws IOException when helper execution or output parsing fails.
+    private boolean runWindowsElevated(
+            String operation,
+            Map<String, ProgressSink> progressSinks,
+            String targetDisplayName,
+            List<String> arguments,
+            Path eventLog,
+            Path cancelFile,
+            ProgressReporter reporter) throws IOException {
+        List<String> command = command(arguments);
+        LOGGER.atInfo().log(() -> "Running elevated dd-flasher helper through ShellExecuteExW. targetDisplayName="
+                + LogRedactor.redactText(targetDisplayName)
+                + ", command="
+                + LogRedactor.redactCommand(command));
+
+        HelperEventState state = new HelperEventState(progressSinks, reporter);
+        long offset = 0L;
+        int exitCode;
+        DDFlasherElevation.WindowsElevatedProcess process;
+        try {
+            process = DDFlasherElevation.startWindowsElevated(executable, arguments);
+        } catch (IOException exception) {
+            throw new IOException(SdkMessages.get("core.dd.elevationFailed", executable), exception);
+        }
+
+        try (process) {
+            while (!process.waitFor(100L)) {
+                if (Thread.currentThread().isInterrupted()) {
+                    signalCancelFile(cancelFile);
+                    if (!process.waitFor(10_000L)) {
+                        process.destroyForcibly();
+                    }
+                    Thread.currentThread().interrupt();
+                    throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)));
+                }
+                offset = readEventLog(eventLog, offset, state);
+            }
+            exitCode = process.exitValue();
+            readEventLog(eventLog, offset, state);
+        } finally {
+            deleteEventLog(eventLog);
+            deleteCancelFile(cancelFile);
+        }
+
+        return finish(operation, state, exitCode, SdkMessages.get("core.dd.noOutput"));
     }
 
     /// Finishes one helper run after the process has exited.

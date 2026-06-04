@@ -3,15 +3,20 @@
 
 package org.glavo.ruyi.imager.core.flash;
 
-import org.glavo.ruyi.imager.core.PowerShellScripts;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 
@@ -81,6 +86,14 @@ final class DDFlasherElevation {
         return false;
     }
 
+    /// Returns whether the operating system uses native Windows elevation.
+    ///
+    /// @param osName operating system name.
+    /// @return whether native Windows elevation is used.
+    static boolean usesNativeWindowsElevation(String osName) {
+        return osName.toLowerCase(Locale.ROOT).startsWith("windows");
+    }
+
     /// Builds a platform-specific elevated launcher command.
     ///
     /// @param executable helper executable.
@@ -91,7 +104,7 @@ final class DDFlasherElevation {
     static List<String> elevatedCommand(String executable, List<String> arguments, String osName) throws IOException {
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
         if (normalizedOs.startsWith("windows")) {
-            return windowsElevatedCommand(executable, arguments);
+            throw new IOException("Windows elevation uses native ShellExecuteExW.");
         }
         if (normalizedOs.contains("linux")) {
             ArrayList<String> command = new ArrayList<>(arguments.size() + 2);
@@ -106,25 +119,64 @@ final class DDFlasherElevation {
         throw new IOException("dd-flasher elevation is not supported on this operating system.");
     }
 
-    /// Builds a Windows UAC launcher command.
+    /// Starts one Windows elevated helper process.
     ///
     /// @param executable helper executable.
     /// @param arguments helper arguments excluding executable.
-    /// @return PowerShell command that starts the helper through UAC.
-    /// @throws IOException when the fixed launcher script cannot be loaded.
-    static List<String> windowsElevatedCommand(String executable, List<String> arguments) throws IOException {
-        return List.of(
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                PowerShellScripts.path("start-elevated-process.ps1").toString(),
-                "-FilePath",
-                executable,
-                "-ArgumentsBase64",
-                encodedArguments(arguments));
+    /// @return elevated process wrapper.
+    /// @throws IOException when UAC launch fails.
+    static WindowsElevatedProcess startWindowsElevated(String executable, List<String> arguments) throws IOException {
+        return WindowsNative.startElevated(executable, windowsCommandLine(arguments));
+    }
+
+    /// Builds a Windows command line from argv-style arguments.
+    ///
+    /// @param arguments command arguments excluding executable.
+    /// @return Windows command line.
+    static String windowsCommandLine(List<String> arguments) {
+        StringBuilder builder = new StringBuilder();
+        for (String argument : arguments) {
+            if (!builder.isEmpty()) {
+                builder.append(' ');
+            }
+            builder.append(windowsCommandLineArgument(argument));
+        }
+        return builder.toString();
+    }
+
+    /// Quotes one Windows command-line argument using `CommandLineToArgvW` rules.
+    ///
+    /// @param argument raw argument.
+    /// @return command-line argument text.
+    static String windowsCommandLineArgument(String argument) {
+        boolean quote = argument.isEmpty()
+                || argument.indexOf(' ') >= 0
+                || argument.indexOf('\t') >= 0
+                || argument.indexOf('"') >= 0;
+        if (!quote) {
+            return argument;
+        }
+
+        StringBuilder builder = new StringBuilder(argument.length() + 2);
+        builder.append('"');
+        int backslashes = 0;
+        for (int index = 0; index < argument.length(); index++) {
+            char ch = argument.charAt(index);
+            if (ch == '\\') {
+                backslashes++;
+            } else if (ch == '"') {
+                builder.append("\\".repeat(backslashes * 2 + 1));
+                builder.append('"');
+                backslashes = 0;
+            } else {
+                builder.append("\\".repeat(backslashes));
+                builder.append(ch);
+                backslashes = 0;
+            }
+        }
+        builder.append("\\".repeat(backslashes * 2));
+        builder.append('"');
+        return builder.toString();
     }
 
     /// Builds a macOS administrator launcher command.
@@ -244,14 +296,6 @@ final class DDFlasherElevation {
         return value.strip();
     }
 
-    /// Encodes helper process arguments for the fixed PowerShell launcher script.
-    ///
-    /// @param arguments helper arguments excluding executable.
-    /// @return Base64-encoded UTF-8 argument payload.
-    private static String encodedArguments(List<String> arguments) {
-        return Base64.getEncoder().encodeToString(String.join("\0", arguments).getBytes(StandardCharsets.UTF_8));
-    }
-
     /// dd-flasher elevation policy.
     private enum ElevationMode {
         /// Automatically elevate raw devices on supported platforms.
@@ -262,5 +306,251 @@ final class DDFlasherElevation {
 
         /// Never elevate helper execution.
         NEVER
+    }
+
+    /// Native Windows elevation support.
+    @NotNullByDefault
+    private static final class WindowsNative {
+        /// `SEE_MASK_NOCLOSEPROCESS` keeps the process handle available to the caller.
+        private static final int SEE_MASK_NOCLOSEPROCESS = 0x00000040;
+
+        /// `SW_SHOWNORMAL` requests the default visible UAC behavior.
+        private static final int SW_SHOWNORMAL = 1;
+
+        /// `SHELLEXECUTEINFOW` size for the supported 64-bit JDK runtime.
+        private static final int SHELLEXECUTEINFOW_SIZE = 112;
+
+        /// Offset of `cbSize`.
+        private static final long SHELLEXECUTEINFOW_CB_SIZE = 0L;
+
+        /// Offset of `fMask`.
+        private static final long SHELLEXECUTEINFOW_F_MASK = 4L;
+
+        /// Offset of `hwnd`.
+        private static final long SHELLEXECUTEINFOW_HWND = 8L;
+
+        /// Offset of `lpVerb`.
+        private static final long SHELLEXECUTEINFOW_LP_VERB = 16L;
+
+        /// Offset of `lpFile`.
+        private static final long SHELLEXECUTEINFOW_LP_FILE = 24L;
+
+        /// Offset of `lpParameters`.
+        private static final long SHELLEXECUTEINFOW_LP_PARAMETERS = 32L;
+
+        /// Offset of `lpDirectory`.
+        private static final long SHELLEXECUTEINFOW_LP_DIRECTORY = 40L;
+
+        /// Offset of `nShow`.
+        private static final long SHELLEXECUTEINFOW_N_SHOW = 48L;
+
+        /// Offset of `hInstApp`.
+        private static final long SHELLEXECUTEINFOW_H_INST_APP = 56L;
+
+        /// Offset of `lpIDList`.
+        private static final long SHELLEXECUTEINFOW_LP_ID_LIST = 64L;
+
+        /// Offset of `lpClass`.
+        private static final long SHELLEXECUTEINFOW_LP_CLASS = 72L;
+
+        /// Offset of `hkeyClass`.
+        private static final long SHELLEXECUTEINFOW_HKEY_CLASS = 80L;
+
+        /// Offset of `dwHotKey`.
+        private static final long SHELLEXECUTEINFOW_DW_HOT_KEY = 88L;
+
+        /// Offset of `hIcon`/`hMonitor`.
+        private static final long SHELLEXECUTEINFOW_H_ICON = 96L;
+
+        /// Offset of `hProcess`.
+        private static final long SHELLEXECUTEINFOW_H_PROCESS = 104L;
+
+        /// Prevents construction.
+        private WindowsNative() {
+        }
+
+        /// Starts one elevated process through `ShellExecuteExW`.
+        ///
+        /// @param executable helper executable.
+        /// @param parameters command-line parameters.
+        /// @return elevated process wrapper.
+        /// @throws IOException when UAC launch fails.
+        private static WindowsElevatedProcess startElevated(String executable, String parameters) throws IOException {
+            try (Arena arena = Arena.ofConfined()) {
+                MemorySegment info = arena.allocate(SHELLEXECUTEINFOW_SIZE);
+                info.set(ValueLayout.JAVA_INT, SHELLEXECUTEINFOW_CB_SIZE, SHELLEXECUTEINFOW_SIZE);
+                info.set(ValueLayout.JAVA_INT, SHELLEXECUTEINFOW_F_MASK, SEE_MASK_NOCLOSEPROCESS);
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_HWND, MemorySegment.NULL);
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_VERB, utf16(arena, "runas"));
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_FILE, utf16(arena, executable));
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_PARAMETERS, utf16(arena, parameters));
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_DIRECTORY, MemorySegment.NULL);
+                info.set(ValueLayout.JAVA_INT, SHELLEXECUTEINFOW_N_SHOW, SW_SHOWNORMAL);
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_H_INST_APP, MemorySegment.NULL);
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_ID_LIST, MemorySegment.NULL);
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_CLASS, MemorySegment.NULL);
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_HKEY_CLASS, MemorySegment.NULL);
+                info.set(ValueLayout.JAVA_INT, SHELLEXECUTEINFOW_DW_HOT_KEY, 0);
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_H_ICON, MemorySegment.NULL);
+                info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_H_PROCESS, MemorySegment.NULL);
+
+                int success = (int) Shell32.SHELL_EXECUTE_EX.invokeExact(info);
+                if (success == 0) {
+                    throw new IOException("ShellExecuteExW failed to start elevated process.");
+                }
+
+                MemorySegment handle = info.get(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_H_PROCESS);
+                if (handle.equals(MemorySegment.NULL)) {
+                    throw new IOException("ShellExecuteExW did not return a process handle.");
+                }
+                return new WindowsElevatedProcess(handle);
+            } catch (RuntimeException exception) {
+                throw new IOException("ShellExecuteExW failed to start elevated process.", exception);
+            } catch (Throwable exception) {
+                throw new IOException("ShellExecuteExW failed to start elevated process.", exception);
+            }
+        }
+
+        /// Allocates one null-terminated UTF-16LE string.
+        ///
+        /// @param arena memory arena.
+        /// @param value string value.
+        /// @return native string segment.
+        private static MemorySegment utf16(Arena arena, String value) {
+            byte[] bytes = (value + "\0").getBytes(StandardCharsets.UTF_16LE);
+            MemorySegment segment = arena.allocate(bytes.length);
+            for (int index = 0; index < bytes.length; index++) {
+                segment.set(ValueLayout.JAVA_BYTE, index, bytes[index]);
+            }
+            return segment;
+        }
+    }
+
+    /// Shell32 native calls.
+    @NotNullByDefault
+    private static final class Shell32 {
+        /// `ShellExecuteExW` downcall handle.
+        private static final MethodHandle SHELL_EXECUTE_EX = Linker.nativeLinker().downcallHandle(
+                SymbolLookup.libraryLookup("shell32", Arena.global())
+                        .find("ShellExecuteExW")
+                        .orElseThrow(),
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+        /// Prevents construction.
+        private Shell32() {
+        }
+    }
+
+    /// Kernel32 native calls.
+    @NotNullByDefault
+    private static final class Kernel32 {
+        /// `WaitForSingleObject` downcall handle.
+        private static final MethodHandle WAIT_FOR_SINGLE_OBJECT = Linker.nativeLinker().downcallHandle(
+                SymbolLookup.libraryLookup("kernel32", Arena.global())
+                        .find("WaitForSingleObject")
+                        .orElseThrow(),
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
+        /// `GetExitCodeProcess` downcall handle.
+        private static final MethodHandle GET_EXIT_CODE_PROCESS = Linker.nativeLinker().downcallHandle(
+                SymbolLookup.libraryLookup("kernel32", Arena.global())
+                        .find("GetExitCodeProcess")
+                        .orElseThrow(),
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+
+        /// `TerminateProcess` downcall handle.
+        private static final MethodHandle TERMINATE_PROCESS = Linker.nativeLinker().downcallHandle(
+                SymbolLookup.libraryLookup("kernel32", Arena.global())
+                        .find("TerminateProcess")
+                        .orElseThrow(),
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+
+        /// `CloseHandle` downcall handle.
+        private static final MethodHandle CLOSE_HANDLE = Linker.nativeLinker().downcallHandle(
+                SymbolLookup.libraryLookup("kernel32", Arena.global())
+                        .find("CloseHandle")
+                        .orElseThrow(),
+                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+        /// Prevents construction.
+        private Kernel32() {
+        }
+    }
+
+    /// Windows elevated process handle.
+    @NotNullByDefault
+    static final class WindowsElevatedProcess implements AutoCloseable {
+        /// `WAIT_OBJECT_0` wait result.
+        private static final int WAIT_OBJECT_0 = 0;
+
+        /// Native process handle.
+        private final MemorySegment handle;
+
+        /// Whether the handle has been closed.
+        private boolean closed;
+
+        /// Creates a Windows elevated process wrapper.
+        ///
+        /// @param handle native process handle.
+        private WindowsElevatedProcess(MemorySegment handle) {
+            this.handle = handle;
+        }
+
+        /// Waits for process exit up to the supplied timeout.
+        ///
+        /// @param timeoutMillis timeout in milliseconds.
+        /// @return whether the process exited.
+        /// @throws IOException when the native wait fails.
+        boolean waitFor(long timeoutMillis) throws IOException {
+            int timeout = timeoutMillis <= 0L
+                    ? 0
+                    : timeoutMillis >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) timeoutMillis;
+            try {
+                int result = (int) Kernel32.WAIT_FOR_SINGLE_OBJECT.invokeExact(handle, timeout);
+                return result == WAIT_OBJECT_0;
+            } catch (Throwable exception) {
+                throw new IOException("WaitForSingleObject failed.", exception);
+            }
+        }
+
+        /// Returns the process exit value.
+        ///
+        /// @return process exit value.
+        /// @throws IOException when the exit code cannot be read.
+        int exitValue() throws IOException {
+            try (Arena arena = Arena.ofConfined()) {
+                MemorySegment exitCode = arena.allocate(ValueLayout.JAVA_INT);
+                int success = (int) Kernel32.GET_EXIT_CODE_PROCESS.invokeExact(handle, exitCode);
+                if (success == 0) {
+                    throw new IOException("GetExitCodeProcess failed.");
+                }
+                return exitCode.get(ValueLayout.JAVA_INT, 0L);
+            } catch (IOException exception) {
+                throw exception;
+            } catch (Throwable exception) {
+                throw new IOException("GetExitCodeProcess failed.", exception);
+            }
+        }
+
+        /// Terminates the process.
+        void destroyForcibly() {
+            try {
+                Kernel32.TERMINATE_PROCESS.invokeExact(handle, 1);
+            } catch (Throwable _) {
+            }
+        }
+
+        /// Closes the native process handle.
+        @Override
+        public void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            try {
+                Kernel32.CLOSE_HANDLE.invokeExact(handle);
+            } catch (Throwable _) {
+            }
+        }
     }
 }
