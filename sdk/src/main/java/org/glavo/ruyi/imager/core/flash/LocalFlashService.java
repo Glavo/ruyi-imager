@@ -427,6 +427,11 @@ public final class LocalFlashService implements FlashService {
                     + blockDevice.path()
                     + ", mounted="
                     + blockDevice.mounted());
+            reporter.report(new ProgressEvent(
+                    "prepare",
+                    SdkMessages.get("core.flash.preparedTarget", blockDevice.displayName()),
+                    1L,
+                    1L));
             return blockDevice;
         }
         if (!blockDevicePreparer.shouldPrepare(blockDevice)) {

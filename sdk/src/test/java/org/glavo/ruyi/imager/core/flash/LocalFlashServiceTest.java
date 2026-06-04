@@ -4,6 +4,7 @@
 package org.glavo.ruyi.imager.core.flash;
 
 import org.glavo.ruyi.imager.core.OperationResult;
+import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
@@ -789,6 +790,7 @@ public final class LocalFlashServiceTest {
         Files.write(target, new byte[32]);
         AlwaysPreparingBlockDevicePreparer preparer = new AlwaysPreparingBlockDevicePreparer();
         CapturingDdImageWriter writer = new CapturingDdImageWriter(true, true);
+        ArrayList<ProgressEvent> events = new ArrayList<>();
 
         OperationResult result = new LocalFlashService(
                 new EmptyImageCatalogService(),
@@ -796,12 +798,16 @@ public final class LocalFlashServiceTest {
                 preparer,
                 writer).flash(
                 new FlashRequest(null, image, target(target, 32, false, true, false), true),
-                NO_PROGRESS);
+                events::add);
 
         assertTrue(result.success(), result.message());
         assertEquals(0, preparer.calls);
         assertEquals(1, writer.writeCalls.size());
         assertEquals(1, writer.verifyCalls.size());
+        assertTrue(events.stream().anyMatch(event ->
+                "prepare".equals(event.stage())
+                        && event.currentBytes() == 1L
+                        && event.totalBytes() == 1L));
     }
 
     /// Refuses a mounted target when preparation leaves it mounted.

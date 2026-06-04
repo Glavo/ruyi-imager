@@ -314,8 +314,8 @@ final class DDFlasherElevation {
         /// `SEE_MASK_NOCLOSEPROCESS` keeps the process handle available to the caller.
         private static final int SEE_MASK_NOCLOSEPROCESS = 0x00000040;
 
-        /// `SW_SHOWNORMAL` requests the default visible UAC behavior.
-        private static final int SW_SHOWNORMAL = 1;
+        /// `SW_HIDE` hides the elevated console helper window.
+        private static final int SW_HIDE = 0;
 
         /// `SHELLEXECUTEINFOW` size for the supported 64-bit JDK runtime.
         private static final int SHELLEXECUTEINFOW_SIZE = 112;
@@ -385,7 +385,7 @@ final class DDFlasherElevation {
                 info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_FILE, utf16(arena, executable));
                 info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_PARAMETERS, utf16(arena, parameters));
                 info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_DIRECTORY, MemorySegment.NULL);
-                info.set(ValueLayout.JAVA_INT, SHELLEXECUTEINFOW_N_SHOW, SW_SHOWNORMAL);
+                info.set(ValueLayout.JAVA_INT, SHELLEXECUTEINFOW_N_SHOW, SW_HIDE);
                 info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_H_INST_APP, MemorySegment.NULL);
                 info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_ID_LIST, MemorySegment.NULL);
                 info.set(ValueLayout.ADDRESS, SHELLEXECUTEINFOW_LP_CLASS, MemorySegment.NULL);
