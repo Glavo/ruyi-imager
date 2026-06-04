@@ -483,6 +483,9 @@ final class DDFlasherElevation {
         /// `WAIT_OBJECT_0` wait result.
         private static final int WAIT_OBJECT_0 = 0;
 
+        /// `WAIT_FAILED` wait result.
+        private static final int WAIT_FAILED = -1;
+
         /// Native process handle.
         private final MemorySegment handle;
 
@@ -507,7 +510,12 @@ final class DDFlasherElevation {
                     : timeoutMillis >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) timeoutMillis;
             try {
                 int result = (int) Kernel32.WAIT_FOR_SINGLE_OBJECT.invokeExact(handle, timeout);
+                if (result == WAIT_FAILED) {
+                    throw new IOException("WaitForSingleObject failed.");
+                }
                 return result == WAIT_OBJECT_0;
+            } catch (IOException exception) {
+                throw exception;
             } catch (Throwable exception) {
                 throw new IOException("WaitForSingleObject failed.", exception);
             }

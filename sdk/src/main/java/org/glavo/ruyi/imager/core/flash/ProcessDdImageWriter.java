@@ -384,16 +384,14 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         try {
             process = DDFlasherElevation.startWindowsElevated(executable, arguments);
         } catch (IOException exception) {
+            deleteEventLog(eventLog);
+            deleteCancelFile(cancelFile);
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", executable), exception);
         }
 
         try (process) {
             while (!process.waitFor(100L)) {
                 if (Thread.currentThread().isInterrupted()) {
-                    signalCancelFile(cancelFile);
-                    if (!process.waitFor(10_000L)) {
-                        process.destroyForcibly();
-                    }
                     Thread.currentThread().interrupt();
                     throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)));
                 }
@@ -401,12 +399,35 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             }
             exitCode = process.exitValue();
             readEventLog(eventLog, offset, state);
+        } catch (IOException exception) {
+            cleanupWindowsElevatedProcess(process, cancelFile, exception);
+            throw exception;
         } finally {
             deleteEventLog(eventLog);
             deleteCancelFile(cancelFile);
         }
 
         return finish(operation, state, exitCode, SdkMessages.get("core.dd.noOutput"));
+    }
+
+    /// Signals and terminates a Windows elevated helper after SDK-side failure.
+    ///
+    /// @param process elevated process.
+    /// @param cancelFile helper cancellation signal path.
+    /// @param failure failure that triggered cleanup.
+    private static void cleanupWindowsElevatedProcess(
+            DDFlasherElevation.WindowsElevatedProcess process,
+            Path cancelFile,
+            IOException failure) {
+        signalCancelFile(cancelFile);
+        try {
+            if (!process.waitFor(10_000L)) {
+                process.destroyForcibly();
+            }
+        } catch (IOException cleanupException) {
+            failure.addSuppressed(cleanupException);
+            process.destroyForcibly();
+        }
     }
 
     /// Finishes one helper run after the process has exited.
