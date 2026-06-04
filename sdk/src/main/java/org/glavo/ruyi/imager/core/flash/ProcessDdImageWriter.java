@@ -399,7 +399,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             }
             exitCode = process.exitValue();
             readEventLog(eventLog, offset, state);
-        } catch (IOException exception) {
+        } catch (IOException | RuntimeException exception) {
             cleanupWindowsElevatedProcess(process, cancelFile, exception);
             throw exception;
         } finally {
@@ -419,7 +419,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     private static void cleanupWindowsElevatedProcess(
             DDFlasherElevation.WindowsElevatedProcess process,
             Path cancelFile,
-            IOException failure) {
+            Throwable failure) {
         signalCancelFile(cancelFile);
         try {
             if (!process.waitFor(10_000L)) {
