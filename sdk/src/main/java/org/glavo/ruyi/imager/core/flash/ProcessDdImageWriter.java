@@ -389,7 +389,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", executable), exception);
         }
 
-        try (process) {
+        try {
             while (!process.waitFor(100L)) {
                 if (Thread.currentThread().isInterrupted()) {
                     Thread.currentThread().interrupt();
@@ -403,6 +403,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             cleanupWindowsElevatedProcess(process, cancelFile, exception);
             throw exception;
         } finally {
+            process.close();
             deleteEventLog(eventLog);
             deleteCancelFile(cancelFile);
         }
