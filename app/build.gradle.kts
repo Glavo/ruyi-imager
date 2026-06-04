@@ -460,18 +460,23 @@ tasks.register("writeJlinkLaunchers") {
         delete(outputDirectory)
         outputDirectory.mkdirs()
 
-        val unixLauncher = outputDirectory.resolve("ruyi-imager")
-        unixLauncher.writeText(
+        val unixLauncherText =
             """
             |#!/bin/sh
             |APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
             |exec "${'$'}APP_HOME/runtime/bin/java" $launcherJvmArgs -cp "${'$'}APP_HOME/lib/*" ${application.mainClass.get()} "$@"
             |
-            """.trimMargin(),
-        )
+            """.trimMargin()
+
+        val unixLauncher = outputDirectory.resolve("ruyi-imager")
+        unixLauncher.writeText(unixLauncherText)
         unixLauncher.setExecutable(true, false)
 
-        outputDirectory.resolve("ruyi-imager.bat").writeText(
+        val unixCliLauncher = outputDirectory.resolve("ruyi-imager-cli")
+        unixCliLauncher.writeText(unixLauncherText)
+        unixCliLauncher.setExecutable(true, false)
+
+        outputDirectory.resolve("ruyi-imager-cli.bat").writeText(
             """
             |@echo off
             |set "APP_HOME=%~dp0.."

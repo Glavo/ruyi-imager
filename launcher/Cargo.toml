@@ -5,11 +5,11 @@ edition = "2024"
 license = "MPL-2.0"
 
 [[bin]]
-name = "ruyi-imager"
+name = "ruyi-imager-cli"
 path = "src/main.rs"
 
 [[bin]]
-name = "ruyi-imager-gui"
+name = "ruyi-imager"
 path = "src/gui.rs"
 
 [profile.release]

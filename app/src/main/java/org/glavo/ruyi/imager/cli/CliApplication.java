@@ -47,7 +47,7 @@ import org.slf4j.LoggerFactory;
 
 /// Picocli command tree for scriptable Ruyi Imager operations.
 @Command(
-        name = "ruyi-imager",
+        name = "ruyi-imager-cli",
         description = "Flash Ruyi images from a CLI or GUI.")
 @NotNullByDefault
 public final class CliApplication implements Runnable {

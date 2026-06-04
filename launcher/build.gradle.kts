@@ -30,12 +30,12 @@ fun supportedPlatforms(): List<LauncherPlatform> =
         LauncherPlatform(
             "windows-x86_64",
             "x86_64-pc-windows-msvc",
-            listOf("ruyi-imager.exe", "ruyi-imager-gui.exe"),
+            listOf("ruyi-imager.exe", "ruyi-imager-cli.exe"),
         ),
         LauncherPlatform(
             "windows-aarch64",
             "aarch64-pc-windows-msvc",
-            listOf("ruyi-imager.exe", "ruyi-imager-gui.exe"),
+            listOf("ruyi-imager.exe", "ruyi-imager-cli.exe"),
         ),
     )
 
@@ -52,7 +52,7 @@ val platformPrepareTasks = supportedPlatforms().map { platform ->
         outputs.files(platformReleaseExecutables)
     }
 
-    tasks.register<Copy>("prepareBundledLauncher$taskSuffix") {
+    tasks.register<Sync>("prepareBundledLauncher$taskSuffix") {
         group = "distribution"
         description = "Copies the ${platform.directory} Rust native launcher into the application distribution layout."
         dependsOn(buildTask)
