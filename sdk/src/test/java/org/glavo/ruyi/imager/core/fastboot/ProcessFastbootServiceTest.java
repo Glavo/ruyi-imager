@@ -322,7 +322,7 @@ public final class ProcessFastbootServiceTest {
                 assertEquals(375L, event.currentBytes());
                 assertEquals(1000L, event.totalBytes());
             }
-            if (event.message().equals("Writing fastboot partition root.")) {
+            if (event.message().equals("Writing fastboot partition root")) {
                 assertTrue(currentBytes != null);
                 writingProgress.add(currentBytes);
                 assertEquals(1000L, event.totalBytes());
