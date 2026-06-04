@@ -42,6 +42,7 @@ public record AppServices(
     ///
     /// @return default services.
     public static AppServices createDefault() {
+        NetworkDefaults.enableSystemProxiesByDefault();
         LOGGER.info("Creating default application services.");
         AppDirectories directories = AppDirectories.defaults();
         RuyiRepositoryStore repositoryStore = new RuyiRepositoryStore(directories);

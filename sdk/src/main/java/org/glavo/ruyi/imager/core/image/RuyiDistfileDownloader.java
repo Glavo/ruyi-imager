@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.image;
 
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
+import org.glavo.ruyi.imager.core.NetworkDefaults;
 import org.glavo.ruyi.imager.core.SdkMessages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.jetbrains.annotations.NotNullByDefault;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
+import java.net.ProxySelector;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -43,10 +45,7 @@ public final class RuyiDistfileDownloader {
 
     /// Creates a downloader with a default HTTP client.
     public RuyiDistfileDownloader() {
-        this(HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(30))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build());
+        this(defaultHttpClient());
     }
 
     /// Creates a downloader with a provided HTTP client.
@@ -54,6 +53,20 @@ public final class RuyiDistfileDownloader {
     /// @param httpClient HTTP client.
     public RuyiDistfileDownloader(HttpClient httpClient) {
         this.httpClient = httpClient;
+    }
+
+    /// Creates the default HTTP client.
+    ///
+    /// @return default HTTP client.
+    private static HttpClient defaultHttpClient() {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .followRedirects(HttpClient.Redirect.NORMAL);
+        @Nullable ProxySelector proxySelector = NetworkDefaults.proxySelector();
+        if (proxySelector != null) {
+            builder.proxy(proxySelector);
+        }
+        return builder.build();
     }
 
     /// Downloads a distfile into the target directory.

@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.cli.CliApplication;
 import org.glavo.ruyi.imager.core.AppServices;
+import org.glavo.ruyi.imager.core.NetworkDefaults;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
@@ -27,6 +28,7 @@ public final class Main {
     ///
     /// @param args command-line arguments.
     public static void main(String @Unmodifiable [] args) {
+        NetworkDefaults.enableSystemProxiesByDefault();
         RuyiLogging.configure(AppDirectories.defaults());
         LOGGER.info("Starting Ruyi Imager.");
         if (shouldLaunchGui(args)) {

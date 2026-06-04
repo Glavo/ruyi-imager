@@ -12,6 +12,7 @@
 
 - 项目已拆分为 `:sdk`、`:app` 和 Rust `:dd-flasher`；CLI/GUI 共用 SDK service graph，i18n 和 JavaFX 资源保留在 app。
 - Ruyi catalog/repo、下载缓存、校验、artifact 生成和内存 catalog cache 已接入，压缩包、tar、Debian `data.tar*` 的解包准备使用 `Glavo/kala-compress`。
+- 网络访问默认启用 JVM 系统代理发现：应用启动和默认服务图会在未显式配置时设置 `java.net.useSystemProxies=true`，distfile 下载的默认 `HttpClient` 会使用默认 `ProxySelector`，用户仍可通过 JVM 属性显式关闭或覆盖。
 - Ruyi `image-combo` 实体已接入，组合镜像会保留每个 package component 的独立刷写策略并按 Ruyi strategy priority 排序；LicheePi 4A/Meles 等带 U-Boot 组合会先执行 `fastboot-v1(lpi4a-uboot)`，再刷普通系统 fastboot 分区；同名 distfile 只允许完全相同声明去重，冲突时拒绝该 combo，避免单一 combo 下载目录错误复用文件。
 - Distfile 下载和镜像准备路径已加固：拒绝不安全 distfile 文件名，自动丢弃校验失败的完整 `.part`，并在干净 staging 目录准备成功后替换 artifact cache，避免路径逃逸和旧分区产物复用。
 - 刷写前会解析准备好的分区文件真实路径，并拒绝目录型 artifact 和单分区文件通过符号链接逃出 artifact/父目录，避免被篡改 cache 或自定义 catalog 绕过词法路径检查。

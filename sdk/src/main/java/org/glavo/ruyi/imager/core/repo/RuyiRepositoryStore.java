@@ -7,6 +7,7 @@ import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.StoredConfig;
 import org.glavo.ruyi.imager.core.AppDirectories;
+import org.glavo.ruyi.imager.core.NetworkDefaults;
 import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
@@ -66,6 +67,7 @@ public final class RuyiRepositoryStore {
     ///
     /// @param directories application directories.
     public RuyiRepositoryStore(AppDirectories directories) {
+        NetworkDefaults.enableSystemProxiesByDefault();
         this.directories = directories;
     }
 
