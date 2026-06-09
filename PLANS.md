@@ -14,7 +14,7 @@
 - Ruyi catalog/repo、下载缓存、校验、artifact 生成和内存 catalog cache 已接入，压缩包、tar、Debian `data.tar*` 的解包准备使用 `Glavo/kala-compress`。
 - 网络访问默认启用 JVM 系统代理发现：应用启动和默认服务图会在未显式配置时设置 `java.net.useSystemProxies=true`，distfile 下载的默认 `HttpClient` 会使用默认 `ProxySelector`，用户仍可通过 JVM 属性显式关闭或覆盖。
 - Ruyi `image-combo` 实体已接入，组合镜像会保留每个 package component 的独立刷写策略并按 Ruyi strategy priority 排序；LicheePi 4A/Meles 等带 U-Boot 组合会先执行 `fastboot-v1(lpi4a-uboot)`，再刷普通系统 fastboot 分区；同名 distfile 只允许完全相同声明去重，冲突时拒绝该 combo，避免单一 combo 下载目录错误复用文件。
-- Distfile 下载和镜像准备路径已加固：拒绝不安全 distfile 文件名，自动丢弃校验失败的完整 `.part`，并在干净 staging 目录准备成功后替换 artifact cache，避免路径逃逸和旧分区产物复用。
+- Distfile 下载和镜像准备路径已加固：拒绝不安全 distfile 文件名，自动丢弃校验失败的完整 `.part`，并在干净 staging 目录准备成功后替换 artifact cache，避免路径逃逸和旧分区产物复用；单 distfile、单分区 ZIP 若默认剥路径组件后缺失目标产物，会按 `partition_map` 精确匹配根目录条目并补提取，兼容根目录直接放 `.img` 的 `.img.zip` 镜像包。
 - 刷写前会解析准备好的分区文件真实路径，并拒绝目录型 artifact 和单分区文件通过符号链接逃出 artifact/父目录，避免被篡改 cache 或自定义 catalog 绕过词法路径检查。
 - `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)` 和 Bianbu eMMC 使用的 `spacemit-k1-v1` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度，提权 helper 会接收 cancel-file 信号以支持取消时停止写入/校验；需要校验的 raw 写入会在同一个 `dd-flasher` helper 中连续完成写入和读回校验，避免 Windows 在两个提权进程之间重新挂载或改变 removable 目标状态，并且 `write-verify` 组合请求只发送 `write`/`verify` 子阶段进度事件；Windows raw physical drive 写入会在 helper 进程内枚举相关 volume，使用 `FSCTL_LOCK_VOLUME`/`FSCTL_DISMOUNT_VOLUME` 并保持锁 handle 存活到写入和校验结束，再用显式 Win32 `CreateFileW` raw disk handle 执行写入，避免准备脚本退出后锁被释放或系统重新挂载导致 `ERROR_ACCESS_DENIED`；普通 fastboot 按 Ruyi 元数据 `partition_map` 顺序刷写，重复 serial 的 fastboot 设备会被过滤，避免 `fastboot -s <serial>` 目标不唯一；LicheePi 4A U-Boot handoff 在 reboot 后短暂等待并重新校验目标：serial 不变时继续限定原设备，serial 变化时会排除 handoff 前已经存在的非目标 fastboot 设备，只接受唯一新出现的 fastboot 设备，`flash ram` 缺少 RAM handoff 目标时会提示进入 BootROM/download fastboot 模式并确认 U-Boot RAM 容量匹配；fastboot 命令输出会被实时解析为发送、写入和 sparse chunk 子阶段进度，长耗时 root fastboot 刷写不会被 30 分钟超时提前杀掉，`fastboot flash` 在完整成功输出下误返回非零退出码时不会被误判失败；SpacemiT K1 fastboot 流程会先 stage/continue FSBL 和 U-Boot，再按 Ruyi 插件顺序刷写 gpt、bootinfo、fsbl、env、opensbi、uboot、bootfs、rootfs。
 - Rust `dd-flasher` 写入路径已限制最多写入声明的镜像字节数，并覆盖源文件变大时不越界写目标的回归测试。
@@ -135,6 +135,7 @@
   - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest :app:installDist`
   - PowerShell parser check for `sdk/src/main/resources/org/glavo/ruyi/imager/core/powershell/*.ps1`
   - `git diff --check`
+  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
   - `./gradlew -g .gradle-user-home :sdk:compileJava :sdk:compileTestJava`
   - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.DDFlasherElevationTest --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.device.WindowsBlockDeviceServiceTest`
   - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest`

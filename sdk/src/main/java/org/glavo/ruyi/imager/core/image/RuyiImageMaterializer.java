@@ -124,6 +124,9 @@ public final class RuyiImageMaterializer {
 
             for (Path partition : partitions) {
                 if (!Files.isRegularFile(partition)) {
+                    if (recoverSingleZipPartition(image, downloadedDistfiles, stagingDirectory, partition)) {
+                        continue;
+                    }
                     LOGGER.atWarn().log(() -> "Materialized partition is missing. atom="
                             + image.atom()
                             + ", partition="
@@ -150,6 +153,45 @@ public final class RuyiImageMaterializer {
                 deleteRecursively(stagingDirectory);
             }
         }
+    }
+
+    /// Recovers a single-partition zip image whose expected artifact is at the archive root.
+    ///
+    /// @param image image metadata.
+    /// @param downloadedDistfiles downloaded distfile paths in image distfile order.
+    /// @param artifactDirectory output artifact directory.
+    /// @param partition expected partition path.
+    /// @return whether the missing partition was recovered.
+    /// @throws IOException when the archive cannot be read or the recovered entry is unsafe.
+    private static boolean recoverSingleZipPartition(
+            ImageEntry image,
+            @Unmodifiable List<Path> downloadedDistfiles,
+            Path artifactDirectory,
+            Path partition) throws IOException {
+        if (image.partitionMap().size() != 1 || image.distfiles().size() != 1 || downloadedDistfiles.size() != 1) {
+            return false;
+        }
+
+        RuyiDistfile distfile = image.distfiles().getFirst();
+        if (distfile.stripComponents() <= 0 || !"zip".equals(resolveUnpackMethod(distfile))) {
+            return false;
+        }
+
+        String partitionPath = image.partitionMap().values().iterator().next();
+        if (!extractZipEntryWithoutStripping(downloadedDistfiles.getFirst(), artifactDirectory, partitionPath)) {
+            return false;
+        }
+
+        boolean recovered = Files.isRegularFile(partition);
+        if (recovered) {
+            LOGGER.atInfo().log(() -> "Recovered single-partition zip artifact without stripping. atom="
+                    + image.atom()
+                    + ", distfile="
+                    + distfile.name()
+                    + ", partition="
+                    + partition);
+        }
+        return recovered;
     }
 
     /// Materializes one distfile.
@@ -471,6 +513,51 @@ public final class RuyiImageMaterializer {
                     }
                 }
                 input.closeEntry();
+            }
+        }
+    }
+
+    /// Extracts one zip entry matching a partition path without stripping components.
+    ///
+    /// @param source source zip path.
+    /// @param artifactDirectory output artifact directory.
+    /// @param partitionPath partition path from image metadata.
+    /// @return whether the matching entry was extracted.
+    /// @throws IOException when extraction fails or the archive attempts path traversal.
+    private static boolean extractZipEntryWithoutStripping(
+            Path source,
+            Path artifactDirectory,
+            String partitionPath) throws IOException {
+        @Nullable String expectedName = strippedArchiveEntryName(partitionPath, 0);
+        if (expectedName == null) {
+            return false;
+        }
+
+        Path normalizedRoot = artifactDirectory.toAbsolutePath().normalize();
+        Path target = resolveArchiveTarget(normalizedRoot, expectedName, "Zip");
+        try (ZipInputStream input = new ZipInputStream(Files.newInputStream(source))) {
+            while (true) {
+                ensureNotInterrupted(source.toString());
+                @Nullable ZipEntry entry = input.getNextEntry();
+                if (entry == null) {
+                    return false;
+                }
+
+                @Nullable String entryName = strippedArchiveEntryName(entry.getName(), 0);
+                if (!expectedName.equals(entryName) || entry.isDirectory()) {
+                    input.closeEntry();
+                    continue;
+                }
+
+                @Nullable Path parent = target.getParent();
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+                try (OutputStream output = Files.newOutputStream(target)) {
+                    copyInterruptibly(input, output, source.toString());
+                }
+                input.closeEntry();
+                return true;
             }
         }
     }

@@ -166,6 +166,29 @@ public final class RuyiImageMaterializerTest {
         assertArrayEquals(content, Files.readAllBytes(result));
     }
 
+    /// Verifies single-partition zip distfiles can recover root entries when default stripping would skip them.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or read.
+    @Test
+    public void materializesSinglePartitionZipRootEntryWithStripComponents(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "root zip image".getBytes(StandardCharsets.UTF_8);
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.img.zip");
+        Files.createDirectories(source.getParent());
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(source))) {
+            output.putNextEntry(new ZipEntry("image.img"));
+            output.write(content);
+            output.closeEntry();
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.img.zip", null, 1, "image.img");
+        Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
+
+        assertEquals(artifactDirectory.resolve("image.img").toAbsolutePath().normalize(), result);
+        assertArrayEquals(content, Files.readAllBytes(result));
+    }
+
     /// Verifies tar distfiles are extracted into the artifact directory.
     ///
     /// @param temporaryDirectory temporary test directory.
