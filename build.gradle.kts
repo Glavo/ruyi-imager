@@ -24,7 +24,7 @@ subprojects {
             }
         }
 
-        tasks.withType<Test>().configureEach {
+        tasks.withType<Test>() {
             useJUnitPlatform()
             timeout.set(Duration.ofMinutes(10))
             val testTmpDir = layout.buildDirectory.dir("tmp/test-tmp")
