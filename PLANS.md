@@ -4,142 +4,44 @@
 
 ### Goal
 
-- 构建 Java 25 的 CLI/JavaFX GUI 镜像刷写应用，目录镜像按 Manufacturer -> Board -> Operating System 选择，本地镜像作为并列入口。
-- 从 Ruyi 语义移植镜像元数据、下载、校验、准备镜像和刷写流程，不依赖外部 `ruyi` 命令。
-- 支持 `dd-v1` 和 `fastboot-v1` 刷写，并把刷写、下载、设备枚举、日志等能力拆成可测试模块。
+- 构建 Java 25 CLI/JavaFX GUI 镜像刷写应用，支持目录镜像和本地镜像。
+- 复用 Ruyi catalog 语义完成镜像元数据读取、下载、校验、准备和刷写，不依赖外部 `ruyi` 命令。
+- 支持 `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)` 和 SpacemiT K1 eMMC fastboot 流程，并把下载、设备枚举、刷写、日志和打包能力拆成可测试模块。
 
-### Implemented
+### Current Status
 
-- 项目已拆分为 `:sdk`、`:app` 和 Rust `:dd-flasher`；CLI/GUI 共用 SDK service graph，i18n 和 JavaFX 资源保留在 app。
-- Ruyi catalog/repo、下载缓存、校验、artifact 生成和内存 catalog cache 已接入，压缩包、tar、Debian `data.tar*` 的解包准备使用 `Glavo/kala-compress`。
-- 网络访问默认启用 JVM 系统代理发现：应用启动和默认服务图会在未显式配置时设置 `java.net.useSystemProxies=true`，distfile 下载的默认 `HttpClient` 会使用默认 `ProxySelector`，用户仍可通过 JVM 属性显式关闭或覆盖。
-- Ruyi `image-combo` 实体已接入，组合镜像会保留每个 package component 的独立刷写策略并按 Ruyi strategy priority 排序；LicheePi 4A/Meles 等带 U-Boot 组合会先执行 `fastboot-v1(lpi4a-uboot)`，再刷普通系统 fastboot 分区；同名 distfile 只允许完全相同声明去重，冲突时拒绝该 combo，避免单一 combo 下载目录错误复用文件。
-- Distfile 下载和镜像准备路径已加固：拒绝不安全 distfile 文件名，自动丢弃校验失败的完整 `.part`，并在干净 staging 目录准备成功后替换 artifact cache，避免路径逃逸和旧分区产物复用；单 distfile、单分区 ZIP 若默认剥路径组件后缺失目标产物，会按 `partition_map` 精确匹配根目录条目并补提取，兼容根目录直接放 `.img` 的 `.img.zip` 镜像包。
-- 刷写前会解析准备好的分区文件真实路径，并拒绝目录型 artifact 和单分区文件通过符号链接逃出 artifact/父目录，避免被篡改 cache 或自定义 catalog 绕过词法路径检查。
-- `dd-v1`、`fastboot-v1`、`fastboot-v1(lpi4a-uboot)` 和 Bianbu eMMC 使用的 `spacemit-k1-v1` 已接入；Rust `dd-flasher` helper 负责 raw 写入/校验并通过 NDJSON 回传进度，提权 helper 会接收 cancel-file 信号以支持取消时停止写入/校验；需要校验的 raw 写入会在同一个 `dd-flasher` helper 中连续完成写入和读回校验，避免 Windows 在两个提权进程之间重新挂载或改变 removable 目标状态，并且 `write-verify` 组合请求只发送 `write`/`verify` 子阶段进度事件；Windows raw physical drive 写入会在 helper 进程内枚举相关 volume，使用 `FSCTL_LOCK_VOLUME`/`FSCTL_DISMOUNT_VOLUME` 并保持锁 handle 存活到写入和校验结束，再用显式 Win32 `CreateFileW` raw disk handle 执行写入，避免准备脚本退出后锁被释放或系统重新挂载导致 `ERROR_ACCESS_DENIED`；普通 fastboot 按 Ruyi 元数据 `partition_map` 顺序刷写，重复 serial 的 fastboot 设备会被过滤，避免 `fastboot -s <serial>` 目标不唯一；LicheePi 4A U-Boot handoff 在 reboot 后短暂等待并重新校验目标：serial 不变时继续限定原设备，serial 变化时会排除 handoff 前已经存在的非目标 fastboot 设备，只接受唯一新出现的 fastboot 设备，`flash ram` 缺少 RAM handoff 目标时会提示进入 BootROM/download fastboot 模式并确认 U-Boot RAM 容量匹配；fastboot 命令输出会被实时解析为发送、写入和 sparse chunk 子阶段进度，长耗时 root fastboot 刷写不会被 30 分钟超时提前杀掉，`fastboot flash` 在完整成功输出下误返回非零退出码时不会被误判失败；SpacemiT K1 fastboot 流程会先 stage/continue FSBL 和 U-Boot，再按 Ruyi 插件顺序刷写 gpt、bootinfo、fsbl、env、opensbi、uboot、bootfs、rootfs。
-- Rust `dd-flasher` 写入路径已限制最多写入声明的镜像字节数，并覆盖源文件变大时不越界写目标的回归测试。
-- `dd-v1` raw 写入已要求目标必须标记为 removable：GUI 默认过滤非可移动块设备，SDK 写前拒绝非 removable 目标，`dd-flasher` helper 也通过必传 wire 参数在打开目标前再次拒绝；容量未知的真实块设备会被 GUI 过滤并在 SDK 写前拒绝，文件型测试 target 仍可用于模拟写入；SDK 调用 `dd-flasher` 时会传入块设备显示名称，helper 要求 `--target-display-name` 非空且不含控制字符，并在目标打开/读写失败和日志命令中携带该名称以便定位具体设备。
-- 生产刷写服务会在破坏性块设备写入前重新枚举并核对目标 id、path、硬件身份、容量和已知型号/总线信息；目标消失、路径复用或身份变化时拒绝继续写入。
-- Java `ProcessDdImageWriter` 已并发消费 helper 诊断输出，避免异常 helper 写满 stdout/stderr 管道后卡住 CLI/GUI；传给 helper 的 Windows `\\.\PHYSICALDRIVE...` 目标会去掉 Java `Path` 追加的末尾分隔符，避免 raw device 打开失败。
-- 平台设备枚举和 Windows 目标准备命令已改为并发消费 stdout/stderr，避免外部命令输出填满管道导致误超时。
-- Windows UAC、Linux `pkexec`、macOS `osascript` 提权路径已接入；Windows UAC 启动改由 Java FFM 调用 native `ShellExecuteExW`，并通过返回的 process handle 等待退出和读取退出码，参数只经过标准 Windows argv quoting，不再通过 PowerShell launcher；Windows raw physical drive 写入前的 mounted target 处理已由 process-backed `dd-flasher` 接管，SDK 会允许该 writer 处理 mounted target 并跳过 block-device PowerShell preparer；生产服务图不再接入 Windows block-device PowerShell preparer，也不再打包旧的 Windows disk preparation scripts；Windows PowerShell 资源只保留设备枚举脚本，JLink/安装包会把脚本放入 `tools/powershell`，`gradlew run` 直接指向源码资源目录，不再运行时写入临时脚本文件；Windows 枚举会读取 `Get-Partition` access paths 以识别目录挂载点，并携带硬件身份用于刷写前目标复核；已挂载目标会按平台能力交给 writer 处理或拒绝，并显示挂载点。
-- Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；默认隐藏当前策略不支持的目标设备。
-- GUI 已完成 MaterialFX 主界面、目录/本地镜像二选一流程、渐进启用、树形 OS 分类、搜索弹窗、i18n、首次安全提醒、目标确认、窗口图标和页头 Logo；元数据更新成功后会重置镜像来源和目标设备选择；刷写期间会折叠选择流程，仅保留当前制造商、开发板、镜像和目标摘要栏，长文本摘要使用全宽行式布局避免逐字换行，并在开始刷写时预显示本次流程涉及的下载、准备镜像、准备目标、写入、校验和 fastboot 等阶段进度条，后续按后端 `ProgressEvent.stage` 更新，镜像准备成功后会发送确定完成进度，避免该阶段一直保持不定进度；刷写中可从 GUI 取消，GUI 会中断后台任务、等待后台刷写流程实际退出后再恢复控件，若后台已成功完成则保留成功结果，只有中断导致的停止才显示取消提示；SDK 进度和诊断消息会在 app 层通过资源包本地化，下载相关短状态消息不带末尾句号，后台任务未知错误兜底和 fastboot 设备详情标签也会随 GUI locale 切换，CLI/GUI 不再混用英文 SDK 文本。
-- SDK 刷写测试覆盖 fake `DdImageWriter` 编排路径，包括跳过校验、校验失败、多分区顺序和分区 target 拒绝条件，不依赖真实 helper 写目标内容。
-- 日志已改用 SLF4J API，运行时接 JUL 文件后端；CLI/GUI 错误都会暴露日志路径，日志默认脱敏和截断敏感外部输出。
-- 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 JLink zip；Windows JLink 包提供 Windows subsystem 的 `ruyi-imager.exe` 作为无黑框双击 GUI 入口，以及 console subsystem 的 `ruyi-imager-cli.exe` 作为 CLI 入口，JLink 脚本入口也提供 `ruyi-imager` 和 `ruyi-imager-cli`；Windows MSVC native launcher 会把 `resources/ruyi-logo.ico` 编译进 exe 图标资源，Windows MSVC native launcher 和 `dd-flasher` 启用静态 CRT 链接，避免目标系统缺少 `VCRUNTIME140.dll` 时无法启动；`dd-flasher`/launcher release 构建会追踪 Cargo manifest/lockfile/Rust 源码和 workspace Cargo 配置输入；`jlinkRuntime` 使用主机 JDK 25 的 `jlink` 链接目标平台 Liberica JDK `jmods`，非 RISC-V 默认内置 JavaFX modules。
-- Java/Gradle 代码标识符统一使用 `DDFlasher` 作为 dd-flasher helper 的 acronym 命名；外部可执行文件名、目录名和配置属性保持 `dd-flasher`/`ddFlasher` 兼容。
-- Android Platform Tools 下载已迁移到 `gradle-download-task`，fastboot 打包默认锁定到 Platform-Tools 37.0.0 的版本化归档并校验 SHA-256/大小，支持本地缓存复用、临时文件落盘、重试和主 URL/校验值覆盖，避免临时限流直接阻断 `jlinkZip`。
-- Gradle `run` 会为当前平台解包 bundled fastboot、构建当前平台 `dd-flasher`，并通过 `ruyi.imager.fastboot.executable`、`ruyi.imager.ddFlasher.executable` 系统属性指向对应可执行文件，开发运行不再依赖 PATH 中预装 fastboot 或 `dd-flasher`。
-- JLink 包只依赖和打入与 `jlink.jdk.platform` 匹配的 fastboot bundle；没有配置 fastboot bundle 的目标平台会跳过 bundled fastboot，普通发行包仍保留全部已配置平台的 fastboot。
-- `dd-flasher` 已提供每个发行平台的 Gradle 构建/打包任务，可通过 `ddFlasher.buildTool=cross` 切换到 `cross`；JLink 包会自动依赖与 `jlink.jdk.platform` 匹配的 helper，并只打入对应平台目录。
-- GitHub Actions 已接入 nightly release workflow：每天定时或手动构建 Windows x86_64、Linux x86_64/aarch64 和 macOS x86_64/aarch64 JLink zip，并更新固定 `nightly` prerelease 的说明、tag 和 assets；workflow 使用 Node 24-native 官方 action 主版本和明确 runner 标签，避免 Node 20 action/runtime 与 `*-latest` 漂移警告。
+- 项目已拆分为 `:sdk`、`:app`、`:dd-flasher` 和 `:launcher`；CLI/GUI 共用 SDK service graph，GUI 资源和 i18n 保留在 app。
+- Ruyi repo/catalog、`image-combo`、下载缓存、校验和 artifact materialization 已接入；组合镜像会保留 component 策略顺序，并拒绝冲突 distfile 声明。
+- Distfile 和 artifact 准备路径已加固：拒绝不安全文件名，校验失败会丢弃 `.part`，使用 staging 目录原子替换 artifact cache，分区路径会做逃逸检查；单 distfile、单分区 ZIP 若默认剥路径组件后缺少目标产物，会按 `partition_map` 精确匹配根目录条目并补提取。
+- 默认网络访问启用 JVM 系统代理发现；distfile 下载默认 `HttpClient` 使用默认 `ProxySelector`，仍可通过 JVM 属性覆盖。
+- `dd-flasher` 负责 raw 写入/校验和 NDJSON 进度回传；写入路径限制最多写入声明镜像字节数，`write-verify` 在同一 helper 内连续完成写入和校验。
+- Windows raw physical drive 写入由 `dd-flasher` 在 helper 进程内枚举相关 volume，持有 lock/dismount handle 并用 Win32 raw disk handle 写入，避免 SDK PowerShell preparer 释放锁后重新挂载。
+- `dd-v1` 破坏性写入前会重新枚举并核对目标 id、path、硬件身份、容量和型号/总线信息；GUI/SDK/helper 均拒绝非 removable 真实块设备，容量未知设备会被过滤或拒绝。
+- SDK 调用 `dd-flasher` 时传入目标显示名称，helper 会校验并在错误和日志中携带该名称。
+- Windows UAC 已改为 Java FFM 调用 `ShellExecuteExW`，不再通过 PowerShell launcher；PowerShell 资源只保留 Windows 设备枚举脚本，JLink 包放入 `tools/powershell`，`gradlew run` 直接指向源码资源目录。
+- Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；平台枚举和外部命令会并发消费 stdout/stderr，避免管道阻塞。
+- Fastboot 流程支持普通分区刷写、LPi4A/Meles U-Boot handoff、SpacemiT K1 stage/continue 和 sparse progress 解析；重复 serial 和 handoff 后目标歧义会被拒绝。
+- GUI 已完成目录/本地镜像选择、目标选择、安全确认、刷写进度、取消、日志路径展示、语言切换、窗口图标和 JLink GUI/CLI 启动器命名；进度条旁短状态文本不使用末尾句号。
+- 日志使用 SLF4J API 和 JUL 文件后端；CLI/GUI 错误会暴露日志路径，敏感外部输出默认脱敏和截断。
+- 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime、JLink zip 和 nightly release workflow；Windows JLink 包提供 `ruyi-imager.exe` GUI 入口和 `ruyi-imager-cli.exe` CLI 入口，并静态链接 MSVC CRT 以避免缺少 `VCRUNTIME140.dll`。
 
 ### Remaining
 
-- 真实设备验证：
-  - 在真实 Linux/macOS 机器上做只读块设备枚举 smoke test。
-  - 在可擦写 Windows removable 设备上测试 raw physical drive 写入流程，确认 `dd-flasher` 的 volume lock/dismount 和写入/校验行为。
-- 交叉发行包：
-  - 为 `dd-flasher` 非本机目标安装并验证 linker 或 `cross` 运行环境；当前 Windows 沙箱不跳出沙箱，未配置外部交叉 linker/Docker。
+- 在真实 Linux/macOS 机器上做只读块设备枚举 smoke test。
+- 在可擦写 Windows removable 设备上继续验证 raw physical drive 写入、volume lock/dismount、取消和校验行为。
+- 为 `dd-flasher` 非本机发行目标安装并验证 linker 或 `cross` 运行环境；当前 Windows 沙箱未配置外部交叉 linker/Docker。
+- 在下一轮真实设备验证后，清理仍只用于排查的日志或诊断输出，避免发行版日志过噪。
 
-### Verification
+### Recent Verification
 
-- 已通过：
-  - `./gradlew -g .gradle-user-home test`
-  - `./gradlew -g .gradle-user-home check`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.DDFlasherElevationTest --tests org.glavo.ruyi.imager.core.flash.DDFlasherExecutableLocatorTest`
-  - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group distribution :app:jlinkZip --dry-run`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiDistfileDownloaderTest --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
-  - `./gradlew -g .gradle-user-home :dd-flasher:test`
-  - `./gradlew -g .gradle-user-home :dd-flasher:cargoBuild`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.*`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.fastboot.ProcessFastbootServiceTest --tests org.glavo.ruyi.imager.core.image.RuyiImageCatalogServiceTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest --tests org.glavo.ruyi.imager.cli.CliApplicationTest`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.* :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest --tests org.glavo.ruyi.imager.cli.CliApplicationTest.flashLocalImageWritesSimulatedTarget`
-  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.cli.CliApplicationTest.flashLocalImageWritesSimulatedTarget`
-  - `cargo fmt --check` in `dd-flasher`
-  - `cargo test` in `dd-flasher`
-  - `./gradlew -g .gradle-user-home :app:jlinkRuntime --info`
-  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkRuntime --info`
-  - `./gradlew -g .gradle-user-home :app:tasks --group distribution`
-  - `./gradlew -g .gradle-user-home :app:prepareBundledFastboot`
-  - `./gradlew -g .gradle-user-home :app:jlinkZip --info`
-  - `./gradlew -g .gradle-user-home :app:jlinkZip --dry-run`
-  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkZip --dry-run`
-  - `./gradlew -g .gradle-user-home :launcher:cargoTest :launcher:prepareBundledLauncherWindowsX8664`
-  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkZip`
-  - `app/build/jlink/windows-x86_64/ruyi-imager/bin/ruyi-imager-cli.exe --help` resolves to `.exe`, prints CLI help, and returns exit code 0
-  - `app/build/jlink/windows-x86_64/ruyi-imager/bin/ruyi-imager.exe` PE subsystem check returns `Subsystem=2`; `ruyi-imager-cli.exe` returns `Subsystem=3`
-  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-aarch64" :app:jlinkZip --dry-run`
-  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=macos-x86_64" :app:jlinkZip --dry-run`
-  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=macos-aarch64" :app:jlinkZip --dry-run`
-  - `./gradlew -g .gradle-user-home :app:distZip --dry-run`
-  - `./gradlew -g .gradle-user-home :app:compileJava :app:processResources`
-  - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava`
-  - `./gradlew -g .gradle-user-home :app:jar`
-  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.gui.MainWindowJavaFxSmokeTest`
-  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.gui.MainWindowJavaFxSmokeTest --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
-  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest --tests org.glavo.ruyi.imager.cli.CliApplicationTest.flashLocalImageWritesSimulatedTarget :sdk:test --tests org.glavo.ruyi.imager.core.fastboot.ProcessFastbootServiceTest`
-  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.cli.CliApplicationTest.flashErrorUsesConfiguredChineseLocale`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.fastboot.ProcessFastbootServiceTest`
-  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest`
-  - `./gradlew -g .gradle-user-home :app:compileJava :sdk:compileJava`
-  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest --tests org.glavo.ruyi.imager.gui.MainWindowJavaFxSmokeTest :sdk:test --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest`
-  - PowerShell parser check for `sdk/src/main/resources/org/glavo/ruyi/imager/core/powershell/*.ps1`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest`
-  - `./gradlew -g .gradle-user-home :sdk:compileJava :sdk:compileTestJava`
-  - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest`
-  - `cargo fmt --check` in `dd-flasher`
-  - `./gradlew -g .gradle-user-home :app:compileJava`
-  - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group build`
-  - `./gradlew -g .gradle-user-home :dd-flasher:tasks --group distribution`
-  - `./gradlew -g .gradle-user-home :dd-flasher:printDDFlasherTargets`
-  - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkZip --dry-run`
-  - `app/build/jlink/windows-x86_64/runtime/bin/java --list-modules`
-  - `app/build/jlink/linux-x86_64/runtime/release`
-  - `jar tf app/build/distributions/ruyi-imager-1.0-SNAPSHOT-windows-x86_64.zip`
-  - `git diff --check`
-  - `cargo clippy --all-targets -- -D warnings` in `dd-flasher`
-  - PowerShell parser check for `sdk/src/main/resources/org/glavo/ruyi/imager/core/powershell/*.ps1`
-  - `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File sdk/src/main/resources/org/glavo/ruyi/imager/core/powershell/list-windows-block-devices.ps1`
-  - `./gradlew -g .gradle-user-home :app:installDist`
-  - `./gradlew -g .gradle-user-home :app:installJlinkDist`
-  - `./gradlew -g .gradle-user-home test`
-  - `cargo test` in `dd-flasher`
-  - `cargo fmt --check` in `dd-flasher`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest`
-  - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.cli.CliApplicationTest.flashLocalImageWritesSimulatedTarget`
-  - `git diff --check`
-  - PowerShell parser check for `sdk/src/main/resources/org/glavo/ruyi/imager/core/powershell/*.ps1`
-  - `./gradlew -g .gradle-user-home :app:compileJava`
-  - `git diff --check`
-  - `cargo test` in `dd-flasher`
-  - `cargo fmt --check` in `dd-flasher`
-  - `cargo clippy --all-targets -- -D warnings` in `dd-flasher`
-  - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest`
-  - `./gradlew -g .gradle-user-home :dd-flasher:cargoBuild`
-  - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest :dd-flasher:cargoBuild :sdk:test --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest`
-  - `./gradlew -g .gradle-user-home :launcher:prepareBundledLauncherWindowsX8664 :dd-flasher:cargoBuild`
-  - `./gradlew -g .gradle-user-home :app:installJlinkDist`
-  - `./gradlew -g .gradle-user-home :launcher:cargoTest`
-  - `./gradlew -g .gradle-user-home :dd-flasher:cargoTest`
-  - `app/build/jlink/windows-x86_64/ruyi-imager/bin/ruyi-imager-cli.exe --help`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest`
-  - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava`
-  - `cargo clippy --all-targets -- -D warnings` in `launcher`
-  - `./gradlew -g .gradle-user-home :launcher:prepareBundledLauncherWindowsX8664`
-  - PowerShell `[System.Drawing.Icon]::ExtractAssociatedIcon(...)` check for `launcher/build/bundled-launcher/windows-x86_64/ruyi-imager.exe` and `ruyi-imager-cli.exe`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest --tests org.glavo.ruyi.imager.core.device.WindowsBlockDeviceServiceTest --tests org.glavo.ruyi.imager.core.flash.DDFlasherElevationTest`
-  - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest :app:installDist`
-  - PowerShell parser check for `sdk/src/main/resources/org/glavo/ruyi/imager/core/powershell/*.ps1`
-  - `git diff --check`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
-  - `./gradlew -g .gradle-user-home :sdk:compileJava :sdk:compileTestJava`
-  - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.DDFlasherElevationTest --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.device.WindowsBlockDeviceServiceTest`
-  - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest`
-  - PowerShell parser check for `sdk/src/main/resources/org/glavo/ruyi/imager/core/powershell/*.ps1`
-  - `git diff --check`
-- 已知限制：
-  - Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝，需要沙箱外只读运行验证。
+- `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
+- `./gradlew -g .gradle-user-home :sdk:compileJava :sdk:compileTestJava`
+- `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.DDFlasherElevationTest --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.device.WindowsBlockDeviceServiceTest`
+- `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava :app:test --tests org.glavo.ruyi.imager.i18n.MessagesTest`
+- PowerShell parser check for `sdk/src/main/resources/org/glavo/ruyi/imager/core/powershell/*.ps1`
+- `git diff --check`
+
+### Known Limits
+
+- Windows CIM 磁盘枚举在 Codex 沙箱内可能被权限拒绝，需要在沙箱外只读验证。
+- 当前验证记录只保留最近一组代表性命令；完整历史可从 git 和 CI 记录追溯。
