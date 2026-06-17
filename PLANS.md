@@ -22,7 +22,7 @@
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；平台枚举和外部命令会并发消费 stdout/stderr，避免管道阻塞。
 - Linux 块设备枚举会读取 `SERIAL`、`WWN` 和 `HOTPLUG`；破坏性写入前的目标重枚举会使用 `hardwareId` 加强身份校验，`HOTPLUG` 仅在 `TRAN=usb` 时作为 `RM=0` USB 设备的 removable 补充信号。
 - Linux mounted removable 目标会在写入前通过平台 preparer 自动卸载：优先使用 `udisksctl unmount -b`，失败时按挂载点回退到 `umount`，随后仍通过重新枚举确认目标状态。
-- macOS 块设备枚举会从 `diskutil info -plist` 读取媒体 UUID、磁盘 UUID、设备树路径、IORegistry 名称和序列号作为 `hardwareId`；mounted removable 目标会在写入前通过 `diskutil unmountDisk` 自动卸载，随后仍通过重新枚举确认目标状态。
+- macOS 块设备枚举会从 `diskutil info -plist` 读取媒体 UUID、磁盘 UUID、设备树路径、IORegistry 名称和序列号作为 `hardwareId`，会排除 `VirtualOrPhysical=Virtual` 的虚拟盘，并把 APFS synthesized container 挂载点回填到物理盘；mounted removable 目标会在写入前通过 `diskutil unmountDisk` 自动卸载，随后仍通过重新枚举确认目标状态。
 - Fastboot 流程支持普通分区刷写、LPi4A/Meles U-Boot handoff、SpacemiT K1 stage/continue 和 sparse progress 解析；重复 serial 和 handoff 后目标歧义会被拒绝。
 - GUI 已完成目录/本地镜像选择、目标选择、安全确认、刷写进度、取消、日志路径展示、语言切换、窗口图标和 JLink GUI/CLI 启动器命名；进度条旁短状态文本不使用末尾句号。
 - 日志使用 SLF4J API 和 JUL 文件后端；CLI/GUI 错误会暴露日志路径，敏感外部输出默认脱敏和截断。
@@ -39,6 +39,7 @@
 
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.device.MacOSBlockDeviceServiceTest --tests org.glavo.ruyi.imager.core.flash.MacOSBlockDevicePreparerTest --tests org.glavo.ruyi.imager.core.flash.LinuxBlockDevicePreparerTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
+- `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.device.MacOSBlockDeviceServiceTest --tests org.glavo.ruyi.imager.core.flash.MacOSBlockDevicePreparerTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.flash.LinuxBlockDevicePreparerTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest --tests org.glavo.ruyi.imager.core.device.LinuxBlockDeviceServiceTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest --tests org.glavo.ruyi.imager.i18n.MessagesTest`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.device.LinuxBlockDeviceServiceTest --tests org.glavo.ruyi.imager.core.flash.DDFlasherElevationTest --tests org.glavo.ruyi.imager.core.flash.ProcessDdImageWriterTest`
 - `./gradlew -g .gradle-user-home :sdk:compileJava :sdk:compileTestJava`

@@ -73,6 +73,9 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
             return List.of();
         }
 
+        @Unmodifiable Map<String, @Unmodifiable Map<String, Object>> disksByIdentifier = diskMapsByIdentifier(disks);
+        @Unmodifiable Map<String, @Unmodifiable List<String>> apfsMountPoints =
+                apfsMountPointsByPhysicalDisk(disksByIdentifier);
         ArrayList<BlockDevice> result = new ArrayList<>();
         for (Object value : disks) {
             @Nullable Map<String, Object> disk = objectMap(value);
@@ -91,9 +94,231 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
                 info = readPlistDictionary(infoPlist);
             }
 
-            result.add(parseDevice(identifier, disk, info));
+            if (virtualDisk(info)) {
+                continue;
+            }
+
+            result.add(parseDevice(identifier, disk, info, apfsMountPoints.getOrDefault(identifier, List.of())));
         }
         return List.copyOf(result);
+    }
+
+    /// Indexes disk objects by their `DeviceIdentifier`.
+    ///
+    /// @param disks disk objects from `diskutil list`.
+    /// @return immutable disk map keyed by identifier.
+    private static @Unmodifiable Map<String, @Unmodifiable Map<String, Object>> diskMapsByIdentifier(
+            List<Object> disks) {
+        LinkedHashMap<String, @Unmodifiable Map<String, Object>> result = new LinkedHashMap<>();
+        for (Object value : disks) {
+            @Nullable Map<String, Object> disk = objectMap(value);
+            if (disk == null) {
+                continue;
+            }
+
+            @Nullable String identifier = stringValue(disk, "DeviceIdentifier");
+            if (identifier != null && !identifier.isBlank()) {
+                result.put(identifier, disk);
+            }
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    /// Builds APFS synthesized-container mount points keyed by their backing physical disk.
+    ///
+    /// @param disksByIdentifier disk map keyed by identifier.
+    /// @return immutable mount point map keyed by physical disk identifier.
+    private static @Unmodifiable Map<String, @Unmodifiable List<String>> apfsMountPointsByPhysicalDisk(
+            @Unmodifiable Map<String, @Unmodifiable Map<String, Object>> disksByIdentifier) {
+        @Unmodifiable Map<String, String> parentDiskByPartition =
+                partitionParentDiskIdentifiers(disksByIdentifier);
+        LinkedHashMap<String, ArrayList<String>> result = new LinkedHashMap<>();
+
+        for (Map.Entry<String, @Unmodifiable Map<String, Object>> entry : disksByIdentifier.entrySet()) {
+            String containerIdentifier = entry.getKey();
+            @Unmodifiable Map<String, Object> container = entry.getValue();
+            ArrayList<String> containerMountPoints = new ArrayList<>();
+            collectMountPoints(container, containerMountPoints);
+            if (containerMountPoints.isEmpty()) {
+                continue;
+            }
+
+            addApfsPhysicalStoreMountPoints(
+                    result,
+                    parentDiskByPartition,
+                    containerIdentifier,
+                    container,
+                    containerMountPoints);
+            addApfsContainerReferenceMountPoints(
+                    result,
+                    disksByIdentifier,
+                    containerIdentifier,
+                    containerMountPoints);
+        }
+
+        return immutableMountPointMap(result);
+    }
+
+    /// Adds mount points found through a container's `APFSPhysicalStores` field.
+    ///
+    /// @param result mutable mount point map keyed by physical disk identifier.
+    /// @param parentDiskByPartition whole-disk identifiers keyed by partition identifier.
+    /// @param containerIdentifier APFS synthesized container identifier.
+    /// @param container APFS synthesized container object.
+    /// @param containerMountPoints mount points hosted by the APFS container.
+    private static void addApfsPhysicalStoreMountPoints(
+            LinkedHashMap<String, ArrayList<String>> result,
+            @Unmodifiable Map<String, String> parentDiskByPartition,
+            String containerIdentifier,
+            @Unmodifiable Map<String, Object> container,
+            @Unmodifiable List<String> containerMountPoints) {
+        @Nullable List<Object> physicalStores = objectList(container.get("APFSPhysicalStores"));
+        if (physicalStores == null) {
+            return;
+        }
+
+        for (Object value : physicalStores) {
+            @Nullable Map<String, Object> store = objectMap(value);
+            if (store == null) {
+                continue;
+            }
+
+            @Nullable String storeIdentifier = stringValue(store, "DeviceIdentifier");
+            if (storeIdentifier == null) {
+                continue;
+            }
+
+            String parentIdentifier = parentDiskByPartition.getOrDefault(
+                    storeIdentifier,
+                    wholeDiskIdentifier(storeIdentifier));
+            if (!parentIdentifier.equals(containerIdentifier)) {
+                addMountPoints(result.computeIfAbsent(parentIdentifier, ignored -> new ArrayList<>()), containerMountPoints);
+            }
+        }
+    }
+
+    /// Adds mount points found through physical-store `APFSContainerReference` fields.
+    ///
+    /// @param result mutable mount point map keyed by physical disk identifier.
+    /// @param disksByIdentifier disk map keyed by identifier.
+    /// @param containerIdentifier APFS synthesized container identifier.
+    /// @param containerMountPoints mount points hosted by the APFS container.
+    private static void addApfsContainerReferenceMountPoints(
+            LinkedHashMap<String, ArrayList<String>> result,
+            @Unmodifiable Map<String, @Unmodifiable Map<String, Object>> disksByIdentifier,
+            String containerIdentifier,
+            @Unmodifiable List<String> containerMountPoints) {
+        for (Map.Entry<String, @Unmodifiable Map<String, Object>> entry : disksByIdentifier.entrySet()) {
+            String diskIdentifier = entry.getKey();
+            if (diskIdentifier.equals(containerIdentifier)) {
+                continue;
+            }
+
+            if (referencesApfsContainer(entry.getValue(), containerIdentifier)) {
+                addMountPoints(result.computeIfAbsent(diskIdentifier, ignored -> new ArrayList<>()), containerMountPoints);
+            }
+        }
+    }
+
+    /// Builds a map from partition identifiers to their containing whole disk identifiers.
+    ///
+    /// @param disksByIdentifier disk map keyed by identifier.
+    /// @return immutable partition parent map.
+    private static @Unmodifiable Map<String, String> partitionParentDiskIdentifiers(
+            @Unmodifiable Map<String, @Unmodifiable Map<String, Object>> disksByIdentifier) {
+        LinkedHashMap<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<String, @Unmodifiable Map<String, Object>> entry : disksByIdentifier.entrySet()) {
+            collectPartitionIdentifiers(objectList(entry.getValue().get("Partitions")), entry.getKey(), result);
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    /// Recursively collects partition identifiers for one whole disk.
+    ///
+    /// @param partitions partition objects.
+    /// @param parentIdentifier containing whole disk identifier.
+    /// @param result mutable partition parent map.
+    private static void collectPartitionIdentifiers(
+            @Nullable List<Object> partitions,
+            String parentIdentifier,
+            LinkedHashMap<String, String> result) {
+        if (partitions == null) {
+            return;
+        }
+
+        for (Object value : partitions) {
+            @Nullable Map<String, Object> partition = objectMap(value);
+            if (partition == null) {
+                continue;
+            }
+
+            @Nullable String identifier = stringValue(partition, "DeviceIdentifier");
+            if (identifier != null && !identifier.equals(parentIdentifier)) {
+                result.putIfAbsent(identifier, parentIdentifier);
+            }
+            collectPartitionIdentifiers(objectList(partition.get("Partitions")), parentIdentifier, result);
+        }
+    }
+
+    /// Returns whether a plist object references one APFS synthesized container.
+    ///
+    /// @param value plist object.
+    /// @param containerIdentifier APFS container identifier.
+    /// @return whether the object references the container.
+    private static boolean referencesApfsContainer(@Nullable Object value, String containerIdentifier) {
+        @Nullable Map<String, Object> map = objectMap(value);
+        if (map != null) {
+            if (containerIdentifier.equals(stringValue(map, "APFSContainerReference"))) {
+                return true;
+            }
+            for (Object nested : map.values()) {
+                if (referencesApfsContainer(nested, containerIdentifier)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Nullable List<Object> list = objectList(value);
+        if (list == null) {
+            return false;
+        }
+        for (Object nested : list) {
+            if (referencesApfsContainer(nested, containerIdentifier)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Returns the whole-disk identifier for a disk or partition identifier.
+    ///
+    /// @param identifier disk or partition identifier.
+    /// @return whole-disk identifier.
+    private static String wholeDiskIdentifier(String identifier) {
+        int sliceIndex = identifier.lastIndexOf('s');
+        if (sliceIndex <= 0) {
+            return identifier;
+        }
+        for (int i = sliceIndex + 1; i < identifier.length(); i++) {
+            if (!Character.isDigit(identifier.charAt(i))) {
+                return identifier;
+            }
+        }
+        return identifier.substring(0, sliceIndex);
+    }
+
+    /// Copies a mutable mount point map into immutable collections.
+    ///
+    /// @param mountPointsByDisk mutable mount point map.
+    /// @return immutable mount point map.
+    private static @Unmodifiable Map<String, @Unmodifiable List<String>> immutableMountPointMap(
+            LinkedHashMap<String, ArrayList<String>> mountPointsByDisk) {
+        LinkedHashMap<String, @Unmodifiable List<String>> result = new LinkedHashMap<>();
+        for (Map.Entry<String, ArrayList<String>> entry : mountPointsByDisk.entrySet()) {
+            result.put(entry.getKey(), List.copyOf(entry.getValue()));
+        }
+        return Collections.unmodifiableMap(result);
     }
 
     /// Extracts whole-disk identifiers from `diskutil list -plist`.
@@ -126,11 +351,13 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
     /// @param identifier disk identifier.
     /// @param disk disk object from `diskutil list`.
     /// @param info disk object from `diskutil info`.
+    /// @param apfsMountPoints mount points inherited from synthesized APFS containers.
     /// @return parsed block device.
     private static BlockDevice parseDevice(
             String identifier,
             @Unmodifiable Map<String, Object> disk,
-            @Unmodifiable Map<String, Object> info) {
+            @Unmodifiable Map<String, Object> info,
+            @Unmodifiable List<String> apfsMountPoints) {
         String pathText = stringValue(info, "DeviceNode", "/dev/" + identifier);
         long sizeBytes = longValue(info, "TotalSize", longValue(disk, "Size", 0L));
         @Nullable String model = firstNonNull(
@@ -139,11 +366,12 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
                 stringValue(disk, "Content"));
         @Nullable String busType = stringValue(info, "BusProtocol");
         @Nullable String hardwareId = hardwareId(info);
-        boolean removable = booleanValue(info, "RemovableMedia", false)
-                || booleanValue(info, "Ejectable", false);
+        boolean removable = !virtualDisk(info)
+                && (booleanValue(info, "RemovableMedia", false)
+                || booleanValue(info, "Ejectable", false));
         boolean readOnly = booleanValue(info, "ReadOnlyMedia", false)
                 || !booleanValue(info, "Writable", true);
-        @Unmodifiable List<String> mountPoints = mountPoints(disk, info);
+        @Unmodifiable List<String> mountPoints = mountPoints(disk, info, apfsMountPoints);
         boolean mounted = !mountPoints.isEmpty();
         boolean system = isSystemMount(mountPoints);
 
@@ -160,6 +388,15 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
                 busType,
                 hardwareId,
                 mountPoints);
+    }
+
+    /// Returns whether a disk object describes a virtual disk image or synthesized disk.
+    ///
+    /// @param info disk object from `diskutil info`.
+    /// @return whether the disk is virtual.
+    private static boolean virtualDisk(@Unmodifiable Map<String, Object> info) {
+        @Nullable String virtualOrPhysical = stringValue(info, "VirtualOrPhysical");
+        return virtualOrPhysical != null && "virtual".equalsIgnoreCase(virtualOrPhysical);
     }
 
     /// Builds a stable hardware identity from `diskutil info -plist` metadata.
@@ -271,18 +508,42 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
         return builder.toString();
     }
 
-    /// Collects mount points from disk list and disk info objects.
+    /// Collects mount points from disk list, disk info, and related APFS container objects.
     ///
     /// @param disk disk list object.
     /// @param info disk info object.
+    /// @param apfsMountPoints mount points inherited from synthesized APFS containers.
     /// @return immutable mount point list.
     private static @Unmodifiable List<String> mountPoints(
             @Unmodifiable Map<String, Object> disk,
-            @Unmodifiable Map<String, Object> info) {
+            @Unmodifiable Map<String, Object> info,
+            @Unmodifiable List<String> apfsMountPoints) {
         ArrayList<String> result = new ArrayList<>();
         collectMountPoints(disk, result);
         collectMountPoints(info, result);
+        addMountPoints(result, apfsMountPoints);
         return List.copyOf(result);
+    }
+
+    /// Adds all mount points from one list to another list while preserving uniqueness.
+    ///
+    /// @param result mutable target mount point list.
+    /// @param mountPoints source mount point list.
+    private static void addMountPoints(ArrayList<String> result, @Unmodifiable List<String> mountPoints) {
+        for (String mountPoint : mountPoints) {
+            addMountPoint(result, mountPoint);
+        }
+    }
+
+    /// Adds one mount point when it is non-blank and not already present.
+    ///
+    /// @param result mutable target mount point list.
+    /// @param mountPoint mount point text.
+    private static void addMountPoint(ArrayList<String> result, String mountPoint) {
+        String text = mountPoint.strip();
+        if (!text.isEmpty() && !result.contains(text)) {
+            result.add(text);
+        }
     }
 
     /// Recursively collects mount points from a plist object.
@@ -292,8 +553,8 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
     private static void collectMountPoints(@Nullable Object value, ArrayList<String> result) {
         if (value instanceof Map<?, ?> map) {
             @Nullable Object mountPoint = map.get("MountPoint");
-            if (mountPoint instanceof String text && !text.isBlank() && !result.contains(text.strip())) {
-                result.add(text.strip());
+            if (mountPoint instanceof String text) {
+                addMountPoint(result, text);
             }
             for (Object nested : map.values()) {
                 collectMountPoints(nested, result);

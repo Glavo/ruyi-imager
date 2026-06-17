@@ -177,6 +177,207 @@ public final class MacOSBlockDeviceServiceTest {
                 removableDisk.hardwareId());
     }
 
+    /// Propagates APFS synthesized-container mount points back to the backing physical disk.
+    ///
+    /// @throws IOException when parsing fails.
+    @Test
+    public void propagatesApfsContainerMountPointsToPhysicalDisk() throws IOException {
+        String listPlist = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                  <key>AllDisksAndPartitions</key>
+                  <array>
+                    <dict>
+                      <key>DeviceIdentifier</key>
+                      <string>disk2</string>
+                      <key>Size</key>
+                      <integer>64000000000</integer>
+                      <key>Content</key>
+                      <string>GUID_partition_scheme</string>
+                      <key>Partitions</key>
+                      <array>
+                        <dict>
+                          <key>DeviceIdentifier</key>
+                          <string>disk2s1</string>
+                          <key>Content</key>
+                          <string>EFI</string>
+                        </dict>
+                        <dict>
+                          <key>DeviceIdentifier</key>
+                          <string>disk2s2</string>
+                          <key>Content</key>
+                          <string>Apple_APFS</string>
+                          <key>APFSContainerReference</key>
+                          <string>disk3</string>
+                        </dict>
+                      </array>
+                    </dict>
+                    <dict>
+                      <key>DeviceIdentifier</key>
+                      <string>disk3</string>
+                      <key>Size</key>
+                      <integer>63900000000</integer>
+                      <key>Content</key>
+                      <string>Apple_APFS</string>
+                      <key>APFSPhysicalStores</key>
+                      <array>
+                        <dict>
+                          <key>DeviceIdentifier</key>
+                          <string>disk2s2</string>
+                        </dict>
+                      </array>
+                      <key>Partitions</key>
+                      <array>
+                        <dict>
+                          <key>DeviceIdentifier</key>
+                          <string>disk3s1</string>
+                          <key>MountPoint</key>
+                          <string>/Volumes/External</string>
+                        </dict>
+                        <dict>
+                          <key>DeviceIdentifier</key>
+                          <string>disk3s2</string>
+                          <key>MountPoint</key>
+                          <string>/System/Volumes/Data</string>
+                        </dict>
+                      </array>
+                    </dict>
+                  </array>
+                </dict>
+                </plist>
+                """;
+
+        String disk2Info = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                  <key>DeviceIdentifier</key>
+                  <string>disk2</string>
+                  <key>DeviceNode</key>
+                  <string>/dev/disk2</string>
+                  <key>TotalSize</key>
+                  <integer>64000000000</integer>
+                  <key>MediaName</key>
+                  <string>External SSD</string>
+                  <key>BusProtocol</key>
+                  <string>USB</string>
+                  <key>VirtualOrPhysical</key>
+                  <string>Physical</string>
+                  <key>RemovableMedia</key>
+                  <false/>
+                  <key>Ejectable</key>
+                  <true/>
+                  <key>ReadOnlyMedia</key>
+                  <false/>
+                  <key>Writable</key>
+                  <true/>
+                </dict>
+                </plist>
+                """;
+        String disk3Info = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                  <key>DeviceIdentifier</key>
+                  <string>disk3</string>
+                  <key>DeviceNode</key>
+                  <string>/dev/disk3</string>
+                  <key>TotalSize</key>
+                  <integer>63900000000</integer>
+                  <key>MediaName</key>
+                  <string>APFS Container</string>
+                  <key>VirtualOrPhysical</key>
+                  <string>Virtual</string>
+                  <key>RemovableMedia</key>
+                  <false/>
+                  <key>Ejectable</key>
+                  <false/>
+                  <key>ReadOnlyMedia</key>
+                  <false/>
+                  <key>Writable</key>
+                  <true/>
+                </dict>
+                </plist>
+                """;
+
+        List<BlockDevice> devices = MacOSBlockDeviceService.parseDevices(
+                listPlist,
+                Map.of("disk2", disk2Info, "disk3", disk3Info));
+
+        assertEquals(1, devices.size());
+        BlockDevice physicalDisk = devices.getFirst();
+        assertEquals("macos-disk-disk2", physicalDisk.id());
+        assertTrue(physicalDisk.removable());
+        assertTrue(physicalDisk.mounted());
+        assertTrue(physicalDisk.system());
+        assertEquals(List.of("/Volumes/External", "/System/Volumes/Data"), physicalDisk.mountPoints());
+    }
+
+    /// Excludes virtual ejectable disk images from destructive block-device targets.
+    ///
+    /// @throws IOException when parsing fails.
+    @Test
+    public void excludesVirtualEjectableDisks() throws IOException {
+        String listPlist = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                  <key>AllDisksAndPartitions</key>
+                  <array>
+                    <dict>
+                      <key>DeviceIdentifier</key>
+                      <string>disk4</string>
+                      <key>Size</key>
+                      <integer>104857600</integer>
+                      <key>Content</key>
+                      <string>GUID_partition_scheme</string>
+                      <key>Partitions</key>
+                      <array>
+                        <dict>
+                          <key>DeviceIdentifier</key>
+                          <string>disk4s1</string>
+                          <key>MountPoint</key>
+                          <string>/Volumes/Image</string>
+                        </dict>
+                      </array>
+                    </dict>
+                  </array>
+                </dict>
+                </plist>
+                """;
+
+        String disk4Info = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                  <key>DeviceIdentifier</key>
+                  <string>disk4</string>
+                  <key>DeviceNode</key>
+                  <string>/dev/disk4</string>
+                  <key>TotalSize</key>
+                  <integer>104857600</integer>
+                  <key>MediaName</key>
+                  <string>Disk Image</string>
+                  <key>VirtualOrPhysical</key>
+                  <string>Virtual</string>
+                  <key>RemovableMedia</key>
+                  <false/>
+                  <key>Ejectable</key>
+                  <true/>
+                  <key>ReadOnlyMedia</key>
+                  <false/>
+                  <key>Writable</key>
+                  <true/>
+                </dict>
+                </plist>
+                """;
+
+        List<BlockDevice> devices = MacOSBlockDeviceService.parseDevices(listPlist, Map.of("disk4", disk4Info));
+
+        assertTrue(devices.isEmpty());
+    }
+
     /// Parses empty diskutil lists as an empty device list.
     ///
     /// @throws IOException when parsing fails.
