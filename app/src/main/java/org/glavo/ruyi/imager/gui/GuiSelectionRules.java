@@ -135,6 +135,8 @@ final class GuiSelectionRules {
     static boolean targetPreparablyMounted(BlockDevice target) {
         return target.mounted()
                 && target.removable()
-                && (target.id().startsWith("windows-disk-") || target.id().startsWith("linux-disk-"));
+                && (target.id().startsWith("windows-disk-")
+                        || target.id().startsWith("linux-disk-")
+                        || target.id().startsWith("macos-disk-"));
     }
 }

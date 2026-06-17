@@ -111,6 +111,13 @@ public final class GuiSelectionRulesTest {
                 false,
                 true)));
         assertTrue(GuiSelectionRules.targetWritable(device(
+                "macos-disk-disk2",
+                Path.of("/dev/disk2"),
+                false,
+                true,
+                false,
+                true)));
+        assertTrue(GuiSelectionRules.targetWritable(device(
                 "windows-disk-2",
                 Path.of("\\\\.\\PHYSICALDRIVE2"),
                 false,
@@ -166,6 +173,13 @@ public final class GuiSelectionRulesTest {
                 true,
                 false,
                 true);
+        BlockDevice macMounted = device(
+                "macos-disk-disk2",
+                Path.of("/dev/disk2"),
+                false,
+                true,
+                false,
+                true);
         BlockDevice unknownSize = device(
                 "unknown-size-usb",
                 Path.of("/dev/sdz"),
@@ -179,13 +193,14 @@ public final class GuiSelectionRulesTest {
         BlockDevice readonly = device("readonly", Path.of("readonly.raw"), false, false, true);
 
         assertEquals(
-                List.of(ready, preparableMounted, linuxMounted),
+                List.of(ready, preparableMounted, linuxMounted, macMounted),
                 GuiSelectionRules.supportedTargets(List.of(
                         ready,
                         system,
                         mounted,
                         preparableMounted,
                         linuxMounted,
+                        macMounted,
                         unknownSize,
                         fixed,
                         readonly)));

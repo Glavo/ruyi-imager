@@ -33,6 +33,8 @@ public final class PlatformBlockDevicePreparer implements BlockDevicePreparer {
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
         if (normalizedOs.contains("linux")) {
             this.delegate = new LinuxBlockDevicePreparer();
+        } else if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
+            this.delegate = new MacOSBlockDevicePreparer();
         } else {
             this.delegate = BlockDevicePreparer.none();
         }

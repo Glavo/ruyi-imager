@@ -87,6 +87,12 @@ public final class MacOSBlockDeviceServiceTest {
                   <string>Apple SSD</string>
                   <key>BusProtocol</key>
                   <string>PCI-Express</string>
+                  <key>MediaUUID</key>
+                  <string>11111111-1111-1111-1111-111111111111</string>
+                  <key>DeviceTreePath</key>
+                  <string>IODeviceTree:/PCI0/NVME</string>
+                  <key>IORegistryEntryName</key>
+                  <string>Apple SSD</string>
                   <key>Internal</key>
                   <true/>
                   <key>RemovableMedia</key>
@@ -113,6 +119,16 @@ public final class MacOSBlockDeviceServiceTest {
                   <string>USB Reader</string>
                   <key>BusProtocol</key>
                   <string>USB</string>
+                  <key>MediaUUID</key>
+                  <string>22222222-2222-2222-2222-222222222222</string>
+                  <key>DiskUUID</key>
+                  <string>33333333-3333-3333-3333-333333333333</string>
+                  <key>DeviceTreePath</key>
+                  <string>IODeviceTree:/USB0</string>
+                  <key>IORegistryEntryName</key>
+                  <string>USB Reader</string>
+                  <key>SerialNumber</key>
+                  <string>USB123</string>
                   <key>Internal</key>
                   <false/>
                   <key>RemovableMedia</key>
@@ -142,6 +158,9 @@ public final class MacOSBlockDeviceServiceTest {
         assertEquals(List.of("/System/Volumes/Data", "/"), systemDisk.mountPoints());
         assertEquals("Apple SSD", systemDisk.model());
         assertEquals("PCI-Express", systemDisk.busType());
+        assertEquals(
+                "mediaUuid=11111111-1111-1111-1111-111111111111;deviceTreePath=IODeviceTree:/PCI0/NVME;ioRegistryEntryName=Apple SSD",
+                systemDisk.hardwareId());
 
         BlockDevice removableDisk = devices.get(1);
         assertEquals("macos-disk-disk2", removableDisk.id());
@@ -153,6 +172,9 @@ public final class MacOSBlockDeviceServiceTest {
         assertTrue(removableDisk.removable());
         assertEquals(List.of("/Volumes/BOOT"), removableDisk.mountPoints());
         assertTrue(removableDisk.displayName().contains("USB Reader"));
+        assertEquals(
+                "mediaUuid=22222222-2222-2222-2222-222222222222;diskUuid=33333333-3333-3333-3333-333333333333;deviceTreePath=IODeviceTree:/USB0;ioRegistryEntryName=USB Reader;serialNumber=USB123",
+                removableDisk.hardwareId());
     }
 
     /// Parses empty diskutil lists as an empty device list.

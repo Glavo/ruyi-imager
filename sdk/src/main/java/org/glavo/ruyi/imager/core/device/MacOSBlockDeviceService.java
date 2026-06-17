@@ -138,6 +138,7 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
                 stringValue(info, "DeviceModel"),
                 stringValue(disk, "Content"));
         @Nullable String busType = stringValue(info, "BusProtocol");
+        @Nullable String hardwareId = hardwareId(info);
         boolean removable = booleanValue(info, "RemovableMedia", false)
                 || booleanValue(info, "Ejectable", false);
         boolean readOnly = booleanValue(info, "ReadOnlyMedia", false)
@@ -157,7 +158,37 @@ public final class MacOSBlockDeviceService implements BlockDeviceService {
                 readOnly,
                 model,
                 busType,
+                hardwareId,
                 mountPoints);
+    }
+
+    /// Builds a stable hardware identity from `diskutil info -plist` metadata.
+    ///
+    /// @param info disk info object.
+    /// @return hardware identity, or null when no stable identity is available.
+    private static @Nullable String hardwareId(@Unmodifiable Map<String, Object> info) {
+        StringBuilder builder = new StringBuilder();
+        appendHardwareId(builder, "mediaUuid", stringValue(info, "MediaUUID"));
+        appendHardwareId(builder, "diskUuid", stringValue(info, "DiskUUID"));
+        appendHardwareId(builder, "deviceTreePath", stringValue(info, "DeviceTreePath"));
+        appendHardwareId(builder, "ioRegistryEntryName", stringValue(info, "IORegistryEntryName"));
+        appendHardwareId(builder, "serialNumber", stringValue(info, "SerialNumber"));
+        return builder.isEmpty() ? null : builder.toString();
+    }
+
+    /// Appends one hardware identity field.
+    ///
+    /// @param builder identity builder.
+    /// @param name field name.
+    /// @param value field value.
+    private static void appendHardwareId(StringBuilder builder, String name, @Nullable String value) {
+        if (value == null) {
+            return;
+        }
+        if (!builder.isEmpty()) {
+            builder.append(';');
+        }
+        builder.append(name).append('=').append(value);
     }
 
     /// Runs `diskutil` with a fixed timeout.
