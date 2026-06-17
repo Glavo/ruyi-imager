@@ -133,6 +133,8 @@ final class GuiSelectionRules {
     /// @param target target device.
     /// @return whether the mounted target can be prepared automatically.
     static boolean targetPreparablyMounted(BlockDevice target) {
-        return target.mounted() && target.removable() && target.id().startsWith("windows-disk-");
+        return target.mounted()
+                && target.removable()
+                && (target.id().startsWith("windows-disk-") || target.id().startsWith("linux-disk-"));
     }
 }

@@ -104,6 +104,13 @@ public final class GuiSelectionRulesTest {
         assertFalse(GuiSelectionRules.targetWritable(device("system", Path.of("system.raw"), true, false, false)));
         assertFalse(GuiSelectionRules.targetWritable(device("mounted", Path.of("mounted.raw"), false, true, false)));
         assertTrue(GuiSelectionRules.targetWritable(device(
+                "linux-disk-sdb",
+                Path.of("/dev/sdb"),
+                false,
+                true,
+                false,
+                true)));
+        assertTrue(GuiSelectionRules.targetWritable(device(
                 "windows-disk-2",
                 Path.of("\\\\.\\PHYSICALDRIVE2"),
                 false,
@@ -152,6 +159,13 @@ public final class GuiSelectionRulesTest {
                 true,
                 false,
                 true);
+        BlockDevice linuxMounted = device(
+                "linux-disk-sdb",
+                Path.of("/dev/sdb"),
+                false,
+                true,
+                false,
+                true);
         BlockDevice unknownSize = device(
                 "unknown-size-usb",
                 Path.of("/dev/sdz"),
@@ -165,12 +179,13 @@ public final class GuiSelectionRulesTest {
         BlockDevice readonly = device("readonly", Path.of("readonly.raw"), false, false, true);
 
         assertEquals(
-                List.of(ready, preparableMounted),
+                List.of(ready, preparableMounted, linuxMounted),
                 GuiSelectionRules.supportedTargets(List.of(
                         ready,
                         system,
                         mounted,
                         preparableMounted,
+                        linuxMounted,
                         unknownSize,
                         fixed,
                         readonly)));

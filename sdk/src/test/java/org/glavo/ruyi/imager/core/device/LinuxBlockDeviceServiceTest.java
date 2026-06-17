@@ -34,6 +34,9 @@ public final class LinuxBlockDeviceServiceTest {
                       "ro": false,
                       "model": "Internal NVMe",
                       "tran": "nvme",
+                      "serial": "NVME123",
+                      "wwn": "eui.1234",
+                      "hotplug": false,
                       "mountpoints": [null],
                       "children": [
                         {
@@ -56,10 +59,13 @@ public final class LinuxBlockDeviceServiceTest {
                       "path": "/dev/sdb",
                       "type": "disk",
                       "size": "31914983424",
-                      "rm": 1,
+                      "rm": 0,
                       "ro": 1,
                       "model": "USB Reader",
                       "tran": "usb",
+                      "serial": "USB123",
+                      "wwn": "0x5000000000000001",
+                      "hotplug": true,
                       "mountpoint": null,
                       "children": [
                         {
@@ -94,6 +100,7 @@ public final class LinuxBlockDeviceServiceTest {
         assertEquals(List.of("/boot", "/"), systemDisk.mountPoints());
         assertEquals("Internal NVMe", systemDisk.model());
         assertEquals("nvme", systemDisk.busType());
+        assertEquals("serial=NVME123;wwn=eui.1234", systemDisk.hardwareId());
 
         BlockDevice removableDisk = devices.get(1);
         assertEquals("linux-disk-sdb", removableDisk.id());
@@ -105,6 +112,7 @@ public final class LinuxBlockDeviceServiceTest {
         assertTrue(removableDisk.removable());
         assertEquals(List.of("/media/user/BOOT", "/media/user/rootfs"), removableDisk.mountPoints());
         assertTrue(removableDisk.displayName().contains("USB Reader"));
+        assertEquals("serial=USB123;wwn=0x5000000000000001", removableDisk.hardwareId());
     }
 
     /// Ignores invalid or non-disk nodes.
@@ -117,6 +125,34 @@ public final class LinuxBlockDeviceServiceTest {
                 """);
 
         assertTrue(devices.isEmpty());
+    }
+
+    /// Does not treat HOTPLUG alone as removable for non-USB transports.
+    ///
+    /// @throws IOException when parsing fails.
+    @Test
+    public void ignoresHotplugForNonUsbTransports() throws IOException {
+        List<BlockDevice> devices = LinuxBlockDeviceService.parseDevices("""
+                {
+                  "blockdevices": [
+                    {
+                      "name": "sda",
+                      "kname": "sda",
+                      "path": "/dev/sda",
+                      "type": "disk",
+                      "size": 1024,
+                      "rm": false,
+                      "ro": false,
+                      "model": "Hotplug SATA",
+                      "tran": "sata",
+                      "hotplug": true
+                    }
+                  ]
+                }
+                """);
+
+        assertEquals(1, devices.size());
+        assertFalse(devices.getFirst().removable());
     }
 
     /// Parses empty payloads as an empty list.

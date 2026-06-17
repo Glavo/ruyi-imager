@@ -35,6 +35,8 @@ public final class SdkMessages {
             Map.entry("core.flash.verifying", "Verifying written image"),
             Map.entry("core.flash.preparingTarget", "Preparing target device {0}"),
             Map.entry("core.flash.preparedTarget", "Target device prepared: {0}"),
+            Map.entry("core.flash.commandTimedOut", "Command timed out: {0}"),
+            Map.entry("core.flash.unmountFailed", "Failed to unmount {0}: {1}"),
             Map.entry("core.flash.writingPartition", "Writing {0} image to target"),
             Map.entry("core.flash.verifyingPartition", "Verifying {0} image on target"),
             Map.entry("core.flash.verifyFailed", "Written image failed verification."),

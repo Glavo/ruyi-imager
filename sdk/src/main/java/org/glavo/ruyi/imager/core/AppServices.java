@@ -7,6 +7,7 @@ import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.device.PlatformBlockDeviceService;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.fastboot.ProcessFastbootService;
+import org.glavo.ruyi.imager.core.flash.BlockDevicePreparer;
 import org.glavo.ruyi.imager.core.flash.FlashService;
 import org.glavo.ruyi.imager.core.flash.LocalFlashService;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
@@ -50,7 +51,7 @@ public record AppServices(
         RepositoryService repository = new RuyiRepositoryService(repositoryStore, images::invalidateCache);
         BlockDeviceService devices = new PlatformBlockDeviceService();
         FastbootService fastboot = new ProcessFastbootService();
-        FlashService flash = new LocalFlashService(images, devices, fastboot);
+        FlashService flash = new LocalFlashService(images, devices, fastboot, BlockDevicePreparer.platformDefault());
         LOGGER.info("Default application services created.");
         return new AppServices(directories, repository, images, devices, fastboot, flash);
     }

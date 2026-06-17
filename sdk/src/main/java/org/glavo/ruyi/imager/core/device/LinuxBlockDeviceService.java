@@ -46,7 +46,7 @@ public final class LinuxBlockDeviceService implements BlockDeviceService {
                 "--json",
                 "--bytes",
                 "--output",
-                "NAME,KNAME,PATH,TYPE,SIZE,RM,RO,MOUNTPOINT,MOUNTPOINTS,MODEL,TRAN");
+                "NAME,KNAME,PATH,TYPE,SIZE,RM,RO,MOUNTPOINT,MOUNTPOINTS,MODEL,TRAN,SERIAL,WWN,HOTPLUG");
 
         ProcessOutputCapture.Result result;
         try {
@@ -125,10 +125,11 @@ public final class LinuxBlockDeviceService implements BlockDeviceService {
 
         String pathText = textValue(node, "path", "/dev/" + name);
         long sizeBytes = longValue(node, "size", 0L);
-        boolean removable = booleanValue(node, "rm", false);
         boolean readOnly = booleanValue(node, "ro", false);
         @Nullable String model = nullableTextValue(node, "model");
         @Nullable String busType = nullableTextValue(node, "tran");
+        boolean removable = removable(node, busType);
+        @Nullable String hardwareId = hardwareId(node);
         @Unmodifiable List<String> mountPoints = mountPoints(node);
         boolean mounted = !mountPoints.isEmpty();
         boolean system = isSystemMount(mountPoints);
@@ -144,7 +145,52 @@ public final class LinuxBlockDeviceService implements BlockDeviceService {
                 readOnly,
                 model,
                 busType,
+                hardwareId,
                 mountPoints);
+    }
+
+    /// Returns whether a Linux disk should be treated as removable.
+    ///
+    /// @param node JSON disk object.
+    /// @param busType transport type.
+    /// @return whether the disk is removable.
+    private static boolean removable(JsonNode node, @Nullable String busType) {
+        if (booleanValue(node, "rm", false)) {
+            return true;
+        }
+        return booleanValue(node, "hotplug", false) && hotplugRemovableTransport(busType);
+    }
+
+    /// Returns whether HOTPLUG may supplement RM for a known removable transport.
+    ///
+    /// @param busType transport type.
+    /// @return whether HOTPLUG may indicate a removable target.
+    private static boolean hotplugRemovableTransport(@Nullable String busType) {
+        return busType != null && "usb".equalsIgnoreCase(busType);
+    }
+
+    /// Builds a stable hardware identity from `lsblk` disk metadata.
+    ///
+    /// @param node JSON disk object.
+    /// @return hardware identity, or null when no stable identity is available.
+    private static @Nullable String hardwareId(JsonNode node) {
+        @Nullable String serial = nullableTextValue(node, "serial");
+        @Nullable String wwn = nullableTextValue(node, "wwn");
+        if (serial == null && wwn == null) {
+            return null;
+        }
+
+        StringBuilder builder = new StringBuilder();
+        if (serial != null) {
+            builder.append("serial=").append(serial);
+        }
+        if (wwn != null) {
+            if (!builder.isEmpty()) {
+                builder.append(';');
+            }
+            builder.append("wwn=").append(wwn);
+        }
+        return builder.toString();
     }
 
     /// Builds a human-readable disk label.

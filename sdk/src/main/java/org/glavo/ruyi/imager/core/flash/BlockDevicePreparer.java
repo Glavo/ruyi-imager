@@ -19,6 +19,13 @@ public interface BlockDevicePreparer {
         return NoOpBlockDevicePreparer.INSTANCE;
     }
 
+    /// Returns the default platform-specific preparer.
+    ///
+    /// @return platform preparer.
+    static BlockDevicePreparer platformDefault() {
+        return new PlatformBlockDevicePreparer();
+    }
+
     /// Returns whether this preparer can safely prepare a mounted target before writing.
     ///
     /// @param target target block device.
