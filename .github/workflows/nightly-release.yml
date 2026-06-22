@@ -66,7 +66,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          cp app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.zip release-assets/
+          shopt -s nullglob
+          assets=(
+            app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.zip
+            app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.tar.gz
+          )
+          if [ "${#assets[@]}" -ne 1 ]; then
+            printf 'Expected exactly one archive for %s, found %s\n' "${{ matrix.platform }}" "${#assets[@]}" >&2
+            printf 'Matched assets:\n' >&2
+            printf '  %s\n' "${assets[@]}" >&2
+            exit 1
+          fi
+          cp "${assets[0]}" release-assets/
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7

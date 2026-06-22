@@ -1,6 +1,7 @@
 import de.undercouch.gradle.tasks.download.Download
 import de.undercouch.gradle.tasks.download.Verify
 import org.gradle.api.file.RelativePath
+import org.gradle.api.tasks.bundling.Compression
 
 plugins {
     application
@@ -536,14 +537,29 @@ tasks.register<Sync>("installJlinkDist") {
     }
 }
 
-tasks.register<Zip>("jlinkZip") {
-    group = "distribution"
-    description = "Archives the jlink application image."
-    dependsOn("installJlinkDist")
-    archiveBaseName = "ruyi-imager"
-    archiveClassifier = jlinkJdkPlatform
-    from(jlinkImageDirectory) {
-        into("ruyi-imager")
+if (jlinkJdkPlatform.startsWith("windows-")) {
+    tasks.register<Zip>("jlinkZip") {
+        group = "distribution"
+        description = "Archives the jlink application image."
+        dependsOn("installJlinkDist")
+        archiveBaseName = "ruyi-imager"
+        archiveClassifier = jlinkJdkPlatform
+        from(jlinkImageDirectory) {
+            into("ruyi-imager")
+        }
+    }
+} else {
+    tasks.register<Tar>("jlinkZip") {
+        group = "distribution"
+        description = "Archives the jlink application image."
+        dependsOn("installJlinkDist")
+        archiveBaseName = "ruyi-imager"
+        archiveClassifier = jlinkJdkPlatform
+        archiveExtension = "tar.gz"
+        compression = Compression.GZIP
+        from(jlinkImageDirectory) {
+            into("ruyi-imager")
+        }
     }
 }
 

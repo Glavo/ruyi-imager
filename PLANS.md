@@ -26,7 +26,7 @@
 - Fastboot 流程支持普通分区刷写、LPi4A/Meles U-Boot handoff、SpacemiT K1 stage/continue 和 sparse progress 解析；重复 serial 和 handoff 后目标歧义会被拒绝。
 - GUI 已完成目录/本地镜像选择、目标选择、安全确认、刷写进度、取消、日志路径展示、语言切换、窗口图标和 JLink GUI/CLI 启动器命名；进度条旁短状态文本不使用末尾句号。
 - 日志使用 SLF4J API 和 JUL 文件后端；CLI/GUI 错误会暴露日志路径，敏感外部输出默认脱敏和截断。
-- 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime、JLink zip 和 nightly release workflow；Windows JLink 包提供 `ruyi-imager.exe` GUI 入口和 `ruyi-imager-cli.exe` CLI 入口，并静态链接 MSVC CRT 以避免缺少 `VCRUNTIME140.dll`。
+- 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 nightly release workflow；Windows JLink 包使用 `.zip`，Linux/macOS JLink 包使用 `.tar.gz`；Windows 包提供 `ruyi-imager.exe` GUI 入口和 `ruyi-imager-cli.exe` CLI 入口，并静态链接 MSVC CRT 以避免缺少 `VCRUNTIME140.dll`。
 
 ### Remaining
 
@@ -37,6 +37,11 @@
 
 ### Recent Verification
 
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkZip --dry-run`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=macos-aarch64" :app:jlinkZip --dry-run`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkZip --dry-run`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:help --task :app:jlinkZip`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkZip`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.device.MacOSBlockDeviceServiceTest --tests org.glavo.ruyi.imager.core.flash.MacOSBlockDevicePreparerTest --tests org.glavo.ruyi.imager.core.flash.LinuxBlockDevicePreparerTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.device.MacOSBlockDeviceServiceTest --tests org.glavo.ruyi.imager.core.flash.MacOSBlockDevicePreparerTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
