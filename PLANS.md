@@ -27,6 +27,7 @@
 - GUI 已完成目录/本地镜像选择、目标选择、安全确认、刷写进度、取消、日志路径展示、语言切换、窗口图标和 JLink GUI/CLI 启动器命名；进度条旁短状态文本不使用末尾句号。
 - 日志使用 SLF4J API 和 JUL 文件后端；CLI/GUI 错误会暴露日志路径，敏感外部输出默认脱敏和截断。
 - 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 nightly release workflow；Windows JLink 包使用 `.zip`，Linux/macOS JLink 包使用 `.tar.gz`；Windows 包提供 `ruyi-imager.exe` GUI 入口和 `ruyi-imager-cli.exe` CLI 入口，并静态链接 MSVC CRT 以避免缺少 `VCRUNTIME140.dll`。
+- Linux/macOS JLink `.tar.gz` 包会显式设置 Unix 可执行权限，确保启动脚本、JDK launcher、`jspawnhelper`、bundled fastboot 和 `dd-flasher` 可执行。
 
 ### Remaining
 

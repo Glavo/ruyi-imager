@@ -559,6 +559,11 @@ val jlinkArchiveTask = if (jlinkJdkPlatform.startsWith("windows-")) {
         compression = Compression.GZIP
         from(jlinkImageDirectory) {
             into("ruyi-imager")
+            eachFile {
+                permissions {
+                    unix(if (jlinkUnixExecutableArchivePath(path, jlinkJdkPlatform)) "755" else "644")
+                }
+            }
         }
     }
 }
@@ -649,6 +654,22 @@ fun currentJlinkPlatform(): String? {
         osName.contains("linux") && arch == "riscv64" -> "linux-riscv64"
         else -> null
     }
+}
+
+/// Returns whether a jlink archive path must be executable on Unix platforms.
+///
+/// @param path archive entry path.
+/// @param platform jlink target platform token.
+/// @return whether the entry must be executable.
+fun jlinkUnixExecutableArchivePath(path: String, platform: String): Boolean {
+    val relativePath = path.replace('\\', '/').removePrefix("ruyi-imager/")
+    return relativePath == "bin/ruyi-imager"
+        || relativePath == "bin/ruyi-imager-cli"
+        || relativePath.startsWith("runtime/bin/")
+        || relativePath == "runtime/lib/jspawnhelper"
+        || relativePath == "runtime/lib/jexec"
+        || relativePath == "tools/fastboot/$platform/fastboot"
+        || relativePath == "tools/dd-flasher/$platform/dd-flasher"
 }
 
 /// Creates the default Liberica JDK bundle descriptor for a jlink JDK platform.
