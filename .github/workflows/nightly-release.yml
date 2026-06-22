@@ -59,7 +59,7 @@ jobs:
         run: rustup default stable
 
       - name: Build jlink archive
-        run: ./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkZip
+        run: ./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkArchive
 
       - name: Collect release assets
         shell: bash

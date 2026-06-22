@@ -37,11 +37,11 @@
 
 ### Recent Verification
 
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkZip --dry-run`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=macos-aarch64" :app:jlinkZip --dry-run`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkZip --dry-run`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:help --task :app:jlinkZip`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkZip`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkArchive --dry-run`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=macos-aarch64" :app:jlinkArchive --dry-run`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkArchive --dry-run`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:help --task :app:jlinkArchive`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkArchive`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.device.MacOSBlockDeviceServiceTest --tests org.glavo.ruyi.imager.core.flash.MacOSBlockDevicePreparerTest --tests org.glavo.ruyi.imager.core.flash.LinuxBlockDevicePreparerTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.device.MacOSBlockDeviceServiceTest --tests org.glavo.ruyi.imager.core.flash.MacOSBlockDevicePreparerTest --tests org.glavo.ruyi.imager.core.flash.LocalFlashServiceTest :app:test --tests org.glavo.ruyi.imager.gui.GuiSelectionRulesTest`

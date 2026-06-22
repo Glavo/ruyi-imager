@@ -537,8 +537,8 @@ tasks.register<Sync>("installJlinkDist") {
     }
 }
 
-if (jlinkJdkPlatform.startsWith("windows-")) {
-    tasks.register<Zip>("jlinkZip") {
+val jlinkArchiveTask = if (jlinkJdkPlatform.startsWith("windows-")) {
+    tasks.register<Zip>("jlinkArchive") {
         group = "distribution"
         description = "Archives the jlink application image."
         dependsOn("installJlinkDist")
@@ -549,7 +549,7 @@ if (jlinkJdkPlatform.startsWith("windows-")) {
         }
     }
 } else {
-    tasks.register<Tar>("jlinkZip") {
+    tasks.register<Tar>("jlinkArchive") {
         group = "distribution"
         description = "Archives the jlink application image."
         dependsOn("installJlinkDist")
@@ -561,6 +561,12 @@ if (jlinkJdkPlatform.startsWith("windows-")) {
             into("ruyi-imager")
         }
     }
+}
+
+tasks.register("jlinkZip") {
+    group = "distribution"
+    description = "Compatibility alias for jlinkArchive."
+    dependsOn(jlinkArchiveTask)
 }
 
 /// Returns the JavaFX runtime dependency notation for the current build platform.
