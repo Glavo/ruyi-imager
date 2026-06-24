@@ -25,7 +25,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -46,6 +48,15 @@ public final class ProcessDdImageWriter implements DdImageWriter {
 
     /// Maximum diagnostic output captured from helper stderr or launcher streams.
     private static final int MAX_CAPTURED_DIAGNOSTIC_BYTES = 64 * 1024;
+
+    /// POSIX permissions for temporary event logs shared with elevated helper contexts.
+    private static final Set<PosixFilePermission> ELEVATED_EVENT_LOG_PERMISSIONS = Set.of(
+            PosixFilePermission.OWNER_READ,
+            PosixFilePermission.OWNER_WRITE,
+            PosixFilePermission.GROUP_READ,
+            PosixFilePermission.GROUP_WRITE,
+            PosixFilePermission.OTHERS_READ,
+            PosixFilePermission.OTHERS_WRITE);
 
     /// Helper executable path or command name.
     private final String executable;
@@ -675,7 +686,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @return temporary event log path.
     /// @throws IOException when the event log cannot be created.
     static Path temporaryEventLog(String osName) throws IOException {
-        Path path = createElevatedTemporaryFile(osName, "ruyi-imager-dd-flasher-", ".ndjson");
+        Path path = createElevatedTemporaryFile(osName, "ruyi-imager-dd-flasher-", ".ndjson", true);
         allowElevatedHelperAccess(path);
         return path;
     }
@@ -688,7 +699,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @return non-existing temporary path.
     /// @throws IOException when the path cannot be reserved.
     private static Path temporarySignalPath(String osName, String prefix, String suffix) throws IOException {
-        Path path = createElevatedTemporaryFile(osName, prefix, suffix);
+        Path path = createElevatedTemporaryFile(osName, prefix, suffix, false);
         Files.delete(path);
         return path;
     }
@@ -698,14 +709,46 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param osName operating system name.
     /// @param prefix temporary file prefix.
     /// @param suffix temporary file suffix.
+    /// @param crossUserAppend whether another user context must append to the file.
     /// @return temporary file path.
     /// @throws IOException when the file cannot be created.
-    private static Path createElevatedTemporaryFile(String osName, String prefix, String suffix) throws IOException {
+    private static Path createElevatedTemporaryFile(
+            String osName,
+            String prefix,
+            String suffix,
+            boolean crossUserAppend) throws IOException {
         Path directory = elevatedTemporaryDirectory(osName);
+        FileAttribute<?> @Unmodifiable [] attributes = crossUserAppend
+                ? elevatedEventLogAttributes()
+                : new FileAttribute<?>[0];
+        if (attributes.length > 0) {
+            try {
+                if (directory != null) {
+                    return Files.createTempFile(directory, prefix, suffix, attributes);
+                }
+                return Files.createTempFile(prefix, suffix, attributes);
+            } catch (UnsupportedOperationException exception) {
+                LOGGER.debug("Initial POSIX permissions are not supported for dd-flasher event logs.", exception);
+            }
+        }
         if (directory != null) {
             return Files.createTempFile(directory, prefix, suffix);
         }
         return Files.createTempFile(prefix, suffix);
+    }
+
+    /// Returns initial file attributes for elevated event logs when the filesystem supports them.
+    ///
+    /// @return file attributes applied at creation time.
+    private static FileAttribute<?> @Unmodifiable [] elevatedEventLogAttributes() {
+        try {
+            return new FileAttribute<?>[]{
+                    PosixFilePermissions.asFileAttribute(ELEVATED_EVENT_LOG_PERMISSIONS)
+            };
+        } catch (UnsupportedOperationException exception) {
+            LOGGER.debug("POSIX file permissions are not available for dd-flasher event logs.", exception);
+            return new FileAttribute<?>[0];
+        }
     }
 
     /// Returns a shared temporary directory for cross-user elevation handoff when available.
@@ -726,16 +769,16 @@ public final class ProcessDdImageWriter implements DdImageWriter {
 
     /// Allows an elevated helper running under another user context to append to the event log.
     ///
+    /// The event log is placed in a random temporary file and deleted after the helper exits. Its permissions are
+    /// intentionally relaxed to `rw-rw-rw-` on POSIX filesystems because Linux `pkexec`, macOS administrator
+    /// execution, and sandboxed launchers may not preserve the caller's UID or group. This exposes transient progress
+    /// and error metadata, including target display/path text, to local users who can discover the random path; using
+    /// only group write would be narrower but would not cover helpers that run outside the caller's primary group.
+    ///
     /// @param eventLog event log path.
     private static void allowElevatedHelperAccess(Path eventLog) {
         try {
-            Files.setPosixFilePermissions(eventLog, Set.of(
-                    PosixFilePermission.OWNER_READ,
-                    PosixFilePermission.OWNER_WRITE,
-                    PosixFilePermission.GROUP_READ,
-                    PosixFilePermission.GROUP_WRITE,
-                    PosixFilePermission.OTHERS_READ,
-                    PosixFilePermission.OTHERS_WRITE));
+            Files.setPosixFilePermissions(eventLog, ELEVATED_EVENT_LOG_PERMISSIONS);
         } catch (IOException | UnsupportedOperationException | SecurityException exception) {
             LOGGER.debug("Failed to relax dd-flasher event log permissions.", exception);
         }
