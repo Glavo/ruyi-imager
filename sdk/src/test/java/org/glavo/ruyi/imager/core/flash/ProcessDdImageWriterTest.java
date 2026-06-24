@@ -11,11 +11,15 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -139,6 +143,24 @@ public final class ProcessDdImageWriterTest {
                 events::add));
         assertEquals(List.of("flash", "verify", "verify"), events.stream().map(ProgressEvent::stage).toList());
         assertEquals(List.of(4L, 0L, 4L), events.stream().map(ProgressEvent::currentBytes).toList());
+    }
+
+    /// Verifies POSIX elevated event logs can be appended by helper processes running under another user.
+    ///
+    /// @throws Exception when the temporary event log cannot be created or inspected.
+    @Test
+    public void createsPosixElevatedEventLogForCrossUserAppend() throws Exception {
+        assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
+
+        Path eventLog = ProcessDdImageWriter.temporaryEventLog("Linux");
+        try {
+            assertEquals(Path.of("/tmp").toRealPath(), eventLog.getParent().toRealPath());
+            Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(eventLog);
+            assertTrue(permissions.contains(PosixFilePermission.OTHERS_READ));
+            assertTrue(permissions.contains(PosixFilePermission.OTHERS_WRITE));
+        } finally {
+            Files.deleteIfExists(eventLog);
+        }
     }
 
     /// Returns the current Java executable path.

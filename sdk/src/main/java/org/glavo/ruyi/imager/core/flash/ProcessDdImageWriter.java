@@ -25,10 +25,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -259,10 +261,11 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             String targetDisplayName,
             List<String> arguments,
             ProgressReporter reporter) throws IOException {
-        Path eventLog = Files.createTempFile("ruyi-imager-dd-flasher-", ".ndjson");
+        String osName = System.getProperty("os.name", "");
+        Path eventLog = temporaryEventLog(osName);
         Path cancelFile;
         try {
-            cancelFile = temporarySignalPath("ruyi-imager-dd-flasher-cancel-", ".signal");
+            cancelFile = temporarySignalPath(osName, "ruyi-imager-dd-flasher-cancel-", ".signal");
         } catch (IOException exception) {
             deleteEventLog(eventLog);
             throw exception;
@@ -275,7 +278,6 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         elevatedArguments.add(cancelFile.toString());
         elevatedArguments.add("--no-stdout");
 
-        String osName = System.getProperty("os.name", "");
         if (DDFlasherElevation.usesNativeWindowsElevation(osName)) {
             return runWindowsElevated(
                     operation,
@@ -667,16 +669,76 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         }
     }
 
+    /// Creates a temporary event log that elevated helper processes can append to.
+    ///
+    /// @param osName operating system name.
+    /// @return temporary event log path.
+    /// @throws IOException when the event log cannot be created.
+    static Path temporaryEventLog(String osName) throws IOException {
+        Path path = createElevatedTemporaryFile(osName, "ruyi-imager-dd-flasher-", ".ndjson");
+        allowElevatedHelperAccess(path);
+        return path;
+    }
+
     /// Creates a temporary signal path that does not currently exist.
     ///
+    /// @param osName operating system name.
     /// @param prefix temporary file prefix.
     /// @param suffix temporary file suffix.
     /// @return non-existing temporary path.
     /// @throws IOException when the path cannot be reserved.
-    private static Path temporarySignalPath(String prefix, String suffix) throws IOException {
-        Path path = Files.createTempFile(prefix, suffix);
+    private static Path temporarySignalPath(String osName, String prefix, String suffix) throws IOException {
+        Path path = createElevatedTemporaryFile(osName, prefix, suffix);
         Files.delete(path);
         return path;
+    }
+
+    /// Creates a temporary file in a location that platform elevation helpers can access.
+    ///
+    /// @param osName operating system name.
+    /// @param prefix temporary file prefix.
+    /// @param suffix temporary file suffix.
+    /// @return temporary file path.
+    /// @throws IOException when the file cannot be created.
+    private static Path createElevatedTemporaryFile(String osName, String prefix, String suffix) throws IOException {
+        Path directory = elevatedTemporaryDirectory(osName);
+        if (directory != null) {
+            return Files.createTempFile(directory, prefix, suffix);
+        }
+        return Files.createTempFile(prefix, suffix);
+    }
+
+    /// Returns a shared temporary directory for cross-user elevation handoff when available.
+    ///
+    /// @param osName operating system name.
+    /// @return shared temporary directory, or null to use the JVM default.
+    private static @Nullable Path elevatedTemporaryDirectory(String osName) {
+        if (osName.toLowerCase(Locale.ROOT).startsWith("windows")) {
+            return null;
+        }
+
+        Path sharedTemporaryDirectory = Path.of("/tmp");
+        if (Files.isDirectory(sharedTemporaryDirectory) && Files.isWritable(sharedTemporaryDirectory)) {
+            return sharedTemporaryDirectory;
+        }
+        return null;
+    }
+
+    /// Allows an elevated helper running under another user context to append to the event log.
+    ///
+    /// @param eventLog event log path.
+    private static void allowElevatedHelperAccess(Path eventLog) {
+        try {
+            Files.setPosixFilePermissions(eventLog, Set.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.GROUP_READ,
+                    PosixFilePermission.GROUP_WRITE,
+                    PosixFilePermission.OTHERS_READ,
+                    PosixFilePermission.OTHERS_WRITE));
+        } catch (IOException | UnsupportedOperationException | SecurityException exception) {
+            LOGGER.debug("Failed to relax dd-flasher event log permissions.", exception);
+        }
     }
 
     /// Creates a helper cancellation signal file.

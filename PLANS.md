@@ -18,6 +18,7 @@
 - Windows raw physical drive 写入由 `dd-flasher` 在 helper 进程内枚举相关 volume，持有 lock/dismount handle 并用 Win32 raw disk handle 写入，避免 SDK PowerShell preparer 释放锁后重新挂载。
 - `dd-v1` 破坏性写入前会重新枚举并核对目标 id、path、硬件身份、容量和型号/总线信息；GUI/SDK/helper 均拒绝非 removable 真实块设备，容量未知设备会被过滤或拒绝。
 - SDK 调用 `dd-flasher` 时传入目标显示名称，helper 会校验并在错误和日志中携带该名称。
+- SDK elevated `dd-flasher` handoff 会在共享临时目录创建可追加 NDJSON event log，避免提权 helper 因当前用户私有临时文件权限而无法回传进度或错误。
 - Windows UAC 已改为 Java FFM 调用 `ShellExecuteExW`，不再通过 PowerShell launcher；PowerShell 资源只保留 Windows 设备枚举脚本，JLink 包放入 `tools/powershell`，`gradlew run` 直接指向源码资源目录。
 - Windows/Linux/macOS 块设备枚举和 fastboot 设备枚举已接入；平台枚举和外部命令会并发消费 stdout/stderr，避免管道阻塞。
 - Linux 块设备枚举会读取 `SERIAL`、`WWN` 和 `HOTPLUG`；破坏性写入前的目标重枚举会使用 `hardwareId` 加强身份校验，`HOTPLUG` 仅在 `TRAN=usb` 时作为 `RM=0` USB 设备的 removable 补充信号。
