@@ -427,14 +427,15 @@ public final class LocalFlashService implements FlashService {
                     + blockDevice.path()
                     + ", mounted="
                     + blockDevice.mounted());
-            reporter.report(new ProgressEvent(
-                    "prepare",
-                    SdkMessages.get("core.flash.preparedTarget", blockDevice.displayName()),
-                    1L,
-                    1L));
+            reportPreparedTarget(blockDevice, reporter);
             return blockDevice;
         }
         if (!blockDevicePreparer.shouldPrepare(blockDevice)) {
+            LOGGER.atInfo().log(() -> "Skipping block target preparation; target is already ready. target="
+                    + blockDevice.path()
+                    + ", mounted="
+                    + blockDevice.mounted());
+            reportPreparedTarget(blockDevice, reporter);
             return blockDevice;
         }
         LOGGER.atInfo().log(() -> "Preparing block target. target="
@@ -442,6 +443,18 @@ public final class LocalFlashService implements FlashService {
                 + ", mounted="
                 + blockDevice.mounted());
         return blockDevicePreparer.prepare(blockDevice, reporter);
+    }
+
+    /// Reports that a block target is ready for writing.
+    ///
+    /// @param blockDevice target block device.
+    /// @param reporter progress reporter.
+    private static void reportPreparedTarget(BlockDevice blockDevice, ProgressReporter reporter) {
+        reporter.report(new ProgressEvent(
+                "prepare",
+                SdkMessages.get("core.flash.preparedTarget", blockDevice.displayName()),
+                1L,
+                1L));
     }
 
     /// Returns whether mounted target validation can be deferred to the writer.

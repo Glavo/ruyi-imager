@@ -778,6 +778,35 @@ public final class LocalFlashServiceTest {
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
     }
 
+    /// Reports the prepare stage as complete when no platform preparation is required.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void reportsPrepareCompleteWhenPreparationIsSkipped(@TempDir Path temporaryDirectory) throws Exception {
+        Path image = temporaryDirectory.resolve("image.raw");
+        Path target = temporaryDirectory.resolve("target.raw");
+        Files.write(image, new byte[]{1, 2, 3, 4});
+        Files.write(target, new byte[32]);
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+        ArrayList<ProgressEvent> events = new ArrayList<>();
+
+        OperationResult result = new LocalFlashService(
+                new EmptyImageCatalogService(),
+                new CapturingFastbootService(),
+                BlockDevicePreparer.none(),
+                writer).flash(
+                new FlashRequest(null, image, target(target, 32, false, false, false), true),
+                events::add);
+
+        assertTrue(result.success(), result.message());
+        assertEquals(1, writer.writeCalls.size());
+        assertEquals(1, writer.verifyCalls.size());
+        assertEquals("prepare", events.getFirst().stage());
+        assertEquals(1L, events.getFirst().currentBytes());
+        assertEquals(1L, events.getFirst().totalBytes());
+    }
+
     /// Lets the dd writer handle mounted targets without invoking the block-device preparer.
     ///
     /// @param temporaryDirectory temporary test directory.
