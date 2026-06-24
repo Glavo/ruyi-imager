@@ -82,11 +82,9 @@ public final class MacOSBlockDevicePreparer implements BlockDevicePreparer {
             return target;
         }
 
-        reporter.report(new ProgressEvent(
+        reporter.report(ProgressEvent.indeterminate(
                 "prepare",
-                SdkMessages.get("core.flash.preparingTarget", target.displayName()),
-                0L,
-                1L));
+                SdkMessages.get("core.flash.preparingTarget", target.displayName())));
 
         List<String> command = List.of("diskutil", "unmountDisk", target.path().toString());
         LOGGER.atInfo().log(() -> "Preparing macOS block target. target="

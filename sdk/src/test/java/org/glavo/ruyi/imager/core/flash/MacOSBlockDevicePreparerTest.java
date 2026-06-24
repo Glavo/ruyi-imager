@@ -17,6 +17,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -53,6 +54,10 @@ public final class MacOSBlockDevicePreparerTest {
         assertEquals(List.of(), prepared.mountPoints());
         assertEquals(List.of(List.of("diskutil", "unmountDisk", "/dev/disk2")), runner.commands());
         assertEquals(List.of("prepare", "prepare"), events.stream().map(ProgressEvent::stage).toList());
+        assertNull(events.getFirst().currentBytes());
+        assertNull(events.getFirst().totalBytes());
+        assertEquals(1L, events.getLast().currentBytes());
+        assertEquals(1L, events.getLast().totalBytes());
     }
 
     /// Verifies unmount failures are surfaced.

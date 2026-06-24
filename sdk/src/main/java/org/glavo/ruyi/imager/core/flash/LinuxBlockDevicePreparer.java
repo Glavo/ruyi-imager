@@ -90,11 +90,9 @@ public final class LinuxBlockDevicePreparer implements BlockDevicePreparer {
             return target;
         }
 
-        reporter.report(new ProgressEvent(
+        reporter.report(ProgressEvent.indeterminate(
                 "prepare",
-                SdkMessages.get("core.flash.preparingTarget", target.displayName()),
-                0L,
-                1L));
+                SdkMessages.get("core.flash.preparingTarget", target.displayName())));
 
         @Unmodifiable List<MountEntry> entries = mountedEntries(target.path());
         LOGGER.atInfo().log(() -> "Preparing Linux block target. target="
