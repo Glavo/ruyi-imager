@@ -273,6 +273,10 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             List<String> arguments,
             ProgressReporter reporter) throws IOException {
         String osName = System.getProperty("os.name", "");
+        if (!usesElevatedEventLog(osName)) {
+            return runPipedElevated(operation, progressSinks, targetDisplayName, arguments, osName, reporter);
+        }
+
         Path eventLog = temporaryEventLog(osName);
         Path cancelFile;
         try {
@@ -327,7 +331,9 @@ public final class ProcessDdImageWriter implements DdImageWriter {
 
         HelperEventState state = new HelperEventState(progressSinks, reporter);
         ProcessStreamCollector stdout = ProcessStreamCollector.start(process.getInputStream(), "dd-flasher-elevated-stdout");
-        ProcessStreamCollector stderr = ProcessStreamCollector.start(process.getErrorStream(), "dd-flasher-elevated-stderr");
+        ProcessStreamCollector stderr = ProcessStreamCollector.start(
+                process.getErrorStream(),
+                "dd-flasher-elevated-stderr");
         long offset = 0L;
         int exitCode;
         try {
@@ -363,6 +369,75 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         stderr.await(command);
 
         return finish(operation, state, exitCode, diagnosticText(stdout, stderr));
+    }
+
+    /// Runs one elevated helper operation while reading helper NDJSON events from stdout.
+    ///
+    /// @param operation helper operation.
+    /// @param progressSinks progress sinks keyed by helper operation.
+    /// @param targetDisplayName human-readable target display name.
+    /// @param arguments helper arguments excluding executable.
+    /// @param osName operating system name.
+    /// @param reporter progress reporter.
+    /// @return operation success result.
+    /// @throws IOException when helper execution or output parsing fails.
+    private boolean runPipedElevated(
+            String operation,
+            Map<String, ProgressSink> progressSinks,
+            String targetDisplayName,
+            List<String> arguments,
+            String osName,
+            ProgressReporter reporter) throws IOException {
+        Path cancelFile = temporarySignalPath(osName, "ruyi-imager-dd-flasher-cancel-", ".signal");
+        ArrayList<String> elevatedArguments = new ArrayList<>(arguments.size() + 2);
+        elevatedArguments.addAll(arguments);
+        elevatedArguments.add("--cancel-file");
+        elevatedArguments.add(cancelFile.toString());
+
+        List<String> command;
+        try {
+            command = DDFlasherElevation.elevatedCommand(
+                    executable,
+                    elevatedArguments,
+                    osName);
+        } catch (IOException exception) {
+            deleteCancelFile(cancelFile);
+            throw new IOException(SdkMessages.get("core.dd.elevationFailed", executable), exception);
+        }
+        LOGGER.atInfo().log(() -> "Running elevated dd-flasher helper with piped events. targetDisplayName="
+                + LogRedactor.redactText(targetDisplayName)
+                + ", command="
+                + LogRedactor.redactCommand(command));
+
+        Process process;
+        try {
+            process = new ProcessBuilder(command).start();
+        } catch (IOException exception) {
+            deleteCancelFile(cancelFile);
+            throw new IOException(SdkMessages.get("core.dd.elevationFailed", commandText(command)), exception);
+        }
+
+        HelperEventState state = new HelperEventState(progressSinks, reporter);
+        ProcessEventCollector stdout = ProcessEventCollector.start(
+                process.getInputStream(),
+                state,
+                "dd-flasher-elevated-stdout");
+        ProcessStreamCollector stderr = ProcessStreamCollector.start(
+                process.getErrorStream(),
+                "dd-flasher-elevated-stderr");
+        try {
+            int exitCode = waitForElevatedProcess(process, cancelFile, command);
+            stdout.await(command);
+            stderr.await(command);
+            return finish(operation, state, exitCode, stderr.text());
+        } catch (IOException exception) {
+            destroyForcibly(process);
+            stdout.awaitQuietly();
+            stderr.awaitQuietly();
+            throw exception;
+        } finally {
+            deleteCancelFile(cancelFile);
+        }
     }
 
     /// Runs one helper operation through native Windows UAC.
@@ -616,6 +691,34 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         }
     }
 
+    /// Waits for an elevated helper process and signals cancellation before forceful termination on interruption.
+    ///
+    /// @param process elevated helper process.
+    /// @param cancelFile helper cancellation signal path.
+    /// @param command command line.
+    /// @return process exit code.
+    /// @throws IOException when the wait is interrupted.
+    private static int waitForElevatedProcess(
+            Process process,
+            Path cancelFile,
+            List<String> command) throws IOException {
+        try {
+            return process.waitFor();
+        } catch (InterruptedException exception) {
+            signalCancelFile(cancelFile);
+            try {
+                if (!process.waitFor(10L, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                }
+            } catch (InterruptedException cleanupException) {
+                exception.addSuppressed(cleanupException);
+                process.destroyForcibly();
+            }
+            Thread.currentThread().interrupt();
+            throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
+        }
+    }
+
     /// Reads newly appended helper events from an event log.
     ///
     /// @param eventLog event log path.
@@ -689,6 +792,21 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         Path path = createElevatedTemporaryFile(osName, "ruyi-imager-dd-flasher-", ".ndjson", true);
         allowElevatedHelperAccess(path);
         return path;
+    }
+
+    /// Returns whether elevated helper events must be transferred through a temporary event log.
+    ///
+    /// Windows native UAC and macOS administrator scripts do not provide the SDK a live helper stdout pipe suitable
+    /// for progress events. Linux `pkexec` preserves stdout and stderr pipes, so Linux can avoid cross-user temporary
+    /// event logs and their filesystem permission edge cases.
+    ///
+    /// @param osName operating system name.
+    /// @return whether elevated helper events should use a temporary event log.
+    static boolean usesElevatedEventLog(String osName) {
+        String normalizedOs = osName.toLowerCase(Locale.ROOT);
+        return DDFlasherElevation.usesNativeWindowsElevation(osName)
+                || normalizedOs.contains("mac")
+                || normalizedOs.contains("darwin");
     }
 
     /// Creates a temporary signal path that does not currently exist.

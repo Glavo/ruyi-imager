@@ -163,6 +163,15 @@ public final class ProcessDdImageWriterTest {
         }
     }
 
+    /// Verifies Linux elevated helpers use stdout events instead of temporary event logs.
+    @Test
+    public void usesPipedEventsForLinuxElevation() {
+        assertFalse(ProcessDdImageWriter.usesElevatedEventLog("Linux"));
+        assertTrue(ProcessDdImageWriter.usesElevatedEventLog("Windows 11"));
+        assertTrue(ProcessDdImageWriter.usesElevatedEventLog("macOS"));
+        assertTrue(ProcessDdImageWriter.usesElevatedEventLog("Darwin"));
+    }
+
     /// Returns the current Java executable path.
     ///
     /// @return Java executable path.
