@@ -12,6 +12,7 @@
 
 - 项目已拆分为 `:sdk`、`:app`、`:dd-flasher` 和 `:launcher`；CLI/GUI 共用 SDK service graph，GUI 资源和 i18n 保留在 app。
 - Ruyi repo/catalog、`image-combo`、下载缓存、校验和 artifact materialization 已接入；组合镜像会保留 component 策略顺序，并拒绝冲突 distfile 声明。
+- 默认 Ruyi metadata 仓库远端会在系统时区为 `Asia/Shanghai` 时使用 ISCAS 镜像 `https://mirror.iscas.ac.cn/git/ruyisdk/packages-index.git`，其他时区继续使用 GitHub；用户 `config.toml` 仍可覆盖 remote/branch/local。
 - Distfile 和 artifact 准备路径已加固：拒绝不安全文件名，校验失败会丢弃 `.part`，使用 staging 目录原子替换 artifact cache，分区路径会做逃逸检查；单 distfile、单分区 ZIP 若默认剥路径组件后缺少目标产物，会按 `partition_map` 精确匹配根目录条目并补提取。
 - 默认网络访问启用 JVM 系统代理发现；distfile 下载默认 `HttpClient` 使用默认 `ProxySelector`，仍可通过 JVM 属性覆盖。
 - `dd-flasher` 负责 raw 写入/校验和 NDJSON 进度回传；写入路径限制最多写入声明镜像字节数，`write-verify` 在同一 helper 内连续完成写入和校验。

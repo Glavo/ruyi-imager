@@ -25,6 +25,7 @@ import org.tomlj.TomlTable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -51,11 +52,17 @@ public final class RuyiRepositoryStore {
     /// Official Ruyi packages index remote.
     public static final String DEFAULT_REPO_REMOTE = "https://github.com/ruyisdk/packages-index.git";
 
+    /// Mainland China Ruyi packages index mirror remote.
+    public static final String CHINA_MAINLAND_REPO_REMOTE = "https://mirror.iscas.ac.cn/git/ruyisdk/packages-index.git";
+
     /// Default branch for Ruyi metadata repositories.
     public static final String DEFAULT_REPO_BRANCH = "main";
 
     /// Built-in Ruyi dist mirror identifier.
     public static final String RUYI_DIST_MIRROR_ID = "ruyi-dist";
+
+    /// Time zone identifier used as the mainland China default remote heuristic.
+    private static final String CHINA_MAINLAND_TIME_ZONE = "Asia/Shanghai";
 
     /// Valid Ruyi repository id pattern.
     private static final Pattern REPO_ID_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9_-]*$");
@@ -202,11 +209,28 @@ public final class RuyiRepositoryStore {
         return new RuyiRepositoryEntry(
                 DEFAULT_REPO_ID,
                 DEFAULT_REPO_NAME,
-                remote == null || remote.isBlank() ? DEFAULT_REPO_REMOTE : remote,
+                remote == null || remote.isBlank() ? defaultRepoRemote() : remote,
                 branch == null || branch.isBlank() ? DEFAULT_REPO_BRANCH : branch,
                 local,
                 0,
                 true);
+    }
+
+    /// Returns the default repository remote for the current system time zone.
+    ///
+    /// @return default repository remote.
+    static String defaultRepoRemote() {
+        return defaultRepoRemote(ZoneId.systemDefault());
+    }
+
+    /// Returns the default repository remote for one time zone.
+    ///
+    /// @param zoneId system time zone identifier.
+    /// @return default repository remote.
+    static String defaultRepoRemote(ZoneId zoneId) {
+        return CHINA_MAINLAND_TIME_ZONE.equals(zoneId.getId())
+                ? CHINA_MAINLAND_REPO_REMOTE
+                : DEFAULT_REPO_REMOTE;
     }
 
     /// Reads one overlay repository entry.
