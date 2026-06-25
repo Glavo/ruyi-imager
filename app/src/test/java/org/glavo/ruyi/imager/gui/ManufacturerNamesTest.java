@@ -23,9 +23,9 @@ public final class ManufacturerNamesTest {
         try {
             Messages.setLocale(Locale.SIMPLIFIED_CHINESE);
 
-            assertEquals("全志科技 (Allwinner)", ManufacturerNames.displayName("Allwinner"));
-            assertEquals("矽速科技 (Sipeed)", ManufacturerNames.displayName("Sipeed"));
-            assertEquals("沁恒微电子 (WCH)", ManufacturerNames.displayName("WinChipHead"));
+            assertEquals("Allwinner (全志科技)", ManufacturerNames.displayName("Allwinner"));
+            assertEquals("Sipeed (矽速科技)", ManufacturerNames.displayName("Sipeed"));
+            assertEquals("WinChipHead (沁恒微电子)", ManufacturerNames.displayName("WinChipHead"));
             assertTrue(ManufacturerNames.hasLocalizedName("Allwinner"));
         } finally {
             Messages.setLocale(originalLocale);
