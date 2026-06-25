@@ -1062,7 +1062,11 @@ public final class MainWindow {
             protected void updateItem(@Nullable ManufacturerOption item, boolean empty) {
                 super.updateItem(item, empty);
                 setText(empty || item == null ? null
-                        : Messages.get("gui.list.manufacturer", item.name(), item.boardCount(), item.imageCount()));
+                        : Messages.get(
+                                "gui.list.manufacturer",
+                                item.displayName(),
+                                item.boardCount(),
+                                item.imageCount()));
             }
         });
         selectCurrentManufacturer(listView, state.manufacturerName());
@@ -1105,12 +1109,12 @@ public final class MainWindow {
         if (boards.isEmpty()) {
             showInfo(
                     Messages.get("gui.dialog.noBoards"),
-                    Messages.get("gui.dialog.noBoards.message", state.manufacturerName()));
+                    Messages.get("gui.dialog.noBoards.message", selectedManufacturerDisplayName()));
             return;
         }
 
         ListView<BoardOption> listView = selectionListView();
-        String header = Messages.get("gui.dialog.chooseBoard.header", state.manufacturerName());
+        String header = Messages.get("gui.dialog.chooseBoard.header", selectedManufacturerDisplayName());
         Node content = searchableSelectionContent(header, listView, boards, MainWindow::boardMatches);
         listView.setCellFactory(_ -> new MFXLegacyListCell<>() {
             /// Updates one board list cell.
@@ -2052,7 +2056,19 @@ public final class MainWindow {
         if (state.localImage() != null) {
             return Messages.get("gui.value.skippedLocal");
         }
-        return state.manufacturerName() == null ? Messages.get("gui.value.manufacturer.none") : state.manufacturerName();
+        return state.manufacturerName() == null
+                ? Messages.get("gui.value.manufacturer.none")
+                : selectedManufacturerDisplayName();
+    }
+
+    /// Formats the selected manufacturer for display.
+    ///
+    /// @return selected manufacturer display name.
+    private String selectedManufacturerDisplayName() {
+        @Nullable String manufacturerName = state.manufacturerName();
+        return manufacturerName == null
+                ? Messages.get("gui.value.manufacturer.none")
+                : ManufacturerNames.displayName(manufacturerName);
     }
 
     /// Formats the board step label.
@@ -2129,10 +2145,11 @@ public final class MainWindow {
             List<String> boards = boardNames.get(entry.getKey());
             manufacturers.add(new ManufacturerOption(
                     entry.getKey(),
+                    ManufacturerNames.displayName(entry.getKey()),
                     boards == null ? 0 : boards.size(),
                     entry.getValue()));
         }
-        manufacturers.sort(Comparator.comparing(ManufacturerOption::name));
+        manufacturers.sort(Comparator.comparing(ManufacturerOption::displayName).thenComparing(ManufacturerOption::name));
         return List.copyOf(manufacturers);
     }
 
@@ -2423,9 +2440,10 @@ public final class MainWindow {
     /// @return whether the option matches.
     private static boolean manufacturerMatches(ManufacturerOption manufacturer, String query) {
         return textMatches(manufacturer.name(), query)
+                || textMatches(manufacturer.displayName(), query)
                 || textMatches(Messages.get(
                         "gui.list.manufacturer",
-                        manufacturer.name(),
+                        manufacturer.displayName(),
                         manufacturer.boardCount(),
                         manufacturer.imageCount()), query);
     }
@@ -2449,6 +2467,7 @@ public final class MainWindow {
         return textMatches(image.displayName(), query)
                 || textMatches(operatingSystemCategoryName(image), query)
                 || textMatches(image.manufacturer(), query)
+                || textMatches(ManufacturerNames.displayName(image.manufacturer()), query)
                 || textMatches(image.board(), query)
                 || textMatches(image.variant(), query)
                 || textMatches(image.strategy(), query)
@@ -3109,11 +3128,12 @@ public final class MainWindow {
 
     /// Manufacturer option derived from image metadata.
     ///
-    /// @param name manufacturer name.
+    /// @param name manufacturer metadata name.
+    /// @param displayName localized manufacturer display name.
     /// @param boardCount number of boards available for the manufacturer.
     /// @param imageCount number of images available for the manufacturer.
     @NotNullByDefault
-    private record ManufacturerOption(String name, int boardCount, int imageCount) {
+    private record ManufacturerOption(String name, String displayName, int boardCount, int imageCount) {
     }
 
     /// Board option derived from image metadata.

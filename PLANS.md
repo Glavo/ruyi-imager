@@ -27,7 +27,7 @@
 - macOS 块设备枚举会从 `diskutil info -plist` 读取媒体 UUID、磁盘 UUID、设备树路径、IORegistry 名称和序列号作为 `hardwareId`，会排除 `VirtualOrPhysical=Virtual` 的虚拟盘，并把 APFS synthesized container 挂载点回填到物理盘；mounted removable 目标会在写入前通过 `diskutil unmountDisk` 自动卸载，随后仍通过重新枚举确认目标状态。
 - Linux/macOS 目标准备阶段会在外部卸载命令运行期间上报不可确定进度；无需运行 preparer 的块目标也会立即上报准备完成，避免 GUI 把不可量化或跳过的准备工作显示为卡在 0% 或等待开始。
 - Fastboot 流程支持普通分区刷写、LPi4A/Meles U-Boot handoff、SpacemiT K1 stage/continue 和 sparse progress 解析；重复 serial 和 handoff 后目标歧义会被拒绝。
-- GUI 已完成目录/本地镜像选择、目标选择、安全确认、刷写进度、取消、日志路径展示、语言切换、窗口图标和 JLink GUI/CLI 启动器命名；进度条旁短状态文本不使用末尾句号。
+- GUI 已完成目录/本地镜像选择、目标选择、安全确认、刷写进度、取消、日志路径展示、语言切换、中文厂商显示名、窗口图标和 JLink GUI/CLI 启动器命名；进度条旁短状态文本不使用末尾句号。
 - 日志使用 SLF4J API 和 JUL 文件后端；CLI/GUI 错误会暴露日志路径，敏感外部输出默认脱敏和截断。
 - 打包支持 bundled fastboot、bundled `dd-flasher`、Windows Rust native launcher、JLink runtime 和 nightly release workflow；Windows JLink 包使用 `.zip`，Linux/macOS JLink 包使用 `.tar.gz`；Windows 包提供 `ruyi-imager.exe` GUI 入口和 `ruyi-imager-cli.exe` CLI 入口，并静态链接 MSVC CRT 以避免缺少 `VCRUNTIME140.dll`。
 - Linux/macOS JLink `.tar.gz` 包会显式设置 Unix 可执行权限，确保启动脚本、JDK launcher、`jspawnhelper`、bundled fastboot 和 `dd-flasher` 可执行。
