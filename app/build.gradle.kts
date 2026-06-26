@@ -626,6 +626,11 @@ val writeJlinkDebControl = tasks.register("writeJlinkDebControl") {
     description = "Writes Debian package control metadata."
     dependsOn(prepareJlinkDebData)
     inputs.dir(jlinkDebDataDirectory)
+    inputs.property("packageName", jlinkDebPackageName)
+    inputs.property("version", jlinkDebVersion)
+    inputs.property("architecture", jlinkDebArchitecture ?: "")
+    inputs.property("maintainer", jlinkDebMaintainer)
+    inputs.property("homepage", jlinkDebHomepage)
     outputs.dir(jlinkDebControlDirectory)
     doFirst {
         requireDebianArchitecture(jlinkJdkPlatform)
