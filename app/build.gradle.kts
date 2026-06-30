@@ -125,7 +125,7 @@ val jlinkDebControlDirectory = jlinkDebDirectory.map { it.dir("control") }
 val jlinkDebControlArchive = jlinkDebDirectory.map { it.file("control.tar.gz") }
 val jlinkDebDataArchive = jlinkDebDirectory.map { it.file("data.tar.gz") }
 val jlinkDebOutputFile = layout.buildDirectory.file(
-    "distributions/${jlinkDebPackageName.get()}_${jlinkDebVersion}_${jlinkDebArchitecture ?: "unsupported"}.deb",
+    "distributions/ruyi-imager-${project.version}-$jlinkJdkPlatform.deb",
 )
 val jlinkJavafxModuleNames = if (jlinkJdkPlatform == "linux-riscv64") emptyList() else javafxModuleNames
 val jlinkDefaultModules = defaultJlinkModules() + jlinkJavafxModuleNames

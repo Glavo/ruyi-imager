@@ -83,7 +83,7 @@ jobs:
           fi
           cp "${assets[0]}" release-assets/
           if [[ "${{ matrix.platform }}" == linux-* ]]; then
-            debs=(app/build/distributions/ruyi-imager_*_*.deb)
+            debs=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.deb)
             if [ "${#debs[@]}" -ne 1 ]; then
               printf 'Expected exactly one Debian package for %s, found %s\n' "${{ matrix.platform }}" "${#debs[@]}" >&2
               printf 'Matched Debian packages:\n' >&2
