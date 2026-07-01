@@ -1,12 +1,13 @@
 import de.undercouch.gradle.tasks.download.Download
-import de.undercouch.gradle.tasks.download.Verify
 import org.glavo.ruyi.imager.gradle.CreateDeb
 import org.glavo.ruyi.imager.gradle.CreateJlinkRuntime
+import org.glavo.ruyi.imager.gradle.ExtractZipEntries
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.debianVersion
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.jlinkDebExecutablePath
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.jlinkUnixExecutableArchivePath
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.platformTaskSuffix
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.requireDebianArchitecture
+import org.glavo.ruyi.imager.gradle.VerifyFile
 import org.glavo.ruyi.imager.gradle.WriteDebControl
 import org.glavo.ruyi.imager.gradle.WriteJlinkDebMetadata
 import org.glavo.ruyi.imager.gradle.WriteJlinkLaunchers
@@ -215,12 +216,6 @@ val extractFastbootTasks = fastbootBundles.map { bundle ->
     val configuredSizeBytes = providers.gradleProperty("fastboot.${bundle.platformDirectory}.sizeBytes")
         .map { it.toLong() }
         .orElse(bundle.sizeBytes)
-    val outputFiles = bundle.archiveEntries.map { archiveEntry ->
-        val fileName = archiveEntry.substringAfterLast('/')
-        bundledFastbootDirectory.map { it.file("${bundle.platformDirectory}/$fileName") }
-    }
-    val executable = bundledFastbootDirectory.map { it.file("${bundle.platformDirectory}/${bundle.executableName}") }
-
     val downloadTask = tasks.register<Download>("download${bundle.taskSuffix}Fastboot") {
         group = "distribution"
         description = "Downloads Android Platform Tools for ${bundle.platformDirectory}."
@@ -236,39 +231,23 @@ val extractFastbootTasks = fastbootBundles.map { bundle ->
         outputs.file(archive)
     }
 
-    val verifyTask = tasks.register<Verify>("verify${bundle.taskSuffix}Fastboot") {
+    val verifyTask = tasks.register<VerifyFile>("verify${bundle.taskSuffix}Fastboot") {
         group = "distribution"
         description = "Verifies Android Platform Tools for ${bundle.platformDirectory}."
         dependsOn(downloadTask)
-        src(archive.get().asFile)
-        algorithm("SHA-256")
-        checksum(configuredSha256.get())
-        inputs.property("expectedSizeBytes", configuredSizeBytes)
-        doLast {
-            val expectedSizeBytes = configuredSizeBytes.get()
-            val actualSizeBytes = archive.get().asFile.length()
-            check(actualSizeBytes == expectedSizeBytes) {
-                "Expected ${bundle.archiveFileName} to be $expectedSizeBytes bytes, but was $actualSizeBytes bytes"
-            }
-        }
+        inputFile.set(archive)
+        expectedSha256.set(configuredSha256)
+        expectedSizeBytes.set(configuredSizeBytes)
     }
 
-    tasks.register<Copy>("extract${bundle.taskSuffix}Fastboot") {
+    tasks.register<ExtractZipEntries>("extract${bundle.taskSuffix}Fastboot") {
+        group = "distribution"
+        description = "Extracts Android Platform Tools for ${bundle.platformDirectory}."
         dependsOn(verifyTask)
-        from({ zipTree(archive.get().asFile) }) {
-            include(bundle.archiveEntries)
-            eachFile {
-                relativePath = RelativePath(true, bundle.platformDirectory, name)
-            }
-            includeEmptyDirs = false
-        }
-        into(bundledFastbootDirectory)
-        outputs.files(outputFiles)
-        doLast {
-            if (bundle.executableName == "fastboot") {
-                executable.get().asFile.setExecutable(true, false)
-            }
-        }
+        archiveFile.set(archive)
+        entries.set(bundle.archiveEntries.associateWith { it.substringAfterLast('/') })
+        executableFileNames.set(if (bundle.executableName == "fastboot") listOf(bundle.executableName) else emptyList())
+        outputDirectory.set(bundledFastbootDirectory.map { it.dir(bundle.platformDirectory) })
     }
 }
 
