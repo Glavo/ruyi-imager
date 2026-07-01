@@ -1,6 +1,12 @@
 import de.undercouch.gradle.tasks.download.Download
 import de.undercouch.gradle.tasks.download.Verify
 import org.glavo.ruyi.imager.gradle.CreateDeb
+import org.glavo.ruyi.imager.gradle.CreateJlinkRuntime
+import org.glavo.ruyi.imager.gradle.JlinkPackaging.debianVersion
+import org.glavo.ruyi.imager.gradle.JlinkPackaging.jlinkDebExecutablePath
+import org.glavo.ruyi.imager.gradle.JlinkPackaging.jlinkUnixExecutableArchivePath
+import org.glavo.ruyi.imager.gradle.JlinkPackaging.platformTaskSuffix
+import org.glavo.ruyi.imager.gradle.JlinkPackaging.requireDebianArchitecture
 import org.glavo.ruyi.imager.gradle.WriteDebControl
 import org.glavo.ruyi.imager.gradle.WriteJlinkDebMetadata
 import org.glavo.ruyi.imager.gradle.WriteJlinkLaunchers
@@ -114,7 +120,6 @@ val runFastbootBundle = currentJlinkPlatform()?.let { platform ->
 val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/runtime")
 val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/launchers")
 val jlinkImageDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/ruyi-imager")
-val jlinkDebArchitecture = debianArchitecture(jlinkJdkPlatform)
 val jlinkDebVersion = debianVersion(project.version.toString())
 val jlinkDebPackageName = providers.gradleProperty("jlink.deb.packageName").orElse("ruyi-imager")
 val jlinkDebMaintainer = providers.gradleProperty("jlink.deb.maintainer").orElse("Glavo <zjx001202@gmail.com>")
@@ -426,45 +431,19 @@ tasks.processResources {
     dependsOn(extractAlibabaPuhuitiMediumFont)
 }
 
-tasks.register<Exec>("jlinkRuntime") {
+tasks.register<CreateJlinkRuntime>("jlinkRuntime") {
     group = "distribution"
     description = "Builds a custom Java runtime image for the current platform."
     dependsOn("extractJlinkJdk")
-    inputs.property("modules", jlinkModules)
-    inputs.property("javafxModules", jlinkJavafxModuleNames.joinToString(","))
-    inputs.property("javafxLinked", jlinkRuntimeIncludesJavafx.map { it.toString() })
-    inputs.dir(jlinkJmodsDirectory)
-    outputs.dir(jlinkRuntimeDirectory)
-    doFirst {
-        delete(jlinkRuntimeDirectory)
-        val executable = hostJlinkExecutable.get().asFile
-        val javaBaseJmod = jlinkJmodsDirectory.get().asFile.resolve("java.base.jmod")
-        check(executable.isFile) { "Missing host jlink executable: $executable" }
-        check(javaBaseJmod.isFile) { "Missing java.base.jmod in downloaded JDK: $javaBaseJmod" }
-        if (jlinkRuntimeIncludesJavafx.get()) {
-            jlinkJavafxModuleNames.forEach { moduleName ->
-                val jmod = jlinkJmodsDirectory.get().asFile.resolve("$moduleName.jmod")
-                check(jmod.isFile) {
-                    "Missing $moduleName.jmod in downloaded Liberica Full JDK: $jmod"
-                }
-            }
-        }
-
-        setArgs(
-            listOf(
-                "--strip-debug",
-                "--no-header-files",
-                "--no-man-pages",
-                "--module-path",
-                jlinkJmodsDirectory.get().asFile.absolutePath,
-                "--add-modules",
-                jlinkModules.get(),
-                "--output",
-                jlinkRuntimeDirectory.get().asFile.absolutePath,
-            ),
-        )
-    }
-    executable = hostJlinkExecutable.get().asFile.absolutePath
+    executable.set(hostJlinkExecutable)
+    jmodsDirectory.set(jlinkJmodsDirectory)
+    modules.set(jlinkModules)
+    requiredJavafxModules.set(
+        providers.provider {
+            if (jlinkRuntimeIncludesJavafx.get()) jlinkJavafxModuleNames else emptyList()
+        },
+    )
+    outputDirectory.set(jlinkRuntimeDirectory)
 }
 
 val writeJlinkLaunchers = tasks.register<WriteJlinkLaunchers>("writeJlinkLaunchers") {
@@ -732,76 +711,6 @@ fun currentJlinkPlatform(): String? {
     }
 }
 
-/// Returns the Debian architecture name for a jlink target platform.
-///
-/// @param platform jlink target platform token.
-/// @return Debian architecture name, or null when the platform cannot be packaged as Debian.
-fun debianArchitecture(platform: String): String? =
-    when (platform) {
-        "linux-x86_64" -> "amd64"
-        "linux-aarch64" -> "arm64"
-        "linux-riscv64" -> "riscv64"
-        else -> null
-    }
-
-/// Returns the Debian architecture name or fails with a clear packaging error.
-///
-/// @param platform jlink target platform token.
-/// @return Debian architecture name.
-fun requireDebianArchitecture(platform: String): String =
-    debianArchitecture(platform)
-        ?: error("Debian packaging is supported only for Linux jlink platforms, but was requested for $platform")
-
-/// Converts a Gradle project version into a Debian-compatible package version.
-///
-/// @param version Gradle project version.
-/// @return Debian-compatible version string.
-fun debianVersion(version: String): String {
-    val text = version.trim().ifEmpty { "0" }.replace("-SNAPSHOT", "~SNAPSHOT")
-    val builder = StringBuilder(text.length + 2)
-    for (char in text) {
-        if (char.isLetterOrDigit() || char == '.' || char == '+' || char == '-' || char == ':' || char == '~') {
-            builder.append(char)
-        } else {
-            builder.append('+')
-        }
-    }
-    if (!builder.first().isDigit()) {
-        builder.insert(0, "0~")
-    }
-    return builder.toString()
-}
-
-/// Returns whether a jlink archive path must be executable on Unix platforms.
-///
-/// @param path archive entry path.
-/// @param platform jlink target platform token.
-/// @return whether the entry must be executable.
-fun jlinkUnixExecutableArchivePath(path: String, platform: String): Boolean {
-    val relativePath = path.replace('\\', '/').removePrefix("ruyi-imager/")
-    return relativePath == "bin/ruyi-imager"
-        || relativePath == "bin/ruyi-imager-cli"
-        || relativePath.startsWith("runtime/bin/")
-        || relativePath == "runtime/lib/jspawnhelper"
-        || relativePath == "runtime/lib/jexec"
-        || relativePath == "tools/fastboot/$platform/fastboot"
-        || relativePath == "tools/dd-flasher/$platform/dd-flasher"
-}
-
-/// Returns whether a Debian package data path must be executable.
-///
-/// @param path Debian data archive entry path.
-/// @param platform jlink target platform token.
-/// @return whether the entry must be executable.
-fun jlinkDebExecutablePath(path: String, platform: String): Boolean {
-    val relativePath = path.replace('\\', '/')
-    if (relativePath == "usr/bin/ruyi-imager" || relativePath == "usr/bin/ruyi-imager-cli") {
-        return true
-    }
-    return relativePath.startsWith("opt/ruyi-imager/")
-        && jlinkUnixExecutableArchivePath(relativePath.removePrefix("opt/ruyi-imager/"), platform)
-}
-
 /// Creates the default Liberica JDK bundle descriptor for a jlink JDK platform.
 ///
 /// @param platform jlink JDK platform token.
@@ -841,15 +750,6 @@ fun jlinkJdkArchiveType(archiveName: String): JlinkJdkArchiveType =
         archiveName.endsWith(".zip", ignoreCase = true) -> JlinkJdkArchiveType.ZIP
         archiveName.endsWith(".tar.gz", ignoreCase = true) -> JlinkJdkArchiveType.TAR_GZ
         else -> error("Unsupported JDK archive type: $archiveName")
-    }
-
-/// Converts a platform directory name into a Gradle task suffix.
-///
-/// @param platformDirectory distribution platform directory.
-/// @return Gradle task suffix.
-fun platformTaskSuffix(platformDirectory: String): String =
-    platformDirectory.split('-', '_').joinToString("") { token ->
-        token.replaceFirstChar { it.uppercaseChar() }
     }
 
 /// Returns the default Java modules included in the jlink runtime image.

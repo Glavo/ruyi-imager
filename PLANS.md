@@ -21,7 +21,7 @@
 - Linux and macOS mounted removable targets are automatically unmounted before writing, then re-enumerated before destructive access.
 - Fastboot flows cover ordinary partition flashing, LPi4A/Meles U-Boot handoff, SpacemiT K1 stage/continue, sparse progress parsing, duplicate serial rejection, and post-handoff ambiguity checks.
 - GUI supports catalog/local image selection, target selection, safety confirmation, progress, cancellation, log path display, language switching, Chinese vendor display names, window icons, and short progress status text without trailing full stops.
-- Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, and nightly release workflow. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. JLink launcher generation and Debian package metadata/assembly are implemented as Java tasks in `buildSrc`; Linux nightly builds also publish `.deb` packages.
+- Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, and nightly release workflow. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. JLink runtime and launcher generation plus Debian package metadata/assembly are implemented as Java tasks/helpers in `buildSrc`; Linux nightly builds also publish `.deb` packages.
 
 ### Remaining
 
@@ -33,7 +33,9 @@
 ### Recent Verification
 
 - `./gradlew -g .gradle-user-home :app:compileJava`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkRuntime --rerun-tasks`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:writeJlinkLaunchers :app:writeJlinkDebMetadata :app:jlinkDeb -x :app:installJlinkDist --rerun-tasks`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkArchive -x :app:installJlinkDist --rerun-tasks`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:help --task :app:jlinkArchive`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkArchive`
 - Linux `.tar.gz` archive mode check using a minimal generated JLink image: executable entries are `0755`; regular files are `0644`.

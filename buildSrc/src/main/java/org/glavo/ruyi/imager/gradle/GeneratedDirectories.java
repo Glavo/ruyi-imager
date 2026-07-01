@@ -7,6 +7,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
@@ -24,8 +25,16 @@ final class GeneratedDirectories {
     /// @param directory generated output directory.
     /// @throws IOException if the directory cannot be deleted or created.
     static void recreateDirectory(Path directory) throws IOException {
-        deleteRecursively(directory);
+        deleteExisting(directory);
         Files.createDirectories(directory);
+    }
+
+    /// Deletes a generated directory tree when it exists.
+    ///
+    /// @param directory generated output directory.
+    /// @throws IOException if the directory cannot be deleted.
+    static void deleteExisting(Path directory) throws IOException {
+        deleteRecursively(directory);
     }
 
     /// Deletes a directory tree without following symbolic links.
@@ -33,7 +42,7 @@ final class GeneratedDirectories {
     /// @param directory directory to delete.
     /// @throws IOException if any path cannot be deleted.
     private static void deleteRecursively(Path directory) throws IOException {
-        if (!Files.exists(directory)) {
+        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }
 
