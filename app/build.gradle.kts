@@ -1,8 +1,7 @@
 import de.undercouch.gradle.tasks.download.Download
 import de.undercouch.gradle.tasks.download.Verify
-import java.io.OutputStream
-import java.nio.charset.StandardCharsets
-import java.util.Locale
+import org.glavo.ruyi.imager.gradle.CreateDeb
+import org.glavo.ruyi.imager.gradle.WriteDebControl
 import org.gradle.api.file.RelativePath
 import org.gradle.api.tasks.bundling.Compression
 
@@ -621,43 +620,24 @@ val prepareJlinkDebData = tasks.register<Sync>("prepareJlinkDebData") {
     }
 }
 
-val writeJlinkDebControl = tasks.register("writeJlinkDebControl") {
+val writeJlinkDebControl = tasks.register<WriteDebControl>("writeJlinkDebControl") {
     group = "distribution"
     description = "Writes Debian package control metadata."
     dependsOn(prepareJlinkDebData)
-    inputs.dir(jlinkDebDataDirectory)
-    inputs.property("packageName", jlinkDebPackageName)
-    inputs.property("version", jlinkDebVersion)
-    inputs.property("architecture", jlinkDebArchitecture ?: "")
-    inputs.property("maintainer", jlinkDebMaintainer)
-    inputs.property("homepage", jlinkDebHomepage)
-    outputs.dir(jlinkDebControlDirectory)
     doFirst {
         requireDebianArchitecture(jlinkJdkPlatform)
     }
-    doLast {
-        val outputDirectory = jlinkDebControlDirectory.get().asFile
-        delete(outputDirectory)
-        outputDirectory.mkdirs()
-
-        val dataDirectory = jlinkDebDataDirectory.get().asFile
-        val installedSize = installedSizeKilobytes(dataDirectory)
-        outputDirectory.resolve("control").writeText(
-            """
-            |Package: ${jlinkDebPackageName.get()}
-            |Version: $jlinkDebVersion
-            |Section: utils
-            |Priority: optional
-            |Architecture: ${requireDebianArchitecture(jlinkJdkPlatform)}
-            |Installed-Size: $installedSize
-            |Maintainer: ${jlinkDebMaintainer.get()}
-            |Description: Ruyi Imager
-            | Ruyi Imager flashes Ruyi SDK catalog and local images to removable devices.
-            |Homepage: ${jlinkDebHomepage.get()}
-            |
-            """.trimMargin(),
-        )
-    }
+    dataDirectory.set(jlinkDebDataDirectory)
+    packageName.set(jlinkDebPackageName)
+    packageVersion.set(jlinkDebVersion)
+    section.set("utils")
+    priority.set("optional")
+    architecture.set(providers.provider { requireDebianArchitecture(jlinkJdkPlatform) })
+    maintainer.set(jlinkDebMaintainer)
+    packageDescription.set("Ruyi Imager")
+    longDescription.set("Ruyi Imager flashes Ruyi SDK catalog and local images to removable devices.")
+    homepage.set(jlinkDebHomepage)
+    outputDirectory.set(jlinkDebControlDirectory)
 }
 
 val jlinkDebControlTar = tasks.register<Tar>("jlinkDebControlTar") {
@@ -692,24 +672,17 @@ val jlinkDebDataTar = tasks.register<Tar>("jlinkDebDataTar") {
     }
 }
 
-tasks.register("jlinkDeb") {
+tasks.register<CreateDeb>("jlinkDeb") {
     group = "distribution"
     description = "Builds a Debian package from the jlink application image."
     dependsOn(jlinkDebControlTar)
     dependsOn(jlinkDebDataTar)
-    inputs.file(jlinkDebControlArchive)
-    inputs.file(jlinkDebDataArchive)
-    outputs.file(jlinkDebOutputFile)
     doFirst {
         requireDebianArchitecture(jlinkJdkPlatform)
     }
-    doLast {
-        writeDebianArchive(
-            jlinkDebOutputFile.get().asFile,
-            jlinkDebControlArchive.get().asFile,
-            jlinkDebDataArchive.get().asFile,
-        )
-    }
+    controlArchive.set(jlinkDebControlArchive)
+    dataArchive.set(jlinkDebDataArchive)
+    outputFile.set(jlinkDebOutputFile)
 }
 
 val jlinkArchiveTask = if (jlinkJdkPlatform.startsWith("windows-")) {
@@ -899,58 +872,6 @@ fun jlinkDebExecutablePath(path: String, platform: String): Boolean {
     }
     return relativePath.startsWith("opt/ruyi-imager/")
         && jlinkUnixExecutableArchivePath(relativePath.removePrefix("opt/ruyi-imager/"), platform)
-}
-
-/// Computes the Debian `Installed-Size` field for a staged data directory.
-///
-/// @param directory staged Debian data directory.
-/// @return installed size in KiB.
-fun installedSizeKilobytes(directory: File): Long {
-    val bytes = directory.walkTopDown()
-        .filter { it.isFile }
-        .sumOf { it.length() }
-    return maxOf((bytes + 1023L) / 1024L, 1L)
-}
-
-/// Writes the final Debian ar container.
-///
-/// @param outputFile final `.deb` file.
-/// @param controlArchive `control.tar.gz` member.
-/// @param dataArchive `data.tar.gz` member.
-fun writeDebianArchive(outputFile: File, controlArchive: File, dataArchive: File) {
-    outputFile.parentFile.mkdirs()
-    outputFile.outputStream().use { output ->
-        output.write("!<arch>\n".toByteArray(StandardCharsets.US_ASCII))
-        writeDebianArEntry(output, "debian-binary", "2.0\n".toByteArray(StandardCharsets.US_ASCII))
-        writeDebianArEntry(output, "control.tar.gz", controlArchive.readBytes())
-        writeDebianArEntry(output, "data.tar.gz", dataArchive.readBytes())
-    }
-}
-
-/// Writes one Debian ar member.
-///
-/// @param output destination ar stream.
-/// @param name member name.
-/// @param content member bytes.
-fun writeDebianArEntry(output: OutputStream, name: String, content: ByteArray) {
-    val entryName = "$name/"
-    require(entryName.length <= 16) { "Debian ar member name is too long: $name" }
-    val header = String.format(
-        Locale.ROOT,
-        "%-16s%-12s%-6s%-6s%-8s%-10s`\n",
-        entryName,
-        "0",
-        "0",
-        "0",
-        "100644",
-        content.size.toString(),
-    )
-    check(header.toByteArray(StandardCharsets.US_ASCII).size == 60) { "Invalid Debian ar header for $name" }
-    output.write(header.toByteArray(StandardCharsets.US_ASCII))
-    output.write(content)
-    if (content.size % 2 != 0) {
-        output.write('\n'.code)
-    }
 }
 
 /// Creates the default Liberica JDK bundle descriptor for a jlink JDK platform.
