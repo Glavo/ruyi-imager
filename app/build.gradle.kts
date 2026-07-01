@@ -7,10 +7,14 @@ import org.glavo.ruyi.imager.gradle.JlinkPackaging.jlinkDebExecutablePath
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.jlinkUnixExecutableArchivePath
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.platformTaskSuffix
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.requireDebianArchitecture
+import org.glavo.ruyi.imager.gradle.RunWixBuild
 import org.glavo.ruyi.imager.gradle.VerifyFile
+import org.glavo.ruyi.imager.gradle.WixPackaging.msiVersion
+import org.glavo.ruyi.imager.gradle.WixPackaging.requireWixArchitecture
 import org.glavo.ruyi.imager.gradle.WriteDebControl
 import org.glavo.ruyi.imager.gradle.WriteJlinkDebMetadata
 import org.glavo.ruyi.imager.gradle.WriteJlinkLaunchers
+import org.glavo.ruyi.imager.gradle.WriteWixSource
 import org.gradle.api.file.RelativePath
 import org.gradle.api.tasks.bundling.Compression
 
@@ -133,6 +137,19 @@ val jlinkDebControlArchive = jlinkDebDirectory.map { it.file("control.tar.gz") }
 val jlinkDebDataArchive = jlinkDebDirectory.map { it.file("data.tar.gz") }
 val jlinkDebOutputFile = layout.buildDirectory.file(
     "distributions/ruyi-imager-${project.version}-$jlinkJdkPlatform.deb",
+)
+val jlinkMsiProductName = providers.gradleProperty("jlink.msi.productName").orElse("Ruyi Imager")
+val jlinkMsiManufacturer = providers.gradleProperty("jlink.msi.manufacturer").orElse("Glavo")
+val jlinkMsiProductVersion =
+    providers.gradleProperty("jlink.msi.productVersion").orElse(msiVersion(project.version.toString()))
+val jlinkMsiUpgradeCode =
+    providers.gradleProperty("jlink.msi.upgradeCode").orElse("9D6D03B2-48F4-4F44-B8F6-7F6E3E4B29A1")
+val jlinkMsiWixExecutable = providers.gradleProperty("wix.executable").orElse("wix")
+val jlinkMsiArchitecture = providers.provider { requireWixArchitecture(jlinkJdkPlatform) }
+val jlinkMsiDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/msi")
+val jlinkMsiSourceFile = jlinkMsiDirectory.map { it.file("ruyi-imager.wxs") }
+val jlinkMsiOutputFile = layout.buildDirectory.file(
+    "distributions/ruyi-imager-${project.version}-$jlinkJdkPlatform.msi",
 )
 val jlinkJavafxModuleNames = if (jlinkJdkPlatform == "linux-riscv64") emptyList() else javafxModuleNames
 val jlinkDefaultModules = defaultJlinkModules() + jlinkJavafxModuleNames
@@ -569,6 +586,36 @@ tasks.register<CreateDeb>("jlinkDeb") {
     controlArchive.set(jlinkDebControlArchive)
     dataArchive.set(jlinkDebDataArchive)
     outputFile.set(jlinkDebOutputFile)
+}
+
+val writeJlinkWixSource = tasks.register<WriteWixSource>("writeJlinkWixSource") {
+    group = "distribution"
+    description = "Writes WiX source for the jlink application image."
+    dependsOn("installJlinkDist")
+    doFirst {
+        requireWixArchitecture(jlinkJdkPlatform)
+    }
+    appDirectory.set(jlinkImageDirectory)
+    iconFile.set(rootProject.layout.projectDirectory.file("resources/ruyi-logo.ico"))
+    productName.set(jlinkMsiProductName)
+    manufacturer.set(jlinkMsiManufacturer)
+    productVersion.set(jlinkMsiProductVersion)
+    upgradeCode.set(jlinkMsiUpgradeCode)
+    outputFile.set(jlinkMsiSourceFile)
+}
+
+tasks.register<RunWixBuild>("jlinkMsi") {
+    group = "distribution"
+    description = "Builds a Windows Installer package from the jlink application image."
+    dependsOn(writeJlinkWixSource)
+    doFirst {
+        requireWixArchitecture(jlinkJdkPlatform)
+    }
+    wixExecutable.set(jlinkMsiWixExecutable)
+    architecture.set(jlinkMsiArchitecture)
+    appDirectory.set(jlinkImageDirectory)
+    sourceFile.set(jlinkMsiSourceFile)
+    outputFile.set(jlinkMsiOutputFile)
 }
 
 val jlinkArchiveTask = if (jlinkJdkPlatform.startsWith("windows-")) {

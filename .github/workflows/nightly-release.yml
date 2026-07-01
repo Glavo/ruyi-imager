@@ -58,8 +58,18 @@ jobs:
       - name: Select Rust stable toolchain
         run: rustup default stable
 
+      - name: Install WiX
+        if: startsWith(matrix.platform, 'windows-')
+        run: |
+          dotnet tool install --tool-path "$env:RUNNER_TEMP\wix" wix
+          "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Build jlink archive
         run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkArchive
+
+      - name: Build MSI package
+        if: startsWith(matrix.platform, 'windows-')
+        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkMsi
 
       - name: Build Debian package
         if: startsWith(matrix.platform, 'linux-')
@@ -82,6 +92,16 @@ jobs:
             exit 1
           fi
           cp "${assets[0]}" release-assets/
+          if [[ "${{ matrix.platform }}" == windows-* ]]; then
+            msis=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.msi)
+            if [ "${#msis[@]}" -ne 1 ]; then
+              printf 'Expected exactly one MSI package for %s, found %s\n' "${{ matrix.platform }}" "${#msis[@]}" >&2
+              printf 'Matched MSI packages:\n' >&2
+              printf '  %s\n' "${msis[@]}" >&2
+              exit 1
+            fi
+            cp "${msis[0]}" release-assets/
+          fi
           if [[ "${{ matrix.platform }}" == linux-* ]]; then
             debs=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.deb)
             if [ "${#debs[@]}" -ne 1 ]; then
