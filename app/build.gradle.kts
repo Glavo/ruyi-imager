@@ -2,6 +2,8 @@ import de.undercouch.gradle.tasks.download.Download
 import de.undercouch.gradle.tasks.download.Verify
 import org.glavo.ruyi.imager.gradle.CreateDeb
 import org.glavo.ruyi.imager.gradle.WriteDebControl
+import org.glavo.ruyi.imager.gradle.WriteJlinkDebMetadata
+import org.glavo.ruyi.imager.gradle.WriteJlinkLaunchers
 import org.gradle.api.file.RelativePath
 import org.gradle.api.tasks.bundling.Compression
 
@@ -465,47 +467,12 @@ tasks.register<Exec>("jlinkRuntime") {
     executable = hostJlinkExecutable.get().asFile.absolutePath
 }
 
-tasks.register("writeJlinkLaunchers") {
+val writeJlinkLaunchers = tasks.register<WriteJlinkLaunchers>("writeJlinkLaunchers") {
     group = "distribution"
     description = "Writes launch scripts for the jlink application image."
-    inputs.property("mainClass", application.mainClass)
-    inputs.property("jvmArgs", jlinkLauncherJvmArgs.map { it.joinToString(" ") })
-    outputs.dir(jlinkLaunchersDirectory)
-    doLast {
-        val outputDirectory = jlinkLaunchersDirectory.get().asFile
-        val launcherJvmArgs = jlinkLauncherJvmArgs.get().joinToString(" ")
-        delete(outputDirectory)
-        outputDirectory.mkdirs()
-
-        val unixLauncherText =
-            """
-            |#!/bin/sh
-            |APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-            |exec "${'$'}APP_HOME/runtime/bin/java" $launcherJvmArgs -cp "${'$'}APP_HOME/lib/*" ${application.mainClass.get()} "$@"
-            |
-            """.trimMargin()
-
-        val unixLauncher = outputDirectory.resolve("ruyi-imager")
-        unixLauncher.writeText(unixLauncherText)
-        unixLauncher.setExecutable(true, false)
-
-        val unixCliLauncher = outputDirectory.resolve("ruyi-imager-cli")
-        unixCliLauncher.writeText(unixLauncherText)
-        unixCliLauncher.setExecutable(true, false)
-
-        outputDirectory.resolve("ruyi-imager-cli.bat").writeText(
-            """
-            |@echo off
-            |set "APP_HOME=%~dp0.."
-            |"%APP_HOME%\runtime\bin\java.exe" $launcherJvmArgs -cp "%APP_HOME%\lib\*" ${application.mainClass.get()} %*
-            |
-            """.trimMargin(),
-        )
-
-        outputDirectory.resolve("ruyi-imager.jvmargs").writeText(
-            jlinkLauncherJvmArgs.get().joinToString(System.lineSeparator(), postfix = System.lineSeparator()),
-        )
-    }
+    mainClass.set(application.mainClass)
+    jvmArguments.set(jlinkLauncherJvmArgs)
+    outputDirectory.set(jlinkLaunchersDirectory)
 }
 
 tasks.register<Sync>("installJlinkDist") {
@@ -513,7 +480,7 @@ tasks.register<Sync>("installJlinkDist") {
     description = "Installs a jlink application image with runtime, libraries, launchers, and bundled tools."
     dependsOn("jar")
     dependsOn("jlinkRuntime")
-    dependsOn("writeJlinkLaunchers")
+    dependsOn(writeJlinkLaunchers)
     jlinkFastbootBundle?.let { dependsOn("extract${it.taskSuffix}Fastboot") }
     dependsOn(prepareJlinkBundledDDFlasherTask)
     prepareJlinkNativeLauncherTask?.let { dependsOn(it) }
@@ -553,52 +520,13 @@ tasks.register<Sync>("installJlinkDist") {
     }
 }
 
-val writeJlinkDebMetadata = tasks.register("writeJlinkDebMetadata") {
+val writeJlinkDebMetadata = tasks.register<WriteJlinkDebMetadata>("writeJlinkDebMetadata") {
     group = "distribution"
     description = "Writes Debian package launcher and desktop metadata."
-    outputs.dir(jlinkDebMetadataDirectory)
     doFirst {
         requireDebianArchitecture(jlinkJdkPlatform)
     }
-    doLast {
-        val outputDirectory = jlinkDebMetadataDirectory.get().asFile
-        delete(outputDirectory)
-
-        val binDirectory = outputDirectory.resolve("usr/bin")
-        val applicationsDirectory = outputDirectory.resolve("usr/share/applications")
-        binDirectory.mkdirs()
-        applicationsDirectory.mkdirs()
-
-        binDirectory.resolve("ruyi-imager").writeText(
-            """
-            |#!/bin/sh
-            |exec /opt/ruyi-imager/bin/ruyi-imager "$@"
-            |
-            """.trimMargin(),
-        )
-        binDirectory.resolve("ruyi-imager-cli").writeText(
-            """
-            |#!/bin/sh
-            |exec /opt/ruyi-imager/bin/ruyi-imager-cli "$@"
-            |
-            """.trimMargin(),
-        )
-        applicationsDirectory.resolve("ruyi-imager.desktop").writeText(
-            """
-            |[Desktop Entry]
-            |Type=Application
-            |Name=Ruyi Imager
-            |Comment=Flash Ruyi SDK and local images to removable devices
-            |Exec=ruyi-imager
-            |Icon=ruyi-imager
-            |Terminal=false
-            |StartupNotify=true
-            |Categories=Utility;System;
-            |Keywords=ruyi;imager;flash;sd-card;
-            |
-            """.trimMargin(),
-        )
-    }
+    outputDirectory.set(jlinkDebMetadataDirectory)
 }
 
 val prepareJlinkDebData = tasks.register<Sync>("prepareJlinkDebData") {
