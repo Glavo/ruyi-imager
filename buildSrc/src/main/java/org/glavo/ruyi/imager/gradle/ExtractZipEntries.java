@@ -58,14 +58,6 @@ public abstract class ExtractZipEntries extends DefaultTask {
     @Input
     public abstract ListProperty<String> getExecutableFileNames();
 
-    /// Returns the host operating system name that affects executable file metadata.
-    ///
-    /// @return host operating system name.
-    @Input
-    public String getOperatingSystemName() {
-        return System.getProperty("os.name");
-    }
-
     /// Returns the generated output directory.
     ///
     /// @return output directory.
