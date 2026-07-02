@@ -90,6 +90,8 @@ public abstract class RunWixBuild extends DefaultTask {
                     sourceFile.toString(),
                     "-arch",
                     getArchitecture().get(),
+                    "-ext",
+                    "WixToolset.UI.wixext",
                     "-pdbtype",
                     "none",
                     "-o",

@@ -144,6 +144,7 @@ val jlinkMsiProductVersion =
     providers.gradleProperty("jlink.msi.productVersion").orElse(msiVersion(project.version.toString()))
 val jlinkMsiUpgradeCode =
     providers.gradleProperty("jlink.msi.upgradeCode").orElse("9D6D03B2-48F4-4F44-B8F6-7F6E3E4B29A1")
+val jlinkMsiInstallScope = providers.gradleProperty("jlink.msi.installScope").orElse("perUser")
 val jlinkMsiWixExecutable = providers.gradleProperty("wix.executable").orElse("wix")
 val jlinkMsiArchitecture = providers.provider { requireWixArchitecture(jlinkJdkPlatform) }
 val jlinkMsiDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/msi")
@@ -601,7 +602,9 @@ val writeJlinkWixSource = tasks.register<WriteWixSource>("writeJlinkWixSource") 
     manufacturer.set(jlinkMsiManufacturer)
     productVersion.set(jlinkMsiProductVersion)
     upgradeCode.set(jlinkMsiUpgradeCode)
+    installScope.set(jlinkMsiInstallScope)
     outputFile.set(jlinkMsiSourceFile)
+    licenseFile.set(rootProject.layout.projectDirectory.file("resources/wix-license.rtf"))
 }
 
 tasks.register<RunWixBuild>("jlinkMsi") {

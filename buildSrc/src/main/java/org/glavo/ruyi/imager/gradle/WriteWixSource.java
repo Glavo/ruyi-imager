@@ -11,6 +11,7 @@ import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
@@ -33,8 +34,15 @@ import java.util.UUID;
 @CacheableTask
 @NotNullByDefault
 public abstract class WriteWixSource extends DefaultTask {
+    /// Identifies a per-user Windows Installer package.
+    private static final String INSTALL_SCOPE_PER_USER = "perUser";
+
+    /// Identifies a per-machine Windows Installer package.
+    private static final String INSTALL_SCOPE_PER_MACHINE = "perMachine";
+
     /// Creates a WiX source generation task.
     public WriteWixSource() {
+        getInstallScope().convention(INSTALL_SCOPE_PER_USER);
         getInstallDirectoryName().convention("Ruyi Imager");
         getGuiExecutablePath().convention("bin/ruyi-imager.exe");
         getCliExecutablePath().convention("bin/ruyi-imager-cli.exe");
@@ -78,11 +86,25 @@ public abstract class WriteWixSource extends DefaultTask {
     @Input
     public abstract Property<String> getUpgradeCode();
 
-    /// Returns the installation directory name below `ProgramFiles64Folder`.
+    /// Returns the Windows Installer installation scope.
+    ///
+    /// @return installation scope.
+    @Input
+    public abstract Property<String> getInstallScope();
+
+    /// Returns the installation directory name.
     ///
     /// @return installation directory name.
     @Input
     public abstract Property<String> getInstallDirectoryName();
+
+    /// Returns the RTF license file shown by the WiX installation UI.
+    ///
+    /// @return RTF license file.
+    @Optional
+    @InputFile
+    @PathSensitive(PathSensitivity.NONE)
+    public abstract RegularFileProperty getLicenseFile();
 
     /// Returns the GUI executable path relative to the app image directory.
     ///
@@ -131,13 +153,15 @@ public abstract class WriteWixSource extends DefaultTask {
     /// @param output WiX source output.
     /// @param rootDirectory installation root directory.
     private void appendHeader(StringBuilder output, DirectoryNode rootDirectory) {
+        String installScope = normalizedInstallScope(getInstallScope().get());
         output.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        output.append("<Wix xmlns=\"http://wixtoolset.org/schemas/v4/wxs\">\n");
+        output.append("<Wix xmlns=\"http://wixtoolset.org/schemas/v4/wxs\"");
+        output.append(" xmlns:ui=\"http://wixtoolset.org/schemas/v4/wxs/ui\">\n");
         output.append("  <Package Name=\"").append(xml(getProductName().get())).append('"');
         output.append(" Manufacturer=\"").append(xml(getManufacturer().get())).append('"');
         output.append(" Version=\"").append(xml(getProductVersion().get())).append('"');
         output.append(" UpgradeCode=\"").append(xml(normalizedGuid(getUpgradeCode().get()))).append('"');
-        output.append(" Scope=\"perMachine\">\n");
+        output.append(" Scope=\"").append(xml(installScope)).append("\">\n");
         output.append("    <MajorUpgrade DowngradeErrorMessage=\"A newer version of ");
         output.append(xml(getProductName().get()));
         output.append(" is already installed.\" />\n");
@@ -146,14 +170,37 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append(xml(getIconFile().get().getAsFile().getAbsolutePath()));
         output.append("\" />\n");
         output.append("    <Property Id=\"ARPPRODUCTICON\" Value=\"ApplicationIcon.ico\" />\n");
-        output.append("    <StandardDirectory Id=\"ProgramFiles64Folder\">\n");
-        appendDirectory(output, rootDirectory, 3);
-        output.append("    </StandardDirectory>\n");
+        output.append("    <ui:WixUI Id=\"WixUI_InstallDir\" InstallDirectory=\"INSTALLFOLDER\" />\n");
+        if (getLicenseFile().isPresent()) {
+            output.append("    <WixVariable Id=\"WixUILicenseRtf\" Value=\"");
+            output.append(xml(getLicenseFile().get().getAsFile().getAbsolutePath()));
+            output.append("\" />\n");
+        }
+        appendInstallDirectories(output, rootDirectory, installScope);
         output.append("    <StandardDirectory Id=\"ProgramMenuFolder\">\n");
         output.append("      <Directory Id=\"ApplicationProgramsFolder\" Name=\"");
         output.append(xml(getProductName().get()));
         output.append("\" />\n");
         output.append("    </StandardDirectory>\n");
+    }
+
+    /// Appends installation directory declarations.
+    ///
+    /// @param output WiX source output.
+    /// @param rootDirectory installation root directory.
+    /// @param installScope Windows Installer installation scope.
+    private static void appendInstallDirectories(StringBuilder output, DirectoryNode rootDirectory, String installScope) {
+        if (installScope.equals(INSTALL_SCOPE_PER_USER)) {
+            output.append("    <StandardDirectory Id=\"LocalAppDataFolder\">\n");
+            output.append("      <Directory Id=\"LocalProgramsFolder\" Name=\"Programs\">\n");
+            appendDirectory(output, rootDirectory, 4);
+            output.append("      </Directory>\n");
+            output.append("    </StandardDirectory>\n");
+        } else {
+            output.append("    <StandardDirectory Id=\"ProgramFiles64Folder\">\n");
+            appendDirectory(output, rootDirectory, 3);
+            output.append("    </StandardDirectory>\n");
+        }
     }
 
     /// Appends all file components.
@@ -305,6 +352,18 @@ public abstract class WriteWixSource extends DefaultTask {
     /// @return normalized path.
     private static String normalizedRelativePath(String path) {
         return path.replace('\\', '/');
+    }
+
+    /// Normalizes and validates an installation scope value.
+    ///
+    /// @param value raw installation scope.
+    /// @return normalized installation scope.
+    private static String normalizedInstallScope(String value) {
+        String scope = value.trim();
+        return switch (scope) {
+            case INSTALL_SCOPE_PER_USER, INSTALL_SCOPE_PER_MACHINE -> scope;
+            default -> throw new IllegalArgumentException("Unsupported MSI install scope: " + value);
+        };
     }
 
     /// Creates a stable WiX identifier.

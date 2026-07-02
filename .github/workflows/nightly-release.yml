@@ -63,6 +63,7 @@ jobs:
         if: startsWith(matrix.platform, 'windows-')
         run: |
           dotnet tool install --tool-path "$env:RUNNER_TEMP\wix" wix --version "$env:WIX_VERSION"
+          & "$env:RUNNER_TEMP\wix\wix.exe" extension add --global "WixToolset.UI.wixext/$env:WIX_VERSION"
           "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build jlink archive

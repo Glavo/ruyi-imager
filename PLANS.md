@@ -21,7 +21,7 @@
 - Linux and macOS mounted removable targets are automatically unmounted before writing, then re-enumerated before destructive access.
 - Fastboot flows cover ordinary partition flashing, LPi4A/Meles U-Boot handoff, SpacemiT K1 stage/continue, sparse progress parsing, duplicate serial rejection, and post-handoff ambiguity checks.
 - GUI supports catalog/local image selection, target selection, safety confirmation, progress, cancellation, log path display, language switching, Chinese vendor display names, window icons, and short progress status text without trailing full stops.
-- Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, WiX MSI packages, and nightly release workflow. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. Fastboot verification/extraction, JLink runtime and launcher generation, Debian package metadata/assembly, and WiX source/build orchestration are implemented as Java tasks/helpers in `buildSrc`; Linux nightly builds publish `.deb` packages and Windows nightly builds publish `.msi` packages.
+- Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, WiX MSI packages, and nightly release workflow. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. Fastboot verification/extraction, JLink runtime and launcher generation, Debian package metadata/assembly, and WiX source/build orchestration are implemented as Java tasks/helpers in `buildSrc`; WiX MSI packages default to per-user installation under `LocalAppDataFolder` and include a directory selection UI. Linux nightly builds publish `.deb` packages and Windows nightly builds publish `.msi` packages.
 
 ### Remaining
 
@@ -45,7 +45,7 @@
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:writeJlinkWixSource --rerun-tasks`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkMsi`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkMsi --dry-run`
-- Generated WiX source XML smoke check: package metadata, main feature, application icon, and GUI/CLI shortcuts are present.
+- Generated WiX source XML smoke check: package metadata, main feature, application icon, GUI/CLI shortcuts, per-user scope, `WixUI_InstallDir`, and license binding are present.
 - `git diff --check`
 
 ### Known Limits
