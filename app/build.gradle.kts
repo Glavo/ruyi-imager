@@ -7,6 +7,7 @@ import org.glavo.ruyi.imager.gradle.JlinkPackaging.jlinkDebExecutablePath
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.jlinkUnixExecutableArchivePath
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.platformTaskSuffix
 import org.glavo.ruyi.imager.gradle.JlinkPackaging.requireDebianArchitecture
+import org.glavo.ruyi.imager.gradle.RunWixBundleBuild
 import org.glavo.ruyi.imager.gradle.RunWixBuild
 import org.glavo.ruyi.imager.gradle.VerifyFile
 import org.glavo.ruyi.imager.gradle.WixPackaging.msiVersion
@@ -14,6 +15,7 @@ import org.glavo.ruyi.imager.gradle.WixPackaging.requireWixArchitecture
 import org.glavo.ruyi.imager.gradle.WriteDebControl
 import org.glavo.ruyi.imager.gradle.WriteJlinkDebMetadata
 import org.glavo.ruyi.imager.gradle.WriteJlinkLaunchers
+import org.glavo.ruyi.imager.gradle.WriteWixBundleSource
 import org.glavo.ruyi.imager.gradle.WriteWixSource
 import org.gradle.api.file.RelativePath
 import org.gradle.api.tasks.bundling.Compression
@@ -151,6 +153,13 @@ val jlinkMsiDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/msi")
 val jlinkMsiSourceFile = jlinkMsiDirectory.map { it.file("ruyi-imager.wxs") }
 val jlinkMsiOutputFile = layout.buildDirectory.file(
     "distributions/ruyi-imager-${project.version}-$jlinkJdkPlatform.msi",
+)
+val jlinkSetupUpgradeCode =
+    providers.gradleProperty("jlink.setup.upgradeCode").orElse("AA010C2D-88C0-4B7E-8B29-624FA17592B9")
+val jlinkSetupDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/setup")
+val jlinkSetupSourceFile = jlinkSetupDirectory.map { it.file("ruyi-imager-setup.wxs") }
+val jlinkSetupOutputFile = layout.buildDirectory.file(
+    "distributions/ruyi-imager-${project.version}-$jlinkJdkPlatform-setup.exe",
 )
 val jlinkJavafxModuleNames = if (jlinkJdkPlatform == "linux-riscv64") emptyList() else javafxModuleNames
 val jlinkDefaultModules = defaultJlinkModules() + jlinkJavafxModuleNames
@@ -619,6 +628,36 @@ tasks.register<RunWixBuild>("jlinkMsi") {
     appDirectory.set(jlinkImageDirectory)
     sourceFile.set(jlinkMsiSourceFile)
     outputFile.set(jlinkMsiOutputFile)
+}
+
+val writeJlinkWixBundleSource = tasks.register<WriteWixBundleSource>("writeJlinkWixBundleSource") {
+    group = "distribution"
+    description = "Writes WiX Burn bundle source for the jlink MSI package."
+    dependsOn("jlinkMsi")
+    doFirst {
+        requireWixArchitecture(jlinkJdkPlatform)
+    }
+    msiPackageFile.set(jlinkMsiOutputFile)
+    iconFile.set(rootProject.layout.projectDirectory.file("resources/ruyi-logo.ico"))
+    licenseFile.set(rootProject.layout.projectDirectory.file("resources/wix-license.rtf"))
+    productName.set(jlinkMsiProductName)
+    manufacturer.set(jlinkMsiManufacturer)
+    productVersion.set(jlinkMsiProductVersion)
+    upgradeCode.set(jlinkSetupUpgradeCode)
+    outputFile.set(jlinkSetupSourceFile)
+}
+
+tasks.register<RunWixBundleBuild>("jlinkSetupExe") {
+    group = "distribution"
+    description = "Builds a WiX Burn setup executable from the jlink MSI package."
+    dependsOn(writeJlinkWixBundleSource)
+    doFirst {
+        requireWixArchitecture(jlinkJdkPlatform)
+    }
+    wixExecutable.set(jlinkMsiWixExecutable)
+    sourceFile.set(jlinkSetupSourceFile)
+    msiPackageFile.set(jlinkMsiOutputFile)
+    outputFile.set(jlinkSetupOutputFile)
 }
 
 val jlinkArchiveTask = if (jlinkJdkPlatform.startsWith("windows-")) {

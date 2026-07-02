@@ -64,6 +64,7 @@ jobs:
         run: |
           dotnet tool install --tool-path "$env:RUNNER_TEMP\wix" wix --version "$env:WIX_VERSION"
           & "$env:RUNNER_TEMP\wix\wix.exe" extension add --global "WixToolset.UI.wixext/$env:WIX_VERSION"
+          & "$env:RUNNER_TEMP\wix\wix.exe" extension add --global "WixToolset.Bal.wixext/$env:WIX_VERSION"
           "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build jlink archive
@@ -72,6 +73,10 @@ jobs:
       - name: Build MSI package
         if: startsWith(matrix.platform, 'windows-')
         run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkMsi
+
+      - name: Build setup executable
+        if: startsWith(matrix.platform, 'windows-')
+        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkSetupExe
 
       - name: Build Debian package
         if: startsWith(matrix.platform, 'linux-')
@@ -103,6 +108,14 @@ jobs:
               exit 1
             fi
             cp "${msis[0]}" release-assets/
+            setups=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}-setup.exe)
+            if [ "${#setups[@]}" -ne 1 ]; then
+              printf 'Expected exactly one setup executable for %s, found %s\n' "${{ matrix.platform }}" "${#setups[@]}" >&2
+              printf 'Matched setup executables:\n' >&2
+              printf '  %s\n' "${setups[@]}" >&2
+              exit 1
+            fi
+            cp "${setups[0]}" release-assets/
           fi
           if [[ "${{ matrix.platform }}" == linux-* ]]; then
             debs=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.deb)
