@@ -81,7 +81,7 @@ public abstract class RunWixBundleBuild extends DefaultTask {
                     "build",
                     sourceFile.toString(),
                     "-ext",
-                    "WixToolset.Bal.wixext",
+                    "WixToolset.BootstrapperApplications.wixext",
                     "-pdbtype",
                     "none",
                     "-o",
