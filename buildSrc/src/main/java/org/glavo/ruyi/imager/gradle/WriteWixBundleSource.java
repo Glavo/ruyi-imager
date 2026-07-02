@@ -105,7 +105,9 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         output.append(xml(getIconFile().get().getAsFile().getAbsolutePath()));
         output.append("\">\n");
         output.append("    <BootstrapperApplication>\n");
-        output.append("      <bal:WixStandardBootstrapperApplication Theme=\"hyperlinkLicense\"");
+        output.append("      <bal:WixStandardBootstrapperApplication Theme=\"");
+        output.append(getLicenseFile().isPresent() ? "rtfLicense" : "hyperlinkLicense");
+        output.append('"');
         output.append(" ShowVersion=\"yes\"");
         if (getLicenseFile().isPresent()) {
             output.append(" LicenseFile=\"");
