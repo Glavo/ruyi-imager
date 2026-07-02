@@ -154,13 +154,72 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append(xml(getIconFile().get().getAsFile().getAbsolutePath()));
         output.append("\" />\n");
         output.append("    <Property Id=\"ARPPRODUCTICON\" Value=\"ApplicationIcon.ico\" />\n");
-        output.append("    <ui:WixUI Id=\"WixUI_InstallDir\" InstallDirectory=\"INSTALLFOLDER\" />\n");
+        appendInstallDirUi(output);
         appendInstallDirectories(output, rootDirectory, installScope);
         output.append("    <StandardDirectory Id=\"ProgramMenuFolder\">\n");
         output.append("      <Directory Id=\"ApplicationProgramsFolder\" Name=\"");
         output.append(xml(getProductName().get()));
         output.append("\" />\n");
         output.append("    </StandardDirectory>\n");
+    }
+
+    /// Appends a directory-selection UI sequence without a license agreement dialog.
+    ///
+    /// @param output WiX source output.
+    private static void appendInstallDirUi(StringBuilder output) {
+        output.append("    <Property Id=\"WIXUI_INSTALLDIR\" Value=\"INSTALLFOLDER\" />\n");
+        output.append("    <UI>\n");
+        output.append("      <TextStyle Id=\"WixUI_Font_Normal\" FaceName=\"Tahoma\" Size=\"8\" />\n");
+        output.append("      <TextStyle Id=\"WixUI_Font_Bigger\" FaceName=\"Tahoma\" Size=\"12\" />\n");
+        output.append("      <TextStyle Id=\"WixUI_Font_Title\" FaceName=\"Tahoma\" Size=\"9\" Bold=\"yes\" />\n");
+        output.append("      <Property Id=\"DefaultUIFont\" Value=\"WixUI_Font_Normal\" />\n");
+        output.append("      <DialogRef Id=\"BrowseDlg\" />\n");
+        output.append("      <DialogRef Id=\"DiskCostDlg\" />\n");
+        output.append("      <DialogRef Id=\"ErrorDlg\" />\n");
+        output.append("      <DialogRef Id=\"FatalError\" />\n");
+        output.append("      <DialogRef Id=\"FilesInUse\" />\n");
+        output.append("      <DialogRef Id=\"MsiRMFilesInUse\" />\n");
+        output.append("      <DialogRef Id=\"PrepareDlg\" />\n");
+        output.append("      <DialogRef Id=\"ProgressDlg\" />\n");
+        output.append("      <DialogRef Id=\"ResumeDlg\" />\n");
+        output.append("      <DialogRef Id=\"UserExit\" />\n");
+        output.append("      <Publish Dialog=\"WelcomeDlg\" Control=\"Next\" Event=\"NewDialog\"");
+        output.append(" Value=\"InstallDirDlg\" Condition=\"NOT Installed\" />\n");
+        output.append("      <Publish Dialog=\"WelcomeDlg\" Control=\"Next\" Event=\"NewDialog\"");
+        output.append(" Value=\"VerifyReadyDlg\" Condition=\"Installed AND PATCH\" />\n");
+        output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"Back\" Event=\"NewDialog\"");
+        output.append(" Value=\"WelcomeDlg\" />\n");
+        output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"Next\" Event=\"SetTargetPath\"");
+        output.append(" Value=\"[WIXUI_INSTALLDIR]\" Order=\"1\" />\n");
+        output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"Next\" Event=\"DoAction\"");
+        output.append(" Value=\"WixUIValidatePath\" Order=\"2\"");
+        output.append(" Condition=\"NOT WIXUI_DONTVALIDATEPATH\" />\n");
+        output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"Next\" Event=\"SpawnDialog\"");
+        output.append(" Value=\"InvalidDirDlg\" Order=\"3\"");
+        output.append(" Condition=\"NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID&lt;&gt;&quot;1&quot;\" />\n");
+        output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"Next\" Event=\"NewDialog\"");
+        output.append(" Value=\"VerifyReadyDlg\" Order=\"4\"");
+        output.append(" Condition=\"WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID=&quot;1&quot;\" />\n");
+        output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"ChangeFolder\" Property=\"_BrowseProperty\"");
+        output.append(" Value=\"[WIXUI_INSTALLDIR]\" Order=\"1\" />\n");
+        output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"ChangeFolder\" Event=\"SpawnDialog\"");
+        output.append(" Value=\"BrowseDlg\" Order=\"2\" />\n");
+        output.append("      <Publish Dialog=\"VerifyReadyDlg\" Control=\"Back\" Event=\"NewDialog\"");
+        output.append(" Value=\"InstallDirDlg\" Order=\"1\" Condition=\"NOT Installed\" />\n");
+        output.append("      <Publish Dialog=\"VerifyReadyDlg\" Control=\"Back\" Event=\"NewDialog\"");
+        output.append(" Value=\"MaintenanceTypeDlg\" Order=\"2\" Condition=\"Installed AND NOT PATCH\" />\n");
+        output.append("      <Publish Dialog=\"VerifyReadyDlg\" Control=\"Back\" Event=\"NewDialog\"");
+        output.append(" Value=\"WelcomeDlg\" Order=\"3\" Condition=\"Installed AND PATCH\" />\n");
+        output.append("      <Publish Dialog=\"MaintenanceWelcomeDlg\" Control=\"Next\" Event=\"NewDialog\"");
+        output.append(" Value=\"MaintenanceTypeDlg\" />\n");
+        output.append("      <Publish Dialog=\"MaintenanceTypeDlg\" Control=\"RepairButton\" Event=\"NewDialog\"");
+        output.append(" Value=\"VerifyReadyDlg\" />\n");
+        output.append("      <Publish Dialog=\"MaintenanceTypeDlg\" Control=\"RemoveButton\" Event=\"NewDialog\"");
+        output.append(" Value=\"VerifyReadyDlg\" />\n");
+        output.append("      <Publish Dialog=\"MaintenanceTypeDlg\" Control=\"Back\" Event=\"NewDialog\"");
+        output.append(" Value=\"MaintenanceWelcomeDlg\" />\n");
+        output.append("    </UI>\n");
+        output.append("    <UIRef Id=\"WixUI_Common\" />\n");
     }
 
     /// Appends installation directory declarations.

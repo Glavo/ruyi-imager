@@ -48,7 +48,7 @@
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkSetupExe`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkSetupExe --dry-run`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:writeJlinkWixBundleSource -x :app:jlinkMsi --rerun-tasks`
-- Generated WiX source XML smoke check: package metadata, main feature, application icon, GUI shortcut, per-user scope, and `WixUI_InstallDir` are present.
+- Generated WiX source XML smoke check: package metadata, main feature, application icon, GUI shortcut, per-user scope, custom no-license InstallDir UI, and `WIXUI_INSTALLDIR` are present.
 - Generated WiX Burn source XML smoke check: bundle metadata, WixStdBA without license agreement UI, setup icon, bootstrapper UI logo, compressed embedded MSI package, hidden MSI ARP entry, and internal MSI UI condition are present.
 - `git diff --check`
 
