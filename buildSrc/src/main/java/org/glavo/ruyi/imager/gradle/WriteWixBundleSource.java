@@ -21,8 +21,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
-import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 
 /// Writes WiX source for a Burn setup executable that embeds the MSI package.
@@ -34,6 +35,9 @@ public abstract class WriteWixBundleSource extends DefaultTask {
 
     /// Identifies a per-machine Windows Installer package.
     private static final String INSTALL_SCOPE_PER_MACHINE = "perMachine";
+
+    /// Contains characters rejected in Windows directory segment names.
+    private static final String WINDOWS_DIRECTORY_NAME_FORBIDDEN_CHARACTERS = "<>:\"/\\|?*";
 
     /// Creates a WiX bundle source generation task.
     public WriteWixBundleSource() {
@@ -181,22 +185,33 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     /// @param localizationDirectory bootstrapper UI localization directory.
     /// @throws IOException if the localization directory cannot be scanned.
     private static void appendLocalizedPayloads(StringBuilder output, Path localizationDirectory) throws IOException {
-        List<Path> files;
+        Map<String, Path> payloads = new TreeMap<>();
         try (var stream = Files.walk(localizationDirectory)) {
-            files = stream
+            stream
                     .filter(Files::isRegularFile)
                     .filter(path -> !localizationDirectory.relativize(path).toString().equals("thm.wxl"))
-                    .sorted(Comparator.comparing(Path::toString))
-                    .toList();
+                    .forEach(path -> addLocalizationPayload(payloads, localizationDirectory, path));
         }
 
-        for (Path file : files) {
-            String relativePath = localizationDirectory.relativize(file).toString().replace('/', '\\');
+        for (Map.Entry<String, Path> payload : payloads.entrySet()) {
             output.append("      <Payload Name=\"");
-            output.append(xml(relativePath));
+            output.append(xml(payload.getKey()));
             output.append("\" Compressed=\"yes\" SourceFile=\"");
-            output.append(xml(file.toString()));
+            output.append(xml(payload.getValue().toString()));
             output.append("\" />\n");
+        }
+    }
+
+    /// Adds a localization payload and any required lookup alias.
+    ///
+    /// @param payloads localization payloads by bundle path.
+    /// @param localizationDirectory bootstrapper UI localization directory.
+    /// @param file localization source file.
+    private static void addLocalizationPayload(Map<String, Path> payloads, Path localizationDirectory, Path file) {
+        String relativePath = localizationDirectory.relativize(file).toString().replace('/', '\\');
+        payloads.put(relativePath, file);
+        if (relativePath.equals("zh-CN\\thm.wxl")) {
+            payloads.put("2052\\thm.wxl", file);
         }
     }
 
@@ -204,7 +219,7 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     ///
     /// @return default install folder.
     private String defaultInstallFolder() {
-        String directoryName = getInstallDirectoryName().get();
+        String directoryName = normalizedInstallDirectoryName(getInstallDirectoryName().get());
         return switch (normalizedInstallScope(getInstallScope().get())) {
             case INSTALL_SCOPE_PER_USER -> "[LocalAppDataFolder]Programs\\" + directoryName;
             case INSTALL_SCOPE_PER_MACHINE -> "[ProgramFiles64Folder]" + directoryName;
@@ -222,6 +237,42 @@ public abstract class WriteWixBundleSource extends DefaultTask {
             case INSTALL_SCOPE_PER_USER, INSTALL_SCOPE_PER_MACHINE -> scope;
             default -> throw new IllegalArgumentException("Unsupported MSI install scope: " + value);
         };
+    }
+
+    /// Normalizes and validates the install directory name.
+    ///
+    /// @param value raw install directory name.
+    /// @return normalized install directory name.
+    private static String normalizedInstallDirectoryName(String value) {
+        String name = value.trim();
+        if (!name.equals(value) || name.isEmpty()) {
+            throw new IllegalArgumentException("MSI install directory name must be a non-empty Windows directory name");
+        }
+        if (name.endsWith(".") || name.endsWith(" ")) {
+            throw new IllegalArgumentException("MSI install directory name must not end with a space or period: " + value);
+        }
+        for (int i = 0; i < name.length(); i++) {
+            char ch = name.charAt(i);
+            if (ch < 0x20 || WINDOWS_DIRECTORY_NAME_FORBIDDEN_CHARACTERS.indexOf(ch) >= 0) {
+                throw new IllegalArgumentException("MSI install directory name contains an invalid character: " + value);
+            }
+        }
+
+        String baseName = name;
+        int extensionIndex = baseName.indexOf('.');
+        if (extensionIndex >= 0) {
+            baseName = baseName.substring(0, extensionIndex);
+        }
+        String upperBaseName = baseName.toUpperCase(Locale.ROOT);
+        if (upperBaseName.equals("CON")
+                || upperBaseName.equals("PRN")
+                || upperBaseName.equals("AUX")
+                || upperBaseName.equals("NUL")
+                || upperBaseName.matches("COM[1-9]")
+                || upperBaseName.matches("LPT[1-9]")) {
+            throw new IllegalArgumentException("MSI install directory name is reserved on Windows: " + value);
+        }
+        return name;
     }
 
     /// Normalizes a GUID string for WiX source.

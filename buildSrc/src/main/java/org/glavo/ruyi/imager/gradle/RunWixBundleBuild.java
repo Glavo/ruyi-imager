@@ -78,10 +78,14 @@ public abstract class RunWixBundleBuild extends DefaultTask {
     @TaskAction
     public void run() throws IOException {
         Path sourceFile = getSourceFile().get().getAsFile().toPath();
+        Path localizationDirectory = getLocalizationDirectory().get().getAsFile().toPath();
         Path outputFile = getOutputFile().get().getAsFile().toPath();
         Path parent = outputFile.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
+        }
+        if (!Files.isDirectory(localizationDirectory)) {
+            throw new GradleException("Missing WiX setup localization directory: " + localizationDirectory);
         }
 
         execOperations.exec(spec -> {
