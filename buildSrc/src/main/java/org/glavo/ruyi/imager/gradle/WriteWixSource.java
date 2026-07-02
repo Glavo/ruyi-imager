@@ -11,7 +11,6 @@ import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFile;
-import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
@@ -97,14 +96,6 @@ public abstract class WriteWixSource extends DefaultTask {
     @Input
     public abstract Property<String> getInstallDirectoryName();
 
-    /// Returns the RTF license file shown by the WiX installation UI.
-    ///
-    /// @return RTF license file.
-    @Optional
-    @InputFile
-    @PathSensitive(PathSensitivity.NONE)
-    public abstract RegularFileProperty getLicenseFile();
-
     /// Returns the GUI executable path relative to the app image directory.
     ///
     /// @return GUI executable relative path.
@@ -164,11 +155,6 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append("\" />\n");
         output.append("    <Property Id=\"ARPPRODUCTICON\" Value=\"ApplicationIcon.ico\" />\n");
         output.append("    <ui:WixUI Id=\"WixUI_InstallDir\" InstallDirectory=\"INSTALLFOLDER\" />\n");
-        if (getLicenseFile().isPresent()) {
-            output.append("    <WixVariable Id=\"WixUILicenseRtf\" Value=\"");
-            output.append(xml(getLicenseFile().get().getAsFile().getAbsolutePath()));
-            output.append("\" />\n");
-        }
         appendInstallDirectories(output, rootDirectory, installScope);
         output.append("    <StandardDirectory Id=\"ProgramMenuFolder\">\n");
         output.append("      <Directory Id=\"ApplicationProgramsFolder\" Name=\"");

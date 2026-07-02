@@ -613,7 +613,6 @@ val writeJlinkWixSource = tasks.register<WriteWixSource>("writeJlinkWixSource") 
     upgradeCode.set(jlinkMsiUpgradeCode)
     installScope.set(jlinkMsiInstallScope)
     outputFile.set(jlinkMsiSourceFile)
-    licenseFile.set(rootProject.layout.projectDirectory.file("resources/wix-license.rtf"))
 }
 
 tasks.register<RunWixBuild>("jlinkMsi") {
@@ -640,7 +639,6 @@ val writeJlinkWixBundleSource = tasks.register<WriteWixBundleSource>("writeJlink
     msiPackageFile.set(jlinkMsiOutputFile)
     iconFile.set(rootProject.layout.projectDirectory.file("resources/ruyi-logo.ico"))
     logoFile.set(rootProject.layout.projectDirectory.file("resources/ruyi-logo-64.png"))
-    licenseFile.set(rootProject.layout.projectDirectory.file("resources/wix-license.rtf"))
     productName.set(jlinkMsiProductName)
     manufacturer.set(jlinkMsiManufacturer)
     productVersion.set(jlinkMsiProductVersion)

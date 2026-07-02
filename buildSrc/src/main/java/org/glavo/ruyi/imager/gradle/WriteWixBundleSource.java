@@ -9,7 +9,6 @@ import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
-import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
@@ -50,14 +49,6 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     @InputFile
     @PathSensitive(PathSensitivity.NONE)
     public abstract RegularFileProperty getLogoFile();
-
-    /// Returns the RTF license file shown by the bootstrapper UI.
-    ///
-    /// @return RTF license file.
-    @Optional
-    @InputFile
-    @PathSensitive(PathSensitivity.NONE)
-    public abstract RegularFileProperty getLicenseFile();
 
     /// Returns the bundle display name.
     ///
@@ -112,20 +103,11 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         output.append(xml(getIconFile().get().getAsFile().getAbsolutePath()));
         output.append("\">\n");
         output.append("    <BootstrapperApplication>\n");
-        output.append("      <bal:WixStandardBootstrapperApplication Theme=\"");
-        output.append(getLicenseFile().isPresent() ? "rtfLicense" : "hyperlinkLicense");
-        output.append('"');
+        output.append("      <bal:WixStandardBootstrapperApplication Theme=\"none\"");
         output.append(" ShowVersion=\"yes\"");
         output.append(" LogoFile=\"");
         output.append(xml(getLogoFile().get().getAsFile().getAbsolutePath()));
         output.append('"');
-        if (getLicenseFile().isPresent()) {
-            output.append(" LicenseFile=\"");
-            output.append(xml(getLicenseFile().get().getAsFile().getAbsolutePath()));
-            output.append('"');
-        } else {
-            output.append(" LicenseUrl=\"\"");
-        }
         output.append(" />\n");
         output.append("    </BootstrapperApplication>\n");
         output.append("    <Chain>\n");
