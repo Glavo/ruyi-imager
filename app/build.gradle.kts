@@ -613,6 +613,7 @@ val writeJlinkWixSource = tasks.register<WriteWixSource>("writeJlinkWixSource") 
     productVersion.set(jlinkMsiProductVersion)
     upgradeCode.set(jlinkMsiUpgradeCode)
     installScope.set(jlinkMsiInstallScope)
+    architecture.set(jlinkMsiArchitecture)
     outputFile.set(jlinkMsiSourceFile)
 }
 

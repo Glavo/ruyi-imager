@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -90,6 +91,12 @@ public abstract class WriteWixSource extends DefaultTask {
     @Input
     public abstract Property<String> getInstallScope();
 
+    /// Returns the WiX target architecture.
+    ///
+    /// @return WiX architecture.
+    @Input
+    public abstract Property<String> getArchitecture();
+
     /// Returns the installation directory name.
     ///
     /// @return installation directory name.
@@ -154,7 +161,7 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append(xml(getIconFile().get().getAsFile().getAbsolutePath()));
         output.append("\" />\n");
         output.append("    <Property Id=\"ARPPRODUCTICON\" Value=\"ApplicationIcon.ico\" />\n");
-        appendInstallDirUi(output);
+        appendInstallDirUi(output, getArchitecture().get());
         appendInstallDirectories(output, rootDirectory, installScope);
         output.append("    <StandardDirectory Id=\"ProgramMenuFolder\">\n");
         output.append("      <Directory Id=\"ApplicationProgramsFolder\" Name=\"");
@@ -166,7 +173,10 @@ public abstract class WriteWixSource extends DefaultTask {
     /// Appends a directory-selection UI sequence without a license agreement dialog.
     ///
     /// @param output WiX source output.
-    private static void appendInstallDirUi(StringBuilder output) {
+    /// @param architecture WiX target architecture.
+    private static void appendInstallDirUi(StringBuilder output, String architecture) {
+        String validatePathActionId = "WixUIValidatePath_" + wixUiArchitectureSuffix(architecture);
+
         output.append("    <Property Id=\"WIXUI_INSTALLDIR\" Value=\"INSTALLFOLDER\" />\n");
         output.append("    <UI>\n");
         output.append("      <TextStyle Id=\"WixUI_Font_Normal\" FaceName=\"Tahoma\" Size=\"8\" />\n");
@@ -192,7 +202,7 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"Next\" Event=\"SetTargetPath\"");
         output.append(" Value=\"[WIXUI_INSTALLDIR]\" Order=\"1\" />\n");
         output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"Next\" Event=\"DoAction\"");
-        output.append(" Value=\"WixUIValidatePath\" Order=\"2\"");
+        output.append(" Value=\"").append(validatePathActionId).append("\" Order=\"2\"");
         output.append(" Condition=\"NOT WIXUI_DONTVALIDATEPATH\" />\n");
         output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"Next\" Event=\"SpawnDialog\"");
         output.append(" Value=\"InvalidDirDlg\" Order=\"3\"");
@@ -204,6 +214,18 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append(" Value=\"[WIXUI_INSTALLDIR]\" Order=\"1\" />\n");
         output.append("      <Publish Dialog=\"InstallDirDlg\" Control=\"ChangeFolder\" Event=\"SpawnDialog\"");
         output.append(" Value=\"BrowseDlg\" Order=\"2\" />\n");
+        output.append("      <Publish Dialog=\"BrowseDlg\" Control=\"OK\" Event=\"DoAction\"");
+        output.append(" Value=\"").append(validatePathActionId).append("\" Order=\"1\"");
+        output.append(" Condition=\"NOT WIXUI_DONTVALIDATEPATH\" />\n");
+        output.append("      <Publish Dialog=\"BrowseDlg\" Control=\"OK\" Event=\"SpawnDialog\"");
+        output.append(" Value=\"InvalidDirDlg\" Order=\"2\"");
+        output.append(" Condition=\"NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID&lt;&gt;&quot;1&quot;\" />\n");
+        output.append("      <Publish Dialog=\"BrowseDlg\" Control=\"OK\" Event=\"SetTargetPath\"");
+        output.append(" Value=\"[_BrowseProperty]\" Order=\"3\"");
+        output.append(" Condition=\"WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID=&quot;1&quot;\" />\n");
+        output.append("      <Publish Dialog=\"BrowseDlg\" Control=\"OK\" Event=\"EndDialog\"");
+        output.append(" Value=\"Return\" Order=\"4\"");
+        output.append(" Condition=\"WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID=&quot;1&quot;\" />\n");
         output.append("      <Publish Dialog=\"VerifyReadyDlg\" Control=\"Back\" Event=\"NewDialog\"");
         output.append(" Value=\"InstallDirDlg\" Order=\"1\" Condition=\"NOT Installed\" />\n");
         output.append("      <Publish Dialog=\"VerifyReadyDlg\" Control=\"Back\" Event=\"NewDialog\"");
@@ -219,7 +241,21 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append("      <Publish Dialog=\"MaintenanceTypeDlg\" Control=\"Back\" Event=\"NewDialog\"");
         output.append(" Value=\"MaintenanceWelcomeDlg\" />\n");
         output.append("    </UI>\n");
+        output.append("    <CustomActionRef Id=\"").append(validatePathActionId).append("\" />\n");
         output.append("    <UIRef Id=\"WixUI_Common\" />\n");
+    }
+
+    /// Returns the WiX UI architecture suffix for architecture-specific UI custom actions.
+    ///
+    /// @param architecture WiX target architecture.
+    /// @return WiX UI architecture suffix without the leading underscore.
+    private static String wixUiArchitectureSuffix(String architecture) {
+        return switch (architecture.trim().toLowerCase(Locale.ROOT)) {
+            case "x86" -> "X86";
+            case "x64" -> "X64";
+            case "arm64" -> "A64";
+            default -> throw new IllegalArgumentException("Unsupported WiX architecture: " + architecture);
+        };
     }
 
     /// Appends installation directory declarations.
