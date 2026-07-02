@@ -45,7 +45,6 @@ public abstract class WriteWixSource extends DefaultTask {
         getInstallScope().convention(INSTALL_SCOPE_PER_USER);
         getInstallDirectoryName().convention("Ruyi Imager");
         getGuiExecutablePath().convention("bin/ruyi-imager.exe");
-        getCliExecutablePath().convention("bin/ruyi-imager-cli.exe");
     }
 
     /// Returns the staged application image directory.
@@ -111,12 +110,6 @@ public abstract class WriteWixSource extends DefaultTask {
     /// @return GUI executable relative path.
     @Input
     public abstract Property<String> getGuiExecutablePath();
-
-    /// Returns the CLI executable path relative to the app image directory.
-    ///
-    /// @return CLI executable relative path.
-    @Input
-    public abstract Property<String> getCliExecutablePath();
 
     /// Returns the generated WiX source output file.
     ///
@@ -209,7 +202,6 @@ public abstract class WriteWixSource extends DefaultTask {
     /// @param files files to install.
     private void appendComponents(StringBuilder output, List<WixFile> files) {
         String guiExecutablePath = normalizedRelativePath(getGuiExecutablePath().get());
-        String cliExecutablePath = normalizedRelativePath(getCliExecutablePath().get());
         for (WixFile file : files) {
             output.append("    <DirectoryRef Id=\"").append(xml(file.directoryId())).append("\">\n");
             output.append("      <Component Id=\"").append(xml(file.componentId())).append("\" Guid=\"");
@@ -219,10 +211,6 @@ public abstract class WriteWixSource extends DefaultTask {
             if (file.relativePath().equals(guiExecutablePath)) {
                 output.append(">\n");
                 appendShortcut(output, "GuiShortcut", getProductName().get(), "ApplicationIcon.ico");
-                output.append("        </File>\n");
-            } else if (file.relativePath().equals(cliExecutablePath)) {
-                output.append(">\n");
-                appendShortcut(output, "CliShortcut", getProductName().get() + " CLI", "ApplicationIcon.ico");
                 output.append("        </File>\n");
             } else {
                 output.append(" />\n");

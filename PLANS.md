@@ -45,7 +45,7 @@
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:writeJlinkWixSource --rerun-tasks`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkMsi`
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkMsi --dry-run`
-- Generated WiX source XML smoke check: package metadata, main feature, application icon, GUI/CLI shortcuts, per-user scope, `WixUI_InstallDir`, and license binding are present.
+- Generated WiX source XML smoke check: package metadata, main feature, application icon, GUI shortcut, per-user scope, `WixUI_InstallDir`, and license binding are present.
 - `git diff --check`
 
 ### Known Limits
