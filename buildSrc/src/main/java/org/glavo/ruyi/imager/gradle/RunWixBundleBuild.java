@@ -43,6 +43,12 @@ public abstract class RunWixBundleBuild extends DefaultTask {
     @Input
     public abstract Property<String> getWixExecutable();
 
+    /// Returns the WiX localization culture.
+    ///
+    /// @return WiX localization culture.
+    @Input
+    public abstract Property<String> getCulture();
+
     /// Returns the generated WiX bundle source file.
     ///
     /// @return WiX bundle source file.
@@ -82,6 +88,8 @@ public abstract class RunWixBundleBuild extends DefaultTask {
                     sourceFile.toString(),
                     "-ext",
                     "WixToolset.BootstrapperApplications.wixext",
+                    "-culture",
+                    getCulture().get(),
                     "-pdbtype",
                     "none",
                     "-o",

@@ -148,6 +148,7 @@ val jlinkMsiUpgradeCode =
     providers.gradleProperty("jlink.msi.upgradeCode").orElse("9D6D03B2-48F4-4F44-B8F6-7F6E3E4B29A1")
 val jlinkMsiInstallScope = providers.gradleProperty("jlink.msi.installScope").orElse("perUser")
 val jlinkMsiWixExecutable = providers.gradleProperty("wix.executable").orElse("wix")
+val jlinkInstallerCulture = providers.gradleProperty("jlink.installer.culture").orElse("zh-CN")
 val jlinkMsiArchitecture = providers.provider { requireWixArchitecture(jlinkJdkPlatform) }
 val jlinkMsiDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/msi")
 val jlinkMsiSourceFile = jlinkMsiDirectory.map { it.file("ruyi-imager.wxs") }
@@ -624,6 +625,7 @@ tasks.register<RunWixBuild>("jlinkMsi") {
     }
     wixExecutable.set(jlinkMsiWixExecutable)
     architecture.set(jlinkMsiArchitecture)
+    culture.set(jlinkInstallerCulture)
     appDirectory.set(jlinkImageDirectory)
     sourceFile.set(jlinkMsiSourceFile)
     outputFile.set(jlinkMsiOutputFile)
@@ -654,6 +656,7 @@ tasks.register<RunWixBundleBuild>("jlinkSetupExe") {
         requireWixArchitecture(jlinkJdkPlatform)
     }
     wixExecutable.set(jlinkMsiWixExecutable)
+    culture.set(jlinkInstallerCulture)
     sourceFile.set(jlinkSetupSourceFile)
     msiPackageFile.set(jlinkMsiOutputFile)
     outputFile.set(jlinkSetupOutputFile)
