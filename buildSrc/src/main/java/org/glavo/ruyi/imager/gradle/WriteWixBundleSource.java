@@ -44,6 +44,13 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     @PathSensitive(PathSensitivity.NONE)
     public abstract RegularFileProperty getIconFile();
 
+    /// Returns the logo file shown by the bootstrapper UI.
+    ///
+    /// @return bootstrapper UI logo file.
+    @InputFile
+    @PathSensitive(PathSensitivity.NONE)
+    public abstract RegularFileProperty getLogoFile();
+
     /// Returns the RTF license file shown by the bootstrapper UI.
     ///
     /// @return RTF license file.
@@ -109,6 +116,9 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         output.append(getLicenseFile().isPresent() ? "rtfLicense" : "hyperlinkLicense");
         output.append('"');
         output.append(" ShowVersion=\"yes\"");
+        output.append(" LogoFile=\"");
+        output.append(xml(getLogoFile().get().getAsFile().getAbsolutePath()));
+        output.append('"');
         if (getLicenseFile().isPresent()) {
             output.append(" LicenseFile=\"");
             output.append(xml(getLicenseFile().get().getAsFile().getAbsolutePath()));
