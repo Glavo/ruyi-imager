@@ -100,14 +100,6 @@ jobs:
           fi
           cp "${assets[0]}" release-assets/
           if [[ "${{ matrix.platform }}" == windows-* ]]; then
-            msis=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.msi)
-            if [ "${#msis[@]}" -ne 1 ]; then
-              printf 'Expected exactly one MSI package for %s, found %s\n' "${{ matrix.platform }}" "${#msis[@]}" >&2
-              printf 'Matched MSI packages:\n' >&2
-              printf '  %s\n' "${msis[@]}" >&2
-              exit 1
-            fi
-            cp "${msis[0]}" release-assets/
             setups=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}-setup.exe)
             if [ "${#setups[@]}" -ne 1 ]; then
               printf 'Expected exactly one setup executable for %s, found %s\n' "${{ matrix.platform }}" "${#setups[@]}" >&2
