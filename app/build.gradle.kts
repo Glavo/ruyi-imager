@@ -148,7 +148,6 @@ val jlinkMsiUpgradeCode =
     providers.gradleProperty("jlink.msi.upgradeCode").orElse("9D6D03B2-48F4-4F44-B8F6-7F6E3E4B29A1")
 val jlinkMsiInstallScope = providers.gradleProperty("jlink.msi.installScope").orElse("perUser")
 val jlinkMsiWixExecutable = providers.gradleProperty("wix.executable").orElse("wix")
-val jlinkInstallerCulture = providers.gradleProperty("jlink.installer.culture").orElse("zh-CN")
 val jlinkMsiArchitecture = providers.provider { requireWixArchitecture(jlinkJdkPlatform) }
 val jlinkMsiDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/msi")
 val jlinkMsiSourceFile = jlinkMsiDirectory.map { it.file("ruyi-imager.wxs") }
@@ -162,6 +161,7 @@ val jlinkSetupSourceFile = jlinkSetupDirectory.map { it.file("ruyi-imager-setup.
 val jlinkSetupOutputFile = layout.buildDirectory.file(
     "distributions/ruyi-imager-${project.version}-$jlinkJdkPlatform-setup.exe",
 )
+val jlinkSetupLocalizationDirectory = rootProject.layout.projectDirectory.dir("resources/wix/setup")
 val jlinkJavafxModuleNames = if (jlinkJdkPlatform == "linux-riscv64") emptyList() else javafxModuleNames
 val jlinkDefaultModules = defaultJlinkModules() + jlinkJavafxModuleNames
 val jlinkModules = providers.gradleProperty("jlink.modules").orElse(jlinkDefaultModules.joinToString(","))
@@ -625,7 +625,6 @@ tasks.register<RunWixBuild>("jlinkMsi") {
     }
     wixExecutable.set(jlinkMsiWixExecutable)
     architecture.set(jlinkMsiArchitecture)
-    culture.set(jlinkInstallerCulture)
     appDirectory.set(jlinkImageDirectory)
     sourceFile.set(jlinkMsiSourceFile)
     outputFile.set(jlinkMsiOutputFile)
@@ -641,10 +640,12 @@ val writeJlinkWixBundleSource = tasks.register<WriteWixBundleSource>("writeJlink
     msiPackageFile.set(jlinkMsiOutputFile)
     iconFile.set(rootProject.layout.projectDirectory.file("resources/ruyi-logo.ico"))
     logoFile.set(rootProject.layout.projectDirectory.file("resources/ruyi-logo-64.png"))
+    localizationDirectory.set(jlinkSetupLocalizationDirectory)
     productName.set(jlinkMsiProductName)
     manufacturer.set(jlinkMsiManufacturer)
     productVersion.set(jlinkMsiProductVersion)
     upgradeCode.set(jlinkSetupUpgradeCode)
+    installScope.set(jlinkMsiInstallScope)
     outputFile.set(jlinkSetupSourceFile)
 }
 
@@ -656,9 +657,9 @@ tasks.register<RunWixBundleBuild>("jlinkSetupExe") {
         requireWixArchitecture(jlinkJdkPlatform)
     }
     wixExecutable.set(jlinkMsiWixExecutable)
-    culture.set(jlinkInstallerCulture)
     sourceFile.set(jlinkSetupSourceFile)
     msiPackageFile.set(jlinkMsiOutputFile)
+    localizationDirectory.set(jlinkSetupLocalizationDirectory)
     outputFile.set(jlinkSetupOutputFile)
 }
 

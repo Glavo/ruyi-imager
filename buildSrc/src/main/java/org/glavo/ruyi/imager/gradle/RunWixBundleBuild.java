@@ -5,9 +5,11 @@ package org.glavo.ruyi.imager.gradle;
 
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
+import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
@@ -43,12 +45,6 @@ public abstract class RunWixBundleBuild extends DefaultTask {
     @Input
     public abstract Property<String> getWixExecutable();
 
-    /// Returns the WiX localization culture.
-    ///
-    /// @return WiX localization culture.
-    @Input
-    public abstract Property<String> getCulture();
-
     /// Returns the generated WiX bundle source file.
     ///
     /// @return WiX bundle source file.
@@ -62,6 +58,13 @@ public abstract class RunWixBundleBuild extends DefaultTask {
     @InputFile
     @PathSensitive(PathSensitivity.NONE)
     public abstract RegularFileProperty getMsiPackageFile();
+
+    /// Returns the bootstrapper UI localization directory.
+    ///
+    /// @return bootstrapper UI localization directory.
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract DirectoryProperty getLocalizationDirectory();
 
     /// Returns the setup executable output file.
     ///
@@ -88,8 +91,6 @@ public abstract class RunWixBundleBuild extends DefaultTask {
                     sourceFile.toString(),
                     "-ext",
                     "WixToolset.BootstrapperApplications.wixext",
-                    "-culture",
-                    getCulture().get(),
                     "-pdbtype",
                     "none",
                     "-o",

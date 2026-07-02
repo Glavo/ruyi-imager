@@ -51,12 +51,6 @@ public abstract class RunWixBuild extends DefaultTask {
     @Input
     public abstract Property<String> getArchitecture();
 
-    /// Returns the WiX localization culture.
-    ///
-    /// @return WiX localization culture.
-    @Input
-    public abstract Property<String> getCulture();
-
     /// Returns the staged application image directory.
     ///
     /// @return staged application image directory.
@@ -98,8 +92,6 @@ public abstract class RunWixBuild extends DefaultTask {
                     getArchitecture().get(),
                     "-ext",
                     "WixToolset.UI.wixext",
-                    "-culture",
-                    getCulture().get(),
                     "-pdbtype",
                     "none",
                     "-o",
