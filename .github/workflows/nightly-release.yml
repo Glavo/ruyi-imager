@@ -19,6 +19,7 @@ env:
     --enable-native-access=ALL-UNNAMED
     --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
     --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
+  WIX_VERSION: 6.0.2
   NIGHTLY_TAG: nightly
   NIGHTLY_RELEASE_NAME: Nightly Build
 
@@ -61,7 +62,7 @@ jobs:
       - name: Install WiX
         if: startsWith(matrix.platform, 'windows-')
         run: |
-          dotnet tool install --tool-path "$env:RUNNER_TEMP\wix" wix
+          dotnet tool install --tool-path "$env:RUNNER_TEMP\wix" wix --version "$env:WIX_VERSION"
           "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build jlink archive
