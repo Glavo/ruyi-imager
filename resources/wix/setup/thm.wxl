@@ -13,15 +13,11 @@
   <String Id="HelpHeader" Value="Setup Help" />
   <String Id="HelpText" Value="/install | /repair | /uninstall | /layout [directory] - installs, repairs, uninstalls, or creates a complete local copy of the bundle in directory. Install is the default.&#xA;&#xA;/passive | /quiet - displays minimal UI with no prompts or displays no UI and no prompts.&#xA;&#xA;/norestart - suppress restart prompts.&#xA;/log log.txt - writes logs to a specific file." />
   <String Id="HelpCloseButton" Value="&amp;Close" />
-  <String Id="InstallLicenseLinkText" Value="[WixBundleName] &lt;a href=&quot;#&quot;&gt;license terms&lt;/a&gt;." />
-  <String Id="InstallAcceptCheckbox" Value="I &amp;agree to the license terms and conditions" />
   <String Id="InstallOptionsButton" Value="&amp;Options" />
   <String Id="InstallInstallButton" Value="&amp;Install" />
   <String Id="InstallCancelButton" Value="&amp;Cancel" />
   <String Id="OptionsHeader" Value="Setup Options" />
   <String Id="OptionsLocationLabel" Value="Install location:" />
-  <String Id="OptionsPerUserScopeText" Value="Install [WixBundleName] just for &amp;me" />
-  <String Id="OptionsPerMachineScopeText" Value="Install [WixBundleName] for all &amp;users" />
   <String Id="OptionsBrowseButton" Value="&amp;Browse" />
   <String Id="OptionsOkButton" Value="&amp;OK" />
   <String Id="OptionsCancelButton" Value="&amp;Cancel" />

@@ -49,28 +49,35 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     ///
     /// @return embedded MSI package.
     @InputFile
-    @PathSensitive(PathSensitivity.NONE)
+    @PathSensitive(PathSensitivity.ABSOLUTE)
     public abstract RegularFileProperty getMsiPackageFile();
 
     /// Returns the icon file used by the setup executable and Add/Remove Programs.
     ///
     /// @return setup icon file.
     @InputFile
-    @PathSensitive(PathSensitivity.NONE)
+    @PathSensitive(PathSensitivity.ABSOLUTE)
     public abstract RegularFileProperty getIconFile();
 
     /// Returns the logo file shown by the bootstrapper UI.
     ///
     /// @return bootstrapper UI logo file.
     @InputFile
-    @PathSensitive(PathSensitivity.NONE)
+    @PathSensitive(PathSensitivity.ABSOLUTE)
     public abstract RegularFileProperty getLogoFile();
+
+    /// Returns the bootstrapper UI theme file.
+    ///
+    /// @return bootstrapper UI theme file.
+    @InputFile
+    @PathSensitive(PathSensitivity.ABSOLUTE)
+    public abstract RegularFileProperty getThemeFile();
 
     /// Returns the bootstrapper UI localization directory.
     ///
     /// @return bootstrapper UI localization directory.
     @InputDirectory
-    @PathSensitive(PathSensitivity.RELATIVE)
+    @PathSensitive(PathSensitivity.ABSOLUTE)
     public abstract DirectoryProperty getLocalizationDirectory();
 
     /// Returns the bundle display name.
@@ -144,6 +151,9 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         output.append("    <BootstrapperApplication>\n");
         output.append("      <bal:WixStandardBootstrapperApplication Theme=\"hyperlinkLicense\"");
         output.append(" LicenseUrl=\"\"");
+        output.append(" ThemeFile=\"");
+        output.append(xml(getThemeFile().get().getAsFile().getAbsolutePath()));
+        output.append('"');
         output.append(" ShowVersion=\"yes\"");
         output.append(" LogoFile=\"");
         output.append(xml(getLogoFile().get().getAsFile().getAbsolutePath()));
@@ -189,7 +199,7 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         try (var stream = Files.walk(localizationDirectory)) {
             stream
                     .filter(Files::isRegularFile)
-                    .filter(path -> !localizationDirectory.relativize(path).toString().equals("thm.wxl"))
+                    .filter(path -> isCultureLocalizationFile(localizationDirectory, path))
                     .forEach(path -> addLocalizationPayload(payloads, localizationDirectory, path));
         }
 
@@ -200,6 +210,16 @@ public abstract class WriteWixBundleSource extends DefaultTask {
             output.append(xml(payload.getValue().toString()));
             output.append("\" />\n");
         }
+    }
+
+    /// Returns whether a file is a culture-specific bootstrapper UI localization file.
+    ///
+    /// @param localizationDirectory bootstrapper UI localization directory.
+    /// @param file candidate localization file.
+    /// @return true if the file is a culture-specific `thm.wxl` file.
+    private static boolean isCultureLocalizationFile(Path localizationDirectory, Path file) {
+        Path relativePath = localizationDirectory.relativize(file);
+        return relativePath.getNameCount() == 2 && relativePath.getFileName().toString().equals("thm.wxl");
     }
 
     /// Adds a localization payload and any required lookup alias.

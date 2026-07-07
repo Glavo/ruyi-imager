@@ -51,14 +51,14 @@ public abstract class WriteWixSource extends DefaultTask {
     ///
     /// @return staged application image directory.
     @InputDirectory
-    @PathSensitive(PathSensitivity.RELATIVE)
+    @PathSensitive(PathSensitivity.ABSOLUTE)
     public abstract DirectoryProperty getAppDirectory();
 
     /// Returns the icon file used by Add/Remove Programs and shortcuts.
     ///
     /// @return product icon file.
     @InputFile
-    @PathSensitive(PathSensitivity.NONE)
+    @PathSensitive(PathSensitivity.ABSOLUTE)
     public abstract RegularFileProperty getIconFile();
 
     /// Returns the product display name.
@@ -193,6 +193,8 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append("      <DialogRef Id=\"ProgressDlg\" />\n");
         output.append("      <DialogRef Id=\"ResumeDlg\" />\n");
         output.append("      <DialogRef Id=\"UserExit\" />\n");
+        output.append("      <Publish Dialog=\"ExitDialog\" Control=\"Finish\" Event=\"EndDialog\"");
+        output.append(" Value=\"Return\" Order=\"999\" />\n");
         output.append("      <Publish Dialog=\"WelcomeDlg\" Control=\"Next\" Event=\"NewDialog\"");
         output.append(" Value=\"InstallDirDlg\" Condition=\"NOT Installed\" />\n");
         output.append("      <Publish Dialog=\"WelcomeDlg\" Control=\"Next\" Event=\"NewDialog\"");

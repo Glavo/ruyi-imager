@@ -641,6 +641,7 @@ val writeJlinkWixBundleSource = tasks.register<WriteWixBundleSource>("writeJlink
     msiPackageFile.set(jlinkMsiOutputFile)
     iconFile.set(rootProject.layout.projectDirectory.file("resources/ruyi-logo.ico"))
     logoFile.set(rootProject.layout.projectDirectory.file("resources/ruyi-logo-64.png"))
+    themeFile.set(rootProject.layout.projectDirectory.file("resources/wix/setup/theme.xml"))
     localizationDirectory.set(jlinkSetupLocalizationDirectory)
     productName.set(jlinkMsiProductName)
     manufacturer.set(jlinkMsiManufacturer)

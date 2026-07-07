@@ -13,15 +13,11 @@
   <String Id="HelpHeader" Value="安装帮助" />
   <String Id="HelpText" Value="/install | /repair | /uninstall | /layout [directory] - 安装、修复、卸载，或在指定目录中创建完整的本地安装包副本。默认操作是安装。&#xA;&#xA;/passive | /quiet - 显示最小 UI 且不提示，或不显示 UI 且不提示。&#xA;&#xA;/norestart - 禁止重启提示。&#xA;/log log.txt - 将日志写入指定文件。" />
   <String Id="HelpCloseButton" Value="关闭" />
-  <String Id="InstallLicenseLinkText" Value="[WixBundleName] &lt;a href=&quot;#&quot;&gt;许可条款&lt;/a&gt;。" />
-  <String Id="InstallAcceptCheckbox" Value="我同意许可条款和条件" />
   <String Id="InstallOptionsButton" Value="选项" />
   <String Id="InstallInstallButton" Value="安装" />
   <String Id="InstallCancelButton" Value="取消" />
   <String Id="OptionsHeader" Value="安装选项" />
   <String Id="OptionsLocationLabel" Value="安装位置：" />
-  <String Id="OptionsPerUserScopeText" Value="仅为我安装 [WixBundleName]" />
-  <String Id="OptionsPerMachineScopeText" Value="为所有用户安装 [WixBundleName]" />
   <String Id="OptionsBrowseButton" Value="浏览" />
   <String Id="OptionsOkButton" Value="确定" />
   <String Id="OptionsCancelButton" Value="取消" />
