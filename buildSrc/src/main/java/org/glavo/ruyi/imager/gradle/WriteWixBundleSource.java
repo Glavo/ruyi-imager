@@ -228,11 +228,29 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     /// @param localizationDirectory bootstrapper UI localization directory.
     /// @param file localization source file.
     private static void addLocalizationPayload(Map<String, Path> payloads, Path localizationDirectory, Path file) {
-        String relativePath = localizationDirectory.relativize(file).toString().replace('/', '\\');
-        payloads.put(relativePath, file);
-        if (relativePath.equals("zh-CN\\thm.wxl")) {
-            payloads.put("2052\\thm.wxl", file);
-        }
+        payloads.put(localizationPayloadName(localizationDirectory, file), file);
+    }
+
+    /// Returns the bundle payload name used by the standard bootstrapper UI localization probe.
+    ///
+    /// @param localizationDirectory bootstrapper UI localization directory.
+    /// @param file localization source file.
+    /// @return payload name using a decimal Windows language identifier directory.
+    private static String localizationPayloadName(Path localizationDirectory, Path file) {
+        Path relativePath = localizationDirectory.relativize(file);
+        String cultureName = relativePath.getName(0).toString();
+        return windowsLanguageId(cultureName) + "\\thm.wxl";
+    }
+
+    /// Returns the decimal Windows language identifier for a supported localization culture.
+    ///
+    /// @param cultureName localization culture name.
+    /// @return decimal Windows language identifier.
+    private static String windowsLanguageId(String cultureName) {
+        return switch (cultureName) {
+            case "zh-CN" -> "2052";
+            default -> throw new IllegalArgumentException("Unsupported WiX setup localization culture: " + cultureName);
+        };
     }
 
     /// Returns the default install folder for the configured installation scope.
