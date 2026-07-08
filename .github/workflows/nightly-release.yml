@@ -68,19 +68,19 @@ jobs:
           "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build jlink archive
-        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkArchive
+        run: ./gradlew "-Pruyi.commitVersion=true" "-Pruyi.commit=${{ github.sha }}" "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkArchive
 
       - name: Build MSI package
         if: startsWith(matrix.platform, 'windows-')
-        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkMsi
+        run: ./gradlew "-Pruyi.commitVersion=true" "-Pruyi.commit=${{ github.sha }}" "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkMsi
 
       - name: Build setup executable
         if: startsWith(matrix.platform, 'windows-')
-        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkSetupExe
+        run: ./gradlew "-Pruyi.commitVersion=true" "-Pruyi.commit=${{ github.sha }}" "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkSetupExe
 
       - name: Build Debian package
         if: startsWith(matrix.platform, 'linux-')
-        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkDeb
+        run: ./gradlew "-Pruyi.commitVersion=true" "-Pruyi.commit=${{ github.sha }}" "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkDeb
 
       - name: Collect release assets
         shell: bash
