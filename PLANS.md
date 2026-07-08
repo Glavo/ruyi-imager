@@ -65,6 +65,8 @@
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkSetupExe --dry-run`
 - `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.repo.RuyiRepositoryStoreTest --tests org.glavo.ruyi.imager.core.repo.RuyiRepositoryServiceTest`
 - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava`
+- `./gradlew -g .gradle-user-home :app:processResources`
+- GUI short-status punctuation check: no `gui.progress.*` or `gui.status.*` localization values end with `.` or `。`.
 - `git diff --check`
 
 ### Known Limits
