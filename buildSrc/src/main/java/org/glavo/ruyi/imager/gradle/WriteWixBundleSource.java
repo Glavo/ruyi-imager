@@ -98,6 +98,12 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     @Input
     public abstract Property<String> getProductVersion();
 
+    /// Returns the human-readable bundle display version.
+    ///
+    /// @return bundle display version.
+    @Input
+    public abstract Property<String> getDisplayVersion();
+
     /// Returns the bundle upgrade code.
     ///
     /// @return bundle upgrade code.
@@ -147,6 +153,9 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         output.append("\">\n");
         output.append("    <Variable Name=\"InstallFolder\" Type=\"formatted\" Value=\"");
         output.append(xml(defaultInstallFolder()));
+        output.append("\" />\n");
+        output.append("    <Variable Name=\"RuyiImagerDisplayVersion\" Type=\"string\" Value=\"");
+        output.append(xml(getDisplayVersion().get()));
         output.append("\" />\n");
         output.append("    <BootstrapperApplication>\n");
         output.append("      <bal:WixStandardBootstrapperApplication Theme=\"hyperlinkLicense\"");

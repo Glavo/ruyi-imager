@@ -7,7 +7,7 @@
   <String Id="InstallHeader" Value="欢迎" />
   <String Id="InstallMessage" Value="安装程序将把 [WixBundleName] 安装到你的计算机。单击“安装”继续，或单击“取消”退出。" />
   <String Id="InstallMessageOptions" Value="安装程序将把 [WixBundleName] 安装到你的计算机。单击“安装”继续，单击“选项”设置安装选项，或单击“取消”退出。" />
-  <String Id="InstallVersion" Value="版本 [WixBundleVersion]" />
+  <String Id="InstallVersion" Value="版本 [RuyiImagerDisplayVersion]" />
   <String Id="ConfirmCancelMessage" Value="确定要取消吗？" />
   <String Id="ExecuteUpgradeRelatedBundleMessage" Value="旧版本" />
   <String Id="HelpHeader" Value="安装帮助" />
