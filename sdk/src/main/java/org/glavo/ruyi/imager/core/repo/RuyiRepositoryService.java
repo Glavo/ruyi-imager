@@ -36,6 +36,15 @@ public final class RuyiRepositoryService implements RepositoryService {
         this.cacheInvalidator = Objects.requireNonNull(cacheInvalidator);
     }
 
+    /// Returns whether all active repositories have local metadata.
+    ///
+    /// @return true when local metadata is available for all active repositories.
+    /// @throws IOException when repository configuration cannot be read.
+    @Override
+    public boolean hasLocalMetadata() throws IOException {
+        return store.hasLocalMetadata();
+    }
+
     /// Updates local metadata repositories.
     ///
     /// @param reporter progress reporter.

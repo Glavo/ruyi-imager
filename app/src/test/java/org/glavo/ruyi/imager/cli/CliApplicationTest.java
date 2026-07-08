@@ -21,6 +21,7 @@ import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.core.image.RuyiImageCatalogService;
+import org.glavo.ruyi.imager.core.repo.RepositoryService;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryService;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.glavo.ruyi.imager.i18n.Messages;
@@ -520,7 +521,7 @@ public final class CliApplicationTest {
             FastbootService fastboot) {
         return new AppServices(
                 new AppDirectories(baseDirectory.resolve("config"), baseDirectory.resolve("cache")),
-                _ -> OperationResult.success("Repositories updated."),
+                new EmptyRepositoryService(),
                 images,
                 devices,
                 fastboot,
@@ -955,6 +956,27 @@ public final class CliApplicationTest {
         @Override
         public @Unmodifiable List<BlockDevice> listDevices() {
             throw new AssertionError("Device enumeration should not be reached.");
+        }
+    }
+
+    /// Repository service that reports local metadata and no-op updates.
+    @NotNullByDefault
+    private static final class EmptyRepositoryService implements RepositoryService {
+        /// Reports that local metadata is already available.
+        ///
+        /// @return true.
+        @Override
+        public boolean hasLocalMetadata() {
+            return true;
+        }
+
+        /// Reports a successful no-op update.
+        ///
+        /// @param reporter progress reporter.
+        /// @return successful operation result.
+        @Override
+        public OperationResult update(ProgressReporter reporter) {
+            return OperationResult.success("Repositories updated.");
         }
     }
 

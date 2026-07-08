@@ -131,6 +131,24 @@ public final class RuyiRepositoryStore {
         return List.copyOf(result);
     }
 
+    /// Returns whether all active repositories have local metadata.
+    ///
+    /// @return true when every active repository has a local `config.toml`.
+    /// @throws IOException when repository configuration cannot be read.
+    public boolean hasLocalMetadata() throws IOException {
+        for (RuyiRepositoryEntry entry : readActiveEntries()) {
+            Path configFile = resolveRoot(entry).resolve("config.toml");
+            if (!Files.isRegularFile(configFile)) {
+                LOGGER.atInfo().log(() -> "Repository metadata is missing. id="
+                        + entry.id()
+                        + ", config="
+                        + configFile);
+                return false;
+            }
+        }
+        return true;
+    }
+
     /// Synchronizes enabled repositories.
     ///
     /// @param reporter progress reporter.

@@ -9,9 +9,15 @@ import org.jetbrains.annotations.NotNullByDefault;
 
 import java.io.IOException;
 
-/// Updates local Ruyi repository metadata.
+/// Manages local Ruyi repository metadata.
 @NotNullByDefault
 public interface RepositoryService {
+    /// Returns whether all active repositories have local metadata.
+    ///
+    /// @return true when local metadata is available for all active repositories.
+    /// @throws IOException when repository configuration cannot be read.
+    boolean hasLocalMetadata() throws IOException;
+
     /// Updates local repository metadata.
     ///
     /// @param reporter progress reporter.

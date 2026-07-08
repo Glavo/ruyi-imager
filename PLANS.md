@@ -20,7 +20,7 @@
 - Windows/Linux/macOS block-device and fastboot enumeration are implemented with concurrent stdout/stderr draining.
 - Linux and macOS mounted removable targets are automatically unmounted before writing, then re-enumerated before destructive access.
 - Fastboot flows cover ordinary partition flashing, LPi4A/Meles U-Boot handoff, SpacemiT K1 stage/continue, sparse progress parsing, duplicate serial rejection, and post-handoff ambiguity checks.
-- GUI supports catalog/local image selection, target selection, safety confirmation, progress, cancellation, log path display, language switching, Chinese vendor display names, window icons, and short progress status text without trailing full stops.
+- GUI supports catalog/local image selection, automatic metadata update before first manufacturer selection, target selection, safety confirmation, progress, cancellation, log path display, language switching, Chinese vendor display names, window icons, and short progress status text without trailing full stops.
 - Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, WiX MSI packages, WiX Burn setup executables, and nightly release workflow. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. Fastboot verification/extraction, JLink runtime and launcher generation, Debian package metadata/assembly, WiX MSI source/build orchestration, and WiX Burn bundle source/build orchestration are implemented as Java tasks/helpers in `buildSrc`; WiX MSI packages default to per-user installation under `LocalAppDataFolder` and include a directory selection UI. Windows setup executables use a single Burn package with a custom no-license bootstrapper theme, embedded bootstrapper UI localization payloads, a bootstrapper window titlebar icon payload, and a separate display version variable for full project versions that cannot be stored in WiX numeric version fields. Linux nightly builds publish `.deb` packages, Windows nightly builds publish setup `.exe` bundles, and commit-based nightly artifacts use a `1.0.0+nightly.<short-sha>` project version.
 
 ### Remaining
@@ -63,6 +63,8 @@
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:writeJlinkWixBundleSource -x :app:jlinkMsi --rerun-tasks`
 - WiX Burn window-icon XML check: the bootstrapper theme references `icon.ico`, and the generated setup source embeds `icon.ico` from `resources/ruyi-logo.ico` as a bootstrapper application payload.
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkSetupExe --dry-run`
+- `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.repo.RuyiRepositoryStoreTest --tests org.glavo.ruyi.imager.core.repo.RuyiRepositoryServiceTest`
+- `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava`
 - `git diff --check`
 
 ### Known Limits

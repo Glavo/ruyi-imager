@@ -1032,6 +1032,22 @@ public final class MainWindow {
             /// @return image catalog.
             @Override
             protected ImageCatalog call() throws Exception {
+                if (!services.repository().hasLocalMetadata()) {
+                    LOGGER.info("Local repository metadata is missing; updating before manufacturer selection.");
+                    updateMessage(Messages.get("gui.progress.updatingMetadata"));
+                    OperationResult result = services.repository().update(LoggingProgressReporter.wrap(event -> {
+                        updateMessage(event.message());
+                        @Nullable Long currentBytes = event.currentBytes();
+                        @Nullable Long totalBytes = event.totalBytes();
+                        if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
+                            updateProgress(currentBytes, totalBytes);
+                        }
+                    }, LOGGER));
+                    if (!result.success()) {
+                        throw new IOException(result.message());
+                    }
+                    updateProgress(ProgressBar.INDETERMINATE_PROGRESS, 1.0);
+                }
                 updateMessage(Messages.get("gui.progress.loadingCatalog"));
                 return services.images().listImages();
             }

@@ -368,6 +368,14 @@ public final class MainWindowJavaFxSmokeTest {
     /// Repository service that reports a no-op success.
     @NotNullByDefault
     private static final class EmptyRepositoryService implements RepositoryService {
+        /// Reports that local metadata is already available.
+        ///
+        /// @return true.
+        @Override
+        public boolean hasLocalMetadata() {
+            return true;
+        }
+
         /// Reports a successful no-op update.
         ///
         /// @param reporter progress reporter.

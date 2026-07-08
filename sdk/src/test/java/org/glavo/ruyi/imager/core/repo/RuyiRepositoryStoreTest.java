@@ -14,6 +14,8 @@ import java.time.ZoneId;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for Ruyi repository configuration parsing.
 @NotNullByDefault
@@ -92,6 +94,45 @@ public final class RuyiRepositoryStoreTest {
 
         assertEquals(1, entries.size());
         assertEquals("https://example.invalid/packages-index.git", entries.getFirst().remote());
+    }
+
+    /// Verifies missing default repository metadata is reported as unavailable.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when repository configuration cannot be read.
+    @Test
+    public void reportsMissingLocalMetadata(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+
+        RuyiRepositoryStore store = new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory));
+
+        assertFalse(store.hasLocalMetadata());
+    }
+
+    /// Verifies existing local repository metadata is reported as available.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be created or read.
+    @Test
+    public void reportsExistingLocalMetadata(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path repoDirectory = temporaryDirectory.resolve("repo");
+        Files.createDirectories(configDirectory);
+        Files.createDirectories(repoDirectory);
+
+        Files.writeString(configDirectory.resolve("config.toml"), """
+                [repo]
+                local = "%s"
+                """.formatted(pathString(repoDirectory)));
+        Files.writeString(repoDirectory.resolve("config.toml"), """
+                ruyi-repo = "v1"
+                """);
+
+        RuyiRepositoryStore store = new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory));
+
+        assertTrue(store.hasLocalMetadata());
     }
 
     /// Converts a path to a TOML-friendly string.
