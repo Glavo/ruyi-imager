@@ -172,6 +172,7 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         output.append('"');
         output.append(" />\n");
         appendLocalizedPayloads(output, localizationDirectory);
+        appendIconPayload(output);
         output.append("    </BootstrapperApplication>\n");
         output.append("    <Chain>\n");
         output.append("      <MsiPackage SourceFile=\"");
@@ -219,6 +220,15 @@ public abstract class WriteWixBundleSource extends DefaultTask {
             output.append(xml(payload.getValue().toString()));
             output.append("\" />\n");
         }
+    }
+
+    /// Appends the bootstrapper window icon payload.
+    ///
+    /// @param output WiX source output.
+    private void appendIconPayload(StringBuilder output) {
+        output.append("      <Payload Name=\"icon.ico\" Compressed=\"yes\" SourceFile=\"");
+        output.append(xml(getIconFile().get().getAsFile().getAbsolutePath()));
+        output.append("\" />\n");
     }
 
     /// Returns whether a file is a culture-specific bootstrapper UI localization file.
