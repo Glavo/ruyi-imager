@@ -101,20 +101,16 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// Writes a source image to a target path.
     ///
     /// @param source source image path.
-    /// @param target target path.
-    /// @param targetDisplayName human-readable target display name.
+    /// @param target selected target block device.
     /// @param totalBytes source size.
-    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @throws IOException when the image cannot be written.
     @Override
     public void write(
             Path source,
-            Path target,
-            String targetDisplayName,
+            BlockDevice target,
             long totalBytes,
-            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
         if (!run(
@@ -122,9 +118,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
                 progressSinks("write", "flash", message),
                 source,
                 target,
-                targetDisplayName,
                 totalBytes,
-                targetRemovable,
                 reporter)) {
             throw new IOException(SdkMessages.get("core.dd.writeFailed"));
         }
@@ -133,10 +127,8 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// Verifies target bytes against a source image.
     ///
     /// @param source source image path.
-    /// @param target target path.
-    /// @param targetDisplayName human-readable target display name.
+    /// @param target selected target block device.
     /// @param totalBytes source size.
-    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return whether the target bytes match the source image.
@@ -144,10 +136,8 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     @Override
     public boolean verify(
             Path source,
-            Path target,
-            String targetDisplayName,
+            BlockDevice target,
             long totalBytes,
-            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException {
         return run(
@@ -155,19 +145,15 @@ public final class ProcessDdImageWriter implements DdImageWriter {
                 progressSinks("verify", "verify", message),
                 source,
                 target,
-                targetDisplayName,
                 totalBytes,
-                targetRemovable,
                 reporter);
     }
 
     /// Writes a source image to a target path and verifies the written bytes through one helper process.
     ///
     /// @param source source image path.
-    /// @param target target path.
-    /// @param targetDisplayName human-readable target display name.
+    /// @param target selected target block device.
     /// @param totalBytes source size.
-    /// @param targetRemovable whether the target was identified as removable.
     /// @param writeMessage progress message for writing.
     /// @param verifyMessage progress message for verification.
     /// @param reporter progress reporter.
@@ -176,10 +162,8 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     @Override
     public boolean writeAndVerify(
             Path source,
-            Path target,
-            String targetDisplayName,
+            BlockDevice target,
             long totalBytes,
-            boolean targetRemovable,
             String writeMessage,
             String verifyMessage,
             ProgressReporter reporter) throws IOException {
@@ -190,9 +174,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
                         "verify", new ProgressSink("verify", verifyMessage)),
                 source,
                 target,
-                targetDisplayName,
                 totalBytes,
-                targetRemovable,
                 reporter);
     }
 
@@ -201,10 +183,8 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param operation helper operation.
     /// @param progressSinks progress sinks keyed by helper operation.
     /// @param source source image path.
-    /// @param target target path.
-    /// @param targetDisplayName human-readable target display name.
+    /// @param target selected target block device.
     /// @param totalBytes source size.
-    /// @param targetRemovable whether the target was identified as removable.
     /// @param reporter progress reporter.
     /// @return operation success result.
     /// @throws IOException when helper execution or output parsing fails.
@@ -212,20 +192,12 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             String operation,
             Map<String, ProgressSink> progressSinks,
             Path source,
-            Path target,
-            String targetDisplayName,
+            BlockDevice target,
             long totalBytes,
-            boolean targetRemovable,
             ProgressReporter reporter) throws IOException {
-        String helperTargetDisplayName = validatedTargetDisplayName(targetDisplayName);
-        List<String> arguments = arguments(
-                operation,
-                source,
-                target,
-                helperTargetDisplayName,
-                totalBytes,
-                targetRemovable);
-        if (DDFlasherElevation.shouldElevate(target)) {
+        String helperTargetDisplayName = validatedTargetDisplayName(target.displayName());
+        List<String> arguments = arguments(operation, source, target, helperTargetDisplayName, totalBytes);
+        if (DDFlasherElevation.shouldElevate(target.path())) {
             return runElevated(operation, progressSinks, helperTargetDisplayName, arguments, reporter);
         }
 
@@ -343,21 +315,13 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             exitCode = process.exitValue();
             readEventLog(eventLog, offset, state);
         } catch (InterruptedException exception) {
-            signalCancelFile(cancelFile);
-            try {
-                if (!process.waitFor(10L, TimeUnit.SECONDS)) {
-                    process.destroyForcibly();
-                }
-            } catch (InterruptedException cleanupException) {
-                exception.addSuppressed(cleanupException);
-                process.destroyForcibly();
-            }
+            cleanupElevatedProcess(process, cancelFile, exception);
             Thread.currentThread().interrupt();
             stdout.awaitQuietly();
             stderr.awaitQuietly();
             throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
-        } catch (IOException exception) {
-            destroyForcibly(process);
+        } catch (IOException | RuntimeException exception) {
+            cleanupElevatedProcess(process, cancelFile, exception);
             stdout.awaitQuietly();
             stderr.awaitQuietly();
             throw exception;
@@ -430,8 +394,8 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             stdout.await(command);
             stderr.await(command);
             return finish(operation, state, exitCode, stderr.text());
-        } catch (IOException exception) {
-            destroyForcibly(process);
+        } catch (IOException | RuntimeException exception) {
+            cleanupElevatedProcess(process, cancelFile, exception);
             stdout.awaitQuietly();
             stderr.awaitQuietly();
             throw exception;
@@ -519,6 +483,27 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         }
     }
 
+    /// Signals and terminates an elevated helper process after SDK-side failure.
+    ///
+    /// @param process elevated helper process.
+    /// @param cancelFile helper cancellation signal path.
+    /// @param failure failure that triggered cleanup.
+    private static void cleanupElevatedProcess(
+            Process process,
+            Path cancelFile,
+            Throwable failure) {
+        signalCancelFile(cancelFile);
+        try {
+            if (!process.waitFor(10L, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+            }
+        } catch (InterruptedException cleanupException) {
+            failure.addSuppressed(cleanupException);
+            process.destroyForcibly();
+            Thread.currentThread().interrupt();
+        }
+    }
+
     /// Finishes one helper run after the process has exited.
     ///
     /// @param operation helper operation.
@@ -548,31 +533,51 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     ///
     /// @param operation helper operation.
     /// @param source source image path.
-    /// @param target target path.
+    /// @param target selected target block device.
     /// @param targetDisplayName human-readable target display name.
     /// @param totalBytes source size.
-    /// @param targetRemovable whether the target was identified as removable.
     /// @return helper arguments.
     private List<String> arguments(
             String operation,
             Path source,
-            Path target,
+            BlockDevice target,
             String targetDisplayName,
-            long totalBytes,
-            boolean targetRemovable) {
-        ArrayList<String> command = new ArrayList<>(11);
+            long totalBytes) {
+        ArrayList<String> command = new ArrayList<>(23);
         command.add(operation);
         command.add("--source");
         command.add(source.toString());
         command.add("--target");
-        command.add(helperTargetArgument(target));
+        command.add(helperTargetArgument(target.path()));
         command.add("--target-display-name");
         command.add(targetDisplayName);
         command.add("--total-bytes");
         command.add(Long.toString(totalBytes));
+        command.add("--target-size-bytes");
+        command.add(Long.toString(target.sizeBytes()));
         command.add("--removable");
-        command.add(Boolean.toString(targetRemovable));
+        command.add(Boolean.toString(target.removable()));
+        command.add("--file-backed");
+        command.add(Boolean.toString(target.fileBacked()));
+        addTargetMetadata(command, "--target-model", target.model());
+        addTargetMetadata(command, "--target-bus-type", target.busType());
+        addTargetMetadata(command, "--target-hardware-id", target.hardwareId());
         return command;
+    }
+
+    /// Adds one available target identity field to helper arguments.
+    ///
+    /// @param arguments helper arguments.
+    /// @param name option name.
+    /// @param value optional option value.
+    private static void addTargetMetadata(
+            List<String> arguments,
+            String name,
+            @Nullable String value) {
+        if (value != null && !value.isBlank()) {
+            arguments.add(name);
+            arguments.add(value);
+        }
     }
 
     /// Validates the target display name passed to the helper.

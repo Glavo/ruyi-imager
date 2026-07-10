@@ -49,10 +49,11 @@ public final class MacOSBlockDevicePreparerTest {
         BlockDevice prepared = preparer.prepare(
                 target("macos-disk-disk2", Path.of("/dev/disk2"), true, false, true),
                 events::add);
+        String targetPath = Path.of("/dev/disk2").toString();
 
         assertFalse(prepared.mounted());
         assertEquals(List.of(), prepared.mountPoints());
-        assertEquals(List.of(List.of("diskutil", "unmountDisk", "/dev/disk2")), runner.commands());
+        assertEquals(List.of(List.of("diskutil", "unmountDisk", targetPath)), runner.commands());
         assertEquals(List.of("prepare", "prepare"), events.stream().map(ProgressEvent::stage).toList());
         assertNull(events.getFirst().currentBytes());
         assertNull(events.getFirst().totalBytes());
@@ -65,6 +66,7 @@ public final class MacOSBlockDevicePreparerTest {
     public void reportsUnmountFailure() {
         RecordingRunner runner = new RecordingRunner(List.of(failure("Unmount failed")));
         MacOSBlockDevicePreparer preparer = new MacOSBlockDevicePreparer(runner);
+        String targetPath = Path.of("/dev/disk2").toString();
 
         Exception exception = assertThrows(
                 Exception.class,
@@ -72,7 +74,7 @@ public final class MacOSBlockDevicePreparerTest {
                 }));
 
         assertTrue(exception.getMessage().contains("Failed to unmount"));
-        assertEquals(List.of(List.of("diskutil", "unmountDisk", "/dev/disk2")), runner.commands());
+        assertEquals(List.of(List.of("diskutil", "unmountDisk", targetPath)), runner.commands());
     }
 
     /// Creates a test target.

@@ -7,7 +7,7 @@ on:
     - cron: "0 18 * * *"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: nightly-release
@@ -45,6 +45,8 @@ jobs:
     steps:
       - name: Check out sources
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Set package version
         shell: bash
@@ -138,6 +140,8 @@ jobs:
     name: Update nightly release
     needs: build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
 
     steps:
       - name: Check out sources

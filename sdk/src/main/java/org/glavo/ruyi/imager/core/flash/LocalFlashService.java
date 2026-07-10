@@ -620,10 +620,8 @@ public final class LocalFlashService implements FlashService {
         if (verify) {
             if (!ddImageWriter.writeAndVerify(
                     source,
-                    writeTarget.path(),
-                    targetDisplayName,
+                    writeTarget,
                     sourceSize,
-                    writeTarget.removable(),
                     writeMessage,
                     verifyMessage,
                     reporter)) {
@@ -634,10 +632,8 @@ public final class LocalFlashService implements FlashService {
         } else {
             ddImageWriter.write(
                     source,
-                    writeTarget.path(),
-                    targetDisplayName,
+                    writeTarget,
                     sourceSize,
-                    writeTarget.removable(),
                     writeMessage,
                     reporter);
             LOGGER.atInfo().log(() -> "Block image write completed. target=" + writeTarget.path());

@@ -73,11 +73,12 @@ public final class LinuxBlockDevicePreparerTest {
         BlockDevice prepared = preparer.prepare(
                 target("linux-disk-sdb", Path.of("/dev/sdb"), true, false, true),
                 events::add);
+        String targetPath = Path.of("/dev/sdb").toString();
 
         assertFalse(prepared.mounted());
         assertEquals(List.of(), prepared.mountPoints());
         assertEquals(List.of(
-                List.of("lsblk", "--json", "--bytes", "--output", "PATH,TYPE,MOUNTPOINT,MOUNTPOINTS", "/dev/sdb"),
+                List.of("lsblk", "--json", "--bytes", "--output", "PATH,TYPE,MOUNTPOINT,MOUNTPOINTS", targetPath),
                 List.of("udisksctl", "unmount", "-b", "/dev/sdb1"),
                 List.of("udisksctl", "unmount", "-b", "/dev/sdb2")), runner.commands());
         assertEquals(List.of("prepare", "prepare"), events.stream().map(ProgressEvent::stage).toList());
@@ -113,12 +114,13 @@ public final class LinuxBlockDevicePreparerTest {
                 failure("udisksctl refused"),
                 success("")));
         LinuxBlockDevicePreparer preparer = new LinuxBlockDevicePreparer(runner);
+        String targetPath = Path.of("/dev/sdb").toString();
 
         preparer.prepare(target("linux-disk-sdb", Path.of("/dev/sdb"), true, false, true), _ -> {
         });
 
         assertEquals(List.of(
-                List.of("lsblk", "--json", "--bytes", "--output", "PATH,TYPE,MOUNTPOINT,MOUNTPOINTS", "/dev/sdb"),
+                List.of("lsblk", "--json", "--bytes", "--output", "PATH,TYPE,MOUNTPOINT,MOUNTPOINTS", targetPath),
                 List.of("udisksctl", "unmount", "-b", "/dev/sdb1"),
                 List.of("umount", "/media/alice/BOOT")), runner.commands());
     }

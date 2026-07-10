@@ -1235,53 +1235,57 @@ public final class LocalFlashServiceTest {
         /// Captures one block-image write.
         ///
         /// @param source source image path.
-        /// @param target target path.
-        /// @param targetDisplayName human-readable target display name.
+        /// @param target selected target block device.
         /// @param totalBytes source size.
-        /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
         /// @param reporter progress reporter.
         @Override
         public void write(
                 Path source,
-                Path target,
-                String targetDisplayName,
+                BlockDevice target,
                 long totalBytes,
-                boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) {
             this.writeSource = source;
-            this.writeTarget = target;
-            this.writeTargetDisplayName = targetDisplayName;
+            this.writeTarget = target.path();
+            this.writeTargetDisplayName = target.displayName();
             this.writeTotalBytes = totalBytes;
-            this.writeTargetRemovable = targetRemovable;
-            this.writeCalls.add(new DdCall(source, target, targetDisplayName, totalBytes, targetRemovable, message));
+            this.writeTargetRemovable = target.removable();
+            this.writeCalls.add(new DdCall(
+                    source,
+                    target.path(),
+                    target.displayName(),
+                    totalBytes,
+                    target.removable(),
+                    message));
         }
 
         /// Captures one block-image verification.
         ///
         /// @param source source image path.
-        /// @param target target path.
-        /// @param targetDisplayName human-readable target display name.
+        /// @param target selected target block device.
         /// @param totalBytes source size.
-        /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
         /// @param reporter progress reporter.
         /// @return configured verification result.
         @Override
         public boolean verify(
                 Path source,
-                Path target,
-                String targetDisplayName,
+                BlockDevice target,
                 long totalBytes,
-                boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) {
             this.verifySource = source;
-            this.verifyTarget = target;
-            this.verifyTargetDisplayName = targetDisplayName;
-            this.verifyTargetRemovable = targetRemovable;
-            this.verifyCalls.add(new DdCall(source, target, targetDisplayName, totalBytes, targetRemovable, message));
+            this.verifyTarget = target.path();
+            this.verifyTargetDisplayName = target.displayName();
+            this.verifyTargetRemovable = target.removable();
+            this.verifyCalls.add(new DdCall(
+                    source,
+                    target.path(),
+                    target.displayName(),
+                    totalBytes,
+                    target.removable(),
+                    message));
             return verifyResult;
         }
     }
@@ -1310,24 +1314,20 @@ public final class LocalFlashServiceTest {
         /// Writes source bytes to the target without truncating the target.
         ///
         /// @param source source image path.
-        /// @param target target path.
-        /// @param targetDisplayName human-readable target display name.
+        /// @param target selected target block device.
         /// @param totalBytes source size.
-        /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
         /// @param reporter progress reporter.
         /// @throws IOException when files cannot be read or written.
         @Override
         public void write(
                 Path source,
-                Path target,
-                String targetDisplayName,
+                BlockDevice target,
                 long totalBytes,
-                boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) throws IOException {
             try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ);
-                 FileChannel output = FileChannel.open(target, StandardOpenOption.WRITE)) {
+                 FileChannel output = FileChannel.open(target.path(), StandardOpenOption.WRITE)) {
                 long written = 0L;
                 while (written < totalBytes) {
                     long transferred = input.transferTo(written, totalBytes - written, output);
@@ -1342,10 +1342,8 @@ public final class LocalFlashServiceTest {
         /// Verifies source bytes against the target.
         ///
         /// @param source source image path.
-        /// @param target target path.
-        /// @param targetDisplayName human-readable target display name.
+        /// @param target selected target block device.
         /// @param totalBytes source size.
-        /// @param targetRemovable whether the target was identified as removable.
         /// @param message progress message.
         /// @param reporter progress reporter.
         /// @return whether target bytes match source bytes.
@@ -1353,14 +1351,12 @@ public final class LocalFlashServiceTest {
         @Override
         public boolean verify(
                 Path source,
-                Path target,
-                String targetDisplayName,
+                BlockDevice target,
                 long totalBytes,
-                boolean targetRemovable,
                 String message,
                 ProgressReporter reporter) throws IOException {
             try (FileChannel input = FileChannel.open(source, StandardOpenOption.READ);
-                 FileChannel output = FileChannel.open(target, StandardOpenOption.READ)) {
+                 FileChannel output = FileChannel.open(target.path(), StandardOpenOption.READ)) {
                 ByteBuffer inputBuffer = ByteBuffer.allocate(Math.toIntExact(totalBytes));
                 ByteBuffer outputBuffer = ByteBuffer.allocate(Math.toIntExact(totalBytes));
                 input.read(inputBuffer);

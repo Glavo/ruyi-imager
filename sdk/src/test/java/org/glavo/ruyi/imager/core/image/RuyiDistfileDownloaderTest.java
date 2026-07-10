@@ -172,6 +172,57 @@ public final class RuyiDistfileDownloaderTest {
         assertTrue(message.contains(temporaryDirectory.resolve("manual.raw").toAbsolutePath().normalize().toString()), message);
     }
 
+    /// Verifies automatic downloads reject metadata without a supported strong checksum.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws IOException when the cached fixture cannot be written.
+    @Test
+    public void rejectsAutomaticDownloadWithoutSupportedChecksum(@TempDir Path temporaryDirectory) throws IOException {
+        Files.writeString(temporaryDirectory.resolve("image.raw"), "cached");
+        RuyiDistfile distfile = new RuyiDistfile(
+                "image.raw",
+                List.of(URI.create("https://example.invalid/image.raw")),
+                6L,
+                Map.of("sha1", "0123456789abcdef"),
+                false,
+                true,
+                null,
+                0,
+                List.of(),
+                "raw");
+
+        IOException exception = assertThrows(IOException.class, () ->
+                new RuyiDistfileDownloader().download(distfile, temporaryDirectory, NO_PROGRESS));
+
+        assertTrue(exception.getMessage().contains("core.download.noSupportedChecksum"), exception.getMessage());
+    }
+
+    /// Verifies manually supplied fetch-restricted files remain usable without a strong checksum.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws IOException when the cached fixture cannot be written or inspected.
+    @Test
+    public void acceptsManualFetchRestrictedFileWithoutSupportedChecksum(
+            @TempDir Path temporaryDirectory) throws IOException {
+        Path target = temporaryDirectory.resolve("manual.raw");
+        Files.writeString(target, "manual");
+        RuyiDistfile distfile = new RuyiDistfile(
+                "manual.raw",
+                List.of(),
+                6L,
+                Map.of(),
+                true,
+                true,
+                null,
+                0,
+                List.of(),
+                "raw");
+
+        assertEquals(
+                target,
+                new RuyiDistfileDownloader().download(distfile, temporaryDirectory, NO_PROGRESS));
+    }
+
     /// Computes a SHA-256 digest for bytes.
     ///
     /// @param content bytes to digest.

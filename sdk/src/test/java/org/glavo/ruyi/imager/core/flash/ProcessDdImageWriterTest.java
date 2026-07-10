@@ -5,6 +5,7 @@ package org.glavo.ruyi.imager.core.flash;
 
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.glavo.ruyi.imager.core.ProgressReporter;
+import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -43,6 +44,7 @@ public final class ProcessDdImageWriterTest {
         Path target = temporaryDirectory.resolve("target.raw");
         Files.write(source, new byte[]{1, 2, 3, 4});
         Files.write(target, new byte[8]);
+        BlockDevice blockTarget = fileTarget(target, "Test Target");
 
         ProcessDdImageWriter writer = new ProcessDdImageWriter(List.of(
                 javaExecutable().toString(),
@@ -54,10 +56,8 @@ public final class ProcessDdImageWriterTest {
                 Duration.ofSeconds(5L),
                 () -> assertThrows(IOException.class, () -> writer.write(
                         source,
-                        target,
-                        "Test Target",
+                        blockTarget,
                         4L,
-                        true,
                         "Writing test image.",
                         NO_PROGRESS)));
         assertTrue(exception.getMessage().contains("stderr-marker-0"), exception.getMessage());
@@ -97,6 +97,7 @@ public final class ProcessDdImageWriterTest {
         Path target = temporaryDirectory.resolve("target.raw");
         Files.write(source, new byte[]{1, 2, 3, 4});
         Files.write(target, new byte[8]);
+        BlockDevice blockTarget = fileTarget(target, "Test USB Target");
 
         ProcessDdImageWriter writer = new ProcessDdImageWriter(List.of(
                 javaExecutable().toString(),
@@ -106,10 +107,8 @@ public final class ProcessDdImageWriterTest {
 
         assertTrue(writer.verify(
                 source,
-                target,
-                "Test USB Target",
+                blockTarget,
                 4L,
-                true,
                 "Verifying test image.",
                 NO_PROGRESS));
     }
@@ -124,6 +123,7 @@ public final class ProcessDdImageWriterTest {
         Path target = temporaryDirectory.resolve("target.raw");
         Files.write(source, new byte[]{1, 2, 3, 4});
         Files.write(target, new byte[8]);
+        BlockDevice blockTarget = fileTarget(target, "Test Target");
         ArrayList<ProgressEvent> events = new ArrayList<>();
 
         ProcessDdImageWriter writer = new ProcessDdImageWriter(List.of(
@@ -134,10 +134,8 @@ public final class ProcessDdImageWriterTest {
 
         assertTrue(writer.writeAndVerify(
                 source,
-                target,
-                "Test Target",
+                blockTarget,
                 4L,
-                true,
                 "Writing test image.",
                 "Verifying test image.",
                 events::add));
@@ -180,6 +178,28 @@ public final class ProcessDdImageWriterTest {
                 ? "java.exe"
                 : "java";
         return Path.of(System.getProperty("java.home"), "bin", executableName);
+    }
+
+    /// Creates a file-backed target used by process adapter tests.
+    ///
+    /// @param path target file path.
+    /// @param displayName target display name.
+    /// @return file-backed block device.
+    /// @throws IOException when the target size cannot be read.
+    private static BlockDevice fileTarget(Path path, String displayName) throws IOException {
+        return new BlockDevice(
+                path.toString(),
+                displayName,
+                path,
+                Files.size(path),
+                true,
+                false,
+                false,
+                false,
+                "Test File Target",
+                "file",
+                "fixture=test-target",
+                List.of());
     }
 
     /// Helper process that fills stderr before exiting with failure.
@@ -235,7 +255,12 @@ public final class ProcessDdImageWriterTest {
             List<String> arguments = List.of(args);
             if (!"verify".equals(arguments.getFirst())
                     || !"Test USB Target".equals(optionValue(arguments, "--target-display-name"))
-                    || !"true".equals(optionValue(arguments, "--removable"))) {
+                    || !"8".equals(optionValue(arguments, "--target-size-bytes"))
+                    || !"true".equals(optionValue(arguments, "--removable"))
+                    || !"true".equals(optionValue(arguments, "--file-backed"))
+                    || !"Test File Target".equals(optionValue(arguments, "--target-model"))
+                    || !"file".equals(optionValue(arguments, "--target-bus-type"))
+                    || !"fixture=test-target".equals(optionValue(arguments, "--target-hardware-id"))) {
                 System.out.println("{\"type\":\"error\",\"message\":\"missing expected arguments\"}");
                 System.exit(2);
             }

@@ -85,7 +85,10 @@ public final class RuyiDistfileDownloader {
                 + target
                 + ", sources="
                 + distfile.sourceUris().size());
-        if (Files.isRegularFile(target) && verify(target, distfile)) {
+        boolean hasSupportedChecksum = hasSupportedChecksum(distfile);
+        if (Files.isRegularFile(target)
+                && verify(target, distfile)
+                && (distfile.fetchRestricted() || hasSupportedChecksum)) {
             LOGGER.atInfo().log(() -> "Using cached distfile. name=" + distfile.name() + ", path=" + target);
             reporter.report(new ProgressEvent(
                     "download",
@@ -98,6 +101,12 @@ public final class RuyiDistfileDownloader {
         if (distfile.fetchRestricted()) {
             LOGGER.atWarn().log(() -> "Distfile requires manual download. name=" + distfile.name() + ", target=" + target);
             throw new IOException(manualDownloadMessage(distfile, target));
+        }
+
+        if (!hasSupportedChecksum) {
+            LOGGER.atWarn().log(() -> "Distfile has no supported checksum for automatic download. name="
+                    + distfile.name());
+            throw new IOException(SdkMessages.get("core.download.noSupportedChecksum", distfile.name()));
         }
 
         List<URI> sourceUris = distfile.sourceUris();
@@ -319,12 +328,28 @@ public final class RuyiDistfileDownloader {
 
         Map<String, String> checksums = distfile.checksums();
         @Nullable String sha256 = checksums.get("sha256");
-        if (sha256 != null && !sha256.equalsIgnoreCase(computeDigest(path, "SHA-256"))) {
+        if (sha256 != null
+                && !sha256.isBlank()
+                && !sha256.equalsIgnoreCase(computeDigest(path, "SHA-256"))) {
             return false;
         }
 
         @Nullable String sha512 = checksums.get("sha512");
-        return sha512 == null || sha512.equalsIgnoreCase(computeDigest(path, "SHA-512"));
+        return sha512 == null
+                || sha512.isBlank()
+                || sha512.equalsIgnoreCase(computeDigest(path, "SHA-512"));
+    }
+
+    /// Returns whether a distfile declares a supported non-empty checksum.
+    ///
+    /// @param distfile distfile declaration.
+    /// @return whether SHA-256 or SHA-512 integrity metadata is available.
+    private static boolean hasSupportedChecksum(RuyiDistfile distfile) {
+        Map<String, String> checksums = distfile.checksums();
+        @Nullable String sha256 = checksums.get("sha256");
+        @Nullable String sha512 = checksums.get("sha512");
+        return (sha256 != null && !sha256.isBlank())
+                || (sha512 != null && !sha512.isBlank());
     }
 
     /// Creates a manual download error message.

@@ -32,29 +32,23 @@ public interface DdImageWriter {
     /// Writes a source image to a target path.
     ///
     /// @param source source image path.
-    /// @param target target path.
-    /// @param targetDisplayName human-readable target display name.
+    /// @param target selected target block device.
     /// @param totalBytes source size.
-    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @throws IOException when the image cannot be written.
     void write(
             Path source,
-            Path target,
-            String targetDisplayName,
+            BlockDevice target,
             long totalBytes,
-            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException;
 
     /// Writes a source image to a target path and verifies the written bytes.
     ///
     /// @param source source image path.
-    /// @param target target path.
-    /// @param targetDisplayName human-readable target display name.
+    /// @param target selected target block device.
     /// @param totalBytes source size.
-    /// @param targetRemovable whether the target was identified as removable.
     /// @param writeMessage progress message for writing.
     /// @param verifyMessage progress message for verification.
     /// @param reporter progress reporter.
@@ -62,35 +56,29 @@ public interface DdImageWriter {
     /// @throws IOException when the image cannot be written or read.
     default boolean writeAndVerify(
             Path source,
-            Path target,
-            String targetDisplayName,
+            BlockDevice target,
             long totalBytes,
-            boolean targetRemovable,
             String writeMessage,
             String verifyMessage,
             ProgressReporter reporter) throws IOException {
-        write(source, target, targetDisplayName, totalBytes, targetRemovable, writeMessage, reporter);
+        write(source, target, totalBytes, writeMessage, reporter);
         reporter.report(new ProgressEvent("verify", verifyMessage, 0L, totalBytes));
-        return verify(source, target, targetDisplayName, totalBytes, targetRemovable, verifyMessage, reporter);
+        return verify(source, target, totalBytes, verifyMessage, reporter);
     }
 
     /// Verifies target bytes against a source image.
     ///
     /// @param source source image path.
-    /// @param target target path.
-    /// @param targetDisplayName human-readable target display name.
+    /// @param target selected target block device.
     /// @param totalBytes source size.
-    /// @param targetRemovable whether the target was identified as removable.
     /// @param message progress message.
     /// @param reporter progress reporter.
     /// @return whether the target bytes match the source image.
     /// @throws IOException when files cannot be read.
     boolean verify(
             Path source,
-            Path target,
-            String targetDisplayName,
+            BlockDevice target,
             long totalBytes,
-            boolean targetRemovable,
             String message,
             ProgressReporter reporter) throws IOException;
 }

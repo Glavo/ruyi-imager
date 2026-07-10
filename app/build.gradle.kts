@@ -19,6 +19,7 @@ import org.glavo.ruyi.imager.gradle.WriteWixBundleSource
 import org.glavo.ruyi.imager.gradle.WriteWixSource
 import org.gradle.api.file.RelativePath
 import org.gradle.api.tasks.bundling.Compression
+import java.net.URI
 
 plugins {
     application
@@ -40,6 +41,8 @@ data class JlinkJdkBundle(
     val platform: String,
     val url: String,
     val fileName: String,
+    val sha256: String,
+    val sizeBytes: Long,
     val archiveType: JlinkJdkArchiveType,
     val executableName: String,
 )
@@ -183,13 +186,31 @@ val jlinkLauncherJvmArgs = providers.provider {
         listOf("--enable-native-access=ALL-UNNAMED")
     }
 }
-val defaultJlinkJdkBundle = libericaJdkBundle(jlinkJdkPlatform, jlinkJdkVersion)
-val jlinkJdkUrl = providers.gradleProperty("jlink.jdk.url").orElse(defaultJlinkJdkBundle.url).get()
-val jlinkJdkBundle = defaultJlinkJdkBundle.copy(
-    url = jlinkJdkUrl,
-    fileName = jlinkJdkUrl.substringAfterLast('/'),
-    archiveType = jlinkJdkArchiveType(jlinkJdkUrl),
-)
+val customJlinkJdkUrl = providers.gradleProperty("jlink.jdk.url").orNull
+val jlinkJdkBundle = if (customJlinkJdkUrl == null) {
+    libericaJdkBundle(jlinkJdkPlatform, jlinkJdkVersion)
+} else {
+    val customJlinkJdkSha256 = providers.gradleProperty("jlink.jdk.sha256").orNull
+        ?.takeIf { it.isNotBlank() }
+        ?: error("jlink.jdk.sha256 is required when jlink.jdk.url is configured")
+    val customJlinkJdkSizeBytes = providers.gradleProperty("jlink.jdk.sizeBytes").orNull
+        ?.toLongOrNull()
+        ?.takeIf { it > 0L }
+        ?: error("jlink.jdk.sizeBytes must be a positive integer when jlink.jdk.url is configured")
+    val customJlinkJdkFileName = URI.create(customJlinkJdkUrl).path.substringAfterLast('/')
+    require(customJlinkJdkFileName.isNotBlank()) {
+        "jlink.jdk.url must identify a JDK archive file"
+    }
+    JlinkJdkBundle(
+        platform = jlinkJdkPlatform,
+        url = customJlinkJdkUrl,
+        fileName = customJlinkJdkFileName,
+        sha256 = customJlinkJdkSha256,
+        sizeBytes = customJlinkJdkSizeBytes,
+        archiveType = jlinkJdkArchiveType(customJlinkJdkFileName),
+        executableName = if (jlinkJdkPlatform.startsWith("windows-")) "jlink.exe" else "jlink",
+    )
+}
 val jlinkJdkArchive = layout.buildDirectory.file("downloads/jdks/${jlinkJdkBundle.fileName}")
 val jlinkJdkDirectory = layout.buildDirectory.dir("jdks/${jlinkJdkBundle.platform}")
 val jlinkJmodsDirectory = jlinkJdkDirectory.map { it.dir("jmods") }
@@ -295,10 +316,19 @@ val downloadJlinkJdk = tasks.register<Download>("downloadJlinkJdk") {
     outputs.file(jlinkJdkArchive)
 }
 
+val verifyJlinkJdk = tasks.register<VerifyFile>("verifyJlinkJdk") {
+    group = "distribution"
+    description = "Verifies the Liberica JDK archive used by jlink packaging."
+    dependsOn(downloadJlinkJdk)
+    inputFile.set(jlinkJdkArchive)
+    expectedSha256.set(jlinkJdkBundle.sha256)
+    expectedSizeBytes.set(jlinkJdkBundle.sizeBytes)
+}
+
 tasks.register<Copy>("extractJlinkJdk") {
     group = "distribution"
     description = "Extracts jlink and jmods from the downloaded Liberica JDK archive."
-    dependsOn(downloadJlinkJdk)
+    dependsOn(verifyJlinkJdk)
     from({
         when (jlinkJdkBundle.archiveType) {
             JlinkJdkArchiveType.ZIP -> zipTree(jlinkJdkArchive.get().asFile)
@@ -791,6 +821,10 @@ fun currentJlinkPlatform(): String? {
 /// @param version Liberica JDK version string.
 /// @return Liberica JDK bundle descriptor.
 fun libericaJdkBundle(platform: String, version: String): JlinkJdkBundle {
+    require(version == "25.0.3+11") {
+        "No bundled integrity metadata is available for Liberica JDK $version; " +
+            "configure jlink.jdk.url, jlink.jdk.sha256, and jlink.jdk.sizeBytes"
+    }
     val platformArchive = when (platform) {
         "windows-x86_64" -> "windows-amd64.zip"
         "windows-aarch64" -> "windows-aarch64.zip"
@@ -806,10 +840,29 @@ fun libericaJdkBundle(platform: String, version: String): JlinkJdkBundle {
     val bundleSuffix = if (platform == "linux-riscv64") "" else "-full"
     val fileName = "bellsoft-jdk$version-$platformName$bundleSuffix$archiveExtension"
     val executableName = if (platform.startsWith("windows-")) "jlink.exe" else "jlink"
+    val (sha256, sizeBytes) = when (platform) {
+        "windows-x86_64" ->
+            "95f4297f10f91e8cde9ae64d4c6bf8ead1d1aa29121ddfae4e48a1d389cc5413" to 346_883_258L
+        "windows-aarch64" ->
+            "69031a8475b19d399d6dbc6a22f6e1c9746dc6cd045cf442de73e181c9fb027b" to 232_629_221L
+        "macos-x86_64" ->
+            "35acc63854594a66f064a95af774c05f62dbaf76a62863ae3ee9be97e65faa74" to 363_252_444L
+        "macos-aarch64" ->
+            "bc44ece32d6b969374769e9159285d06aa78d5a78596918cad3587f14cc44fc6" to 357_365_399L
+        "linux-x86_64" ->
+            "2d0e145c401d0e555e9b3aad977a3a700fbd666bc7d4524720267dd80eb3be42" to 407_455_906L
+        "linux-aarch64" ->
+            "bfd46890bb5611ee673a3db4c676518c2989bd5cf729094a6193c1557a308fb9" to 401_889_520L
+        "linux-riscv64" ->
+            "644d3cadd5d9dc4f71cf56dd3bffde0113c949b2bb9c802eca49a035b77ea033" to 205_027_987L
+        else -> error("Unsupported jlink target platform: $platform")
+    }
     return JlinkJdkBundle(
         platform = platform,
         url = "https://download.bell-sw.com/java/$version/$fileName",
         fileName = fileName,
+        sha256 = sha256,
+        sizeBytes = sizeBytes,
         archiveType = jlinkJdkArchiveType(fileName),
         executableName = executableName,
     )

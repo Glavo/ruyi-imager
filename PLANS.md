@@ -11,17 +11,17 @@
 ### Current Status
 
 - The project is split into `:sdk`, `:app`, `:dd-flasher`, and `:launcher`; CLI and GUI share the SDK service graph.
-- Ruyi metadata, `image-combo`, distfile download/cache, checksum verification, artifact materialization, and system proxy discovery are implemented. In `Asia/Shanghai`, the default metadata remote uses the ISCAS mirror; user config can still override remote, branch, or local repository.
+- Ruyi metadata, `image-combo`, distfile download/cache, checksum verification, artifact materialization, and system proxy discovery are implemented. Automatic distfile downloads require SHA-256 or SHA-512 metadata; manually supplied fetch-restricted files remain supported. In `Asia/Shanghai`, the default metadata remote uses the ISCAS mirror; user config can still override remote, branch, or local repository.
 - Distfile and artifact extraction paths are hardened against unsafe names, cache corruption, path escape, conflicting declarations, and missing single-partition ZIP artifacts.
-- `dd-flasher` handles destructive raw writes, declared byte limits, same-helper write/verify, target display-name validation, and NDJSON progress reporting.
-- Before destructive `dd-v1` writes, SDK/helper paths re-enumerate and validate target id, path, hardware identity, size, model, bus, and removable status.
+- `dd-flasher` handles destructive raw writes, declared byte limits, same-helper write/verify, target display-name validation, NDJSON progress reporting, and post-elevation target inspection.
+- Before destructive `dd-v1` writes, the SDK refreshes and validates target id, path, hardware identity, size, model, bus, and removable status. The elevated helper independently rechecks whole-device type, capacity, removable/system state, available read-only/model/bus fields, and overlapping hardware identity before opening the target.
 - Windows raw physical-drive writes lock/dismount related volumes inside `dd-flasher`; Windows UAC uses Java FFM `ShellExecuteExW` instead of a PowerShell launcher.
 - Linux `pkexec` elevated `dd-flasher` reads NDJSON progress directly from stdout; Windows UAC and macOS administrator script paths still use shared temporary event logs.
 - Windows/Linux/macOS block-device and fastboot enumeration are implemented with concurrent stdout/stderr draining.
 - Linux and macOS mounted removable targets are automatically unmounted before writing, then re-enumerated before destructive access.
 - Fastboot flows cover ordinary partition flashing, LPi4A/Meles U-Boot handoff, SpacemiT K1 stage/continue, sparse progress parsing, duplicate serial rejection, and post-handoff ambiguity checks.
 - GUI supports catalog/local image selection, automatic metadata update before first manufacturer selection, target selection, safety confirmation, progress, cancellation, log path display, language switching, Chinese vendor display names, window icons, and short progress status text without trailing full stops.
-- Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, WiX MSI packages, WiX Burn setup executables, and nightly release workflow. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. Fastboot verification/extraction, JLink runtime and launcher generation, Debian package metadata/assembly, WiX MSI source/build orchestration, and WiX Burn bundle source/build orchestration are implemented as Java tasks/helpers in `buildSrc`; WiX MSI packages default to per-user installation under `LocalAppDataFolder` and include a directory selection UI. Windows setup executables use a single Burn package with a custom no-license bootstrapper theme, embedded bootstrapper UI localization payloads, a bootstrapper window titlebar icon payload, and a separate display version variable for full project versions that cannot be stored in WiX numeric version fields. Linux nightly builds publish `.deb` packages, Windows nightly builds publish setup `.exe` bundles, and commit-based nightly artifacts use a `1.0.0+nightly.<short-sha>` project version.
+- Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, WiX MSI packages, WiX Burn setup executables, and nightly release workflow. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. Fastboot and JLink JDK archives are verified by declared size and SHA-256 before extraction. Fastboot verification/extraction, JLink runtime and launcher generation, Debian package metadata/assembly, WiX MSI source/build orchestration, and WiX Burn bundle source/build orchestration are implemented as Java tasks/helpers in `buildSrc`; WiX MSI packages default to per-user installation under `LocalAppDataFolder` and include a directory selection UI. Windows setup executables use a single Burn package with a custom no-license bootstrapper theme, embedded bootstrapper UI localization payloads, a bootstrapper window titlebar icon payload, and a separate display version variable for full project versions that cannot be stored in WiX numeric version fields. Linux nightly builds publish `.deb` packages, Windows nightly builds publish setup `.exe` bundles, and commit-based nightly artifacts use a `1.0.0+nightly.<short-sha>` project version.
 
 ### Remaining
 
@@ -67,6 +67,12 @@
 - `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava`
 - `./gradlew -g .gradle-user-home :app:processResources`
 - GUI short-status punctuation check: no `gui.progress.*` or `gui.status.*` localization values end with `.` or `。`.
+- `cargo clippy --target x86_64-unknown-linux-gnu -- -D warnings`
+- `cargo clippy --target x86_64-apple-darwin -- -D warnings`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:verifyJlinkJdk`
+- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:verifyJlinkJdk`
+- Custom `jlink.jdk.url` configuration without `jlink.jdk.sha256` fails during Gradle configuration.
+- `./gradlew -g .gradle-user-home test`
 - `git diff --check`
 
 ### Known Limits

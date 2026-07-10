@@ -1,11 +1,16 @@
 // Copyright (c) 2026 Glavo
 // SPDX-License-Identifier: MPL-2.0
 
+mod target_identity;
+
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use target_identity::TargetExpectation;
+#[cfg(windows)]
+use target_identity::TargetObservation;
 
 /// Size of each read/write buffer used for streaming image data.
 const BUFFER_SIZE: usize = 1024 * 1024;
@@ -52,8 +57,23 @@ struct Request {
     /// Exact number of bytes expected in the source image.
     total_bytes: u64,
 
+    /// Expected target capacity in bytes.
+    target_size_bytes: u64,
+
     /// Whether the target was identified as removable by the caller.
     removable: bool,
+
+    /// Whether the target is an explicitly supported regular-file fixture.
+    file_backed: bool,
+
+    /// Expected target model when available.
+    target_model: Option<String>,
+
+    /// Expected target bus type when available.
+    target_bus_type: Option<String>,
+
+    /// Expected stable target hardware identity when available.
+    target_hardware_id: Option<String>,
 
     /// Optional NDJSON event log used when stdout is not available.
     event_log: Option<PathBuf>,
@@ -130,7 +150,12 @@ where
     let mut target = None;
     let mut target_display_name = None;
     let mut total_bytes = None;
+    let mut target_size_bytes = None;
     let mut removable = None;
+    let mut file_backed = None;
+    let mut target_model = None;
+    let mut target_bus_type = None;
+    let mut target_hardware_id = None;
     let mut event_log = None;
     let mut cancel_file = None;
     let mut stdout = true;
@@ -143,6 +168,24 @@ where
                     &mut args,
                     "--target-display-name",
                 )?)?)
+            }
+            "--target-model" => {
+                target_model = Some(parse_target_metadata(
+                    next_value(&mut args, "--target-model")?,
+                    "--target-model",
+                )?)
+            }
+            "--target-bus-type" => {
+                target_bus_type = Some(parse_target_metadata(
+                    next_value(&mut args, "--target-bus-type")?,
+                    "--target-bus-type",
+                )?)
+            }
+            "--target-hardware-id" => {
+                target_hardware_id = Some(parse_target_metadata(
+                    next_value(&mut args, "--target-hardware-id")?,
+                    "--target-hardware-id",
+                )?)
             }
             "--event-log" => event_log = Some(PathBuf::from(next_value(&mut args, "--event-log")?)),
             "--cancel-file" => {
@@ -157,9 +200,21 @@ where
                         .map_err(|_| format!("invalid --total-bytes value: {value}"))?,
                 );
             }
+            "--target-size-bytes" => {
+                let value = next_value(&mut args, "--target-size-bytes")?;
+                target_size_bytes = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| format!("invalid --target-size-bytes value: {value}"))?,
+                );
+            }
             "--removable" => {
                 let value = next_value(&mut args, "--removable")?;
                 removable = Some(parse_bool(&value, "--removable")?);
+            }
+            "--file-backed" => {
+                let value = next_value(&mut args, "--file-backed")?;
+                file_backed = Some(parse_bool(&value, "--file-backed")?);
             }
             "--help" | "-h" => return Err(usage()),
             other => return Err(format!("unknown argument: {other}")),
@@ -173,7 +228,13 @@ where
         target_display_name: target_display_name
             .ok_or_else(|| "missing --target-display-name".to_string())?,
         total_bytes: total_bytes.ok_or_else(|| "missing --total-bytes".to_string())?,
+        target_size_bytes: target_size_bytes
+            .ok_or_else(|| "missing --target-size-bytes".to_string())?,
         removable: removable.ok_or_else(|| "missing --removable".to_string())?,
+        file_backed: file_backed.ok_or_else(|| "missing --file-backed".to_string())?,
+        target_model,
+        target_bus_type,
+        target_hardware_id,
         event_log,
         cancel_file,
         stdout,
@@ -208,6 +269,19 @@ fn validate_target_display_name(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Parses and validates optional target identity text.
+fn parse_target_metadata(value: String, name: &str) -> Result<String, String> {
+    if value.trim().is_empty() {
+        return Err(format!("invalid {name} value: must not be empty"));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(format!(
+            "invalid {name} value: must not contain control characters"
+        ));
+    }
+    Ok(value.trim().to_string())
+}
+
 /// Parses one boolean option value.
 fn parse_bool(value: &str, name: &str) -> Result<bool, String> {
     match value {
@@ -219,7 +293,7 @@ fn parse_bool(value: &str, name: &str) -> Result<bool, String> {
 
 /// Returns the CLI usage text.
 fn usage() -> String {
-    "usage: dd-flasher <write|verify|write-verify> --source <path> --target <path> --target-display-name <name> --total-bytes <bytes> --removable <true|false> [--event-log <path>] [--cancel-file <path>] [--no-stdout]".to_string()
+    "usage: dd-flasher <write|verify|write-verify> --source <path> --target <path> --target-display-name <name> --total-bytes <bytes> --target-size-bytes <bytes> --removable <true|false> --file-backed <true|false> [--target-model <model>] [--target-bus-type <type>] [--target-hardware-id <id>] [--event-log <path>] [--cancel-file <path>] [--no-stdout]".to_string()
 }
 
 /// Validates source metadata, event sink configuration, and self-write safety.
@@ -240,6 +314,12 @@ fn validate_request(request: &Request) -> Result<(), String> {
     if request.total_bytes == 0 {
         return Err("source image is empty".to_string());
     }
+    if request.total_bytes > request.target_size_bytes {
+        return Err(format!(
+            "source image is larger than target ({}): source {}, target {}",
+            request.target_display_name, request.total_bytes, request.target_size_bytes
+        ));
+    }
     if !request.removable {
         return Err(format!(
             "target is not removable: {}",
@@ -252,6 +332,16 @@ fn validate_request(request: &Request) -> Result<(), String> {
     if same_path(&request.source, &request.target) {
         return Err("source and target refer to the same path".to_string());
     }
+    target_identity::validate(TargetExpectation {
+        path: &request.target,
+        display_name: &request.target_display_name,
+        size_bytes: request.target_size_bytes,
+        removable: request.removable,
+        file_backed: request.file_backed,
+        model: request.target_model.as_deref(),
+        bus_type: request.target_bus_type.as_deref(),
+        hardware_id: request.target_hardware_id.as_deref(),
+    })?;
     Ok(())
 }
 
@@ -436,6 +526,9 @@ mod platform {
     /// No more entries exist in an enumeration.
     const ERROR_NO_MORE_FILES: i32 = 18;
 
+    /// A native output buffer was too small.
+    const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+
     /// The output buffer was too small for every disk extent.
     const ERROR_MORE_DATA: i32 = 234;
 
@@ -462,6 +555,21 @@ mod platform {
 
     /// Returns the disk extents backing a volume.
     const IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS: Dword = 0x00560000;
+
+    /// Returns the byte length of a disk.
+    const IOCTL_DISK_GET_LENGTH_INFO: Dword = 0x0007405c;
+
+    /// Queries storage device properties.
+    const IOCTL_STORAGE_QUERY_PROPERTY: Dword = 0x002d1400;
+
+    /// USB storage bus type.
+    const STORAGE_BUS_TYPE_USB: Dword = 7;
+
+    /// Virtual storage bus type.
+    const STORAGE_BUS_TYPE_VIRTUAL: Dword = 14;
+
+    /// File-backed virtual storage bus type.
+    const STORAGE_BUS_TYPE_FILE_BACKED_VIRTUAL: Dword = 15;
 
     /// Locks a volume for exclusive access through the lock handle.
     const FSCTL_LOCK_VOLUME: Dword = 0x00090018;
@@ -503,6 +611,14 @@ mod platform {
         ) -> Bool;
 
         fn FindVolumeClose(h_find_volume: Handle) -> Bool;
+
+        fn GetWindowsDirectoryW(lp_buffer: *mut u16, u_size: Dword) -> Dword;
+
+        fn GetVolumeNameForVolumeMountPointW(
+            lpsz_volume_mount_point: *const u16,
+            lpsz_volume_name: *mut u16,
+            cch_buffer_length: Dword,
+        ) -> Bool;
     }
 
     /// One disk extent returned by `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS`.
@@ -519,6 +635,18 @@ mod platform {
         _extent_length: i64,
     }
 
+    /// Parsed storage device descriptor fields used for target validation.
+    struct StorageDescriptor {
+        /// Whether the descriptor reports removable media.
+        removable: bool,
+
+        /// Native storage bus type.
+        bus_type: Dword,
+
+        /// Device serial number when available.
+        serial_number: Option<String>,
+    }
+
     /// Volume handle kept open to preserve a successful `FSCTL_LOCK_VOLUME`.
     pub struct VolumeLock {
         /// Locked volume path, used only to retain useful debugger state.
@@ -526,6 +654,54 @@ mod platform {
 
         /// Native volume handle. Closing this handle releases the lock.
         _handle: File,
+    }
+
+    /// Inspects a raw physical drive after elevation and before destructive access.
+    pub(crate) fn inspect_target(target: &Path) -> io::Result<TargetObservation> {
+        let target_text = target.to_string_lossy();
+        let disk_number = raw_physical_drive_number(target_text.as_ref()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "target is not a raw physical drive",
+            )
+        })?;
+        let raw_target = normalized_raw_physical_drive_path(target).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "target is not a raw physical drive",
+            )
+        })?;
+        let handle = open_existing(
+            &raw_target,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            0,
+        )?;
+        let size_bytes = disk_length(&handle)?;
+        let descriptor = storage_device_descriptor(&handle)?;
+        if descriptor.bus_type == STORAGE_BUS_TYPE_VIRTUAL
+            || descriptor.bus_type == STORAGE_BUS_TYPE_FILE_BACKED_VIRTUAL
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "target is a virtual disk",
+            ));
+        }
+
+        let system = windows_system_disk_numbers()?.contains(&disk_number);
+        let bus_type = (descriptor.bus_type == STORAGE_BUS_TYPE_USB).then(|| "USB".to_string());
+        let hardware_id = descriptor
+            .serial_number
+            .map(|serial| format!("serialNumber={serial}"));
+        Ok(TargetObservation {
+            size_bytes,
+            removable: descriptor.removable || descriptor.bus_type == STORAGE_BUS_TYPE_USB,
+            system,
+            read_only: false,
+            model: None,
+            bus_type,
+            hardware_id,
+        })
     }
 
     /// Opens a target for a write request.
@@ -579,7 +755,7 @@ mod platform {
 
         let mut locks = Vec::new();
         for volume in enumerate_volumes()? {
-            if volume_is_on_disk(&volume, disk_number) {
+            if volume_is_on_disk(&volume, disk_number)? {
                 locks.push(lock_and_dismount_volume(volume)?);
             }
         }
@@ -595,17 +771,11 @@ mod platform {
     }
 
     /// Returns whether a volume has an extent on a disk.
-    fn volume_is_on_disk(volume: &str, disk_number: u32) -> bool {
+    fn volume_is_on_disk(volume: &str, disk_number: u32) -> io::Result<bool> {
         let normalized = normalize_volume_path(volume);
-        let handle = match open_existing(&normalized, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0) {
-            Ok(handle) => handle,
-            Err(_) => return false,
-        };
-        let disk_numbers = match volume_disk_numbers(&handle) {
-            Ok(disk_numbers) => disk_numbers,
-            Err(_) => return false,
-        };
-        disk_numbers.contains(&disk_number)
+        let handle = open_existing(&normalized, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0)?;
+        let disk_numbers = volume_disk_numbers(&handle)?;
+        Ok(disk_numbers.contains(&disk_number))
     }
 
     /// Locks and dismounts a volume, returning a handle that keeps the lock alive.
@@ -729,6 +899,151 @@ mod platform {
     fn aligned_disk_extents_offset() -> usize {
         let alignment = mem::align_of::<DiskExtent>();
         (mem::size_of::<Dword>() + alignment - 1) & !(alignment - 1)
+    }
+
+    /// Returns the byte length reported by a raw disk.
+    fn disk_length(handle: &File) -> io::Result<u64> {
+        let mut output = [0u8; mem::size_of::<i64>()];
+        let mut bytes_returned = 0;
+        let ok = unsafe {
+            DeviceIoControl(
+                handle.as_raw_handle() as Handle,
+                IOCTL_DISK_GET_LENGTH_INFO,
+                ptr::null_mut(),
+                0,
+                output.as_mut_ptr() as *mut c_void,
+                output.len() as Dword,
+                &mut bytes_returned,
+                ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if bytes_returned as usize != output.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "disk length response has an unexpected size",
+            ));
+        }
+        let length = i64::from_ne_bytes(output);
+        if length <= 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "disk length is not positive",
+            ));
+        }
+        Ok(length as u64)
+    }
+
+    /// Returns removable-media, bus, and serial fields from a storage descriptor.
+    fn storage_device_descriptor(handle: &File) -> io::Result<StorageDescriptor> {
+        let mut query = [0u8; 12];
+        let mut buffer_size = 4096usize;
+        loop {
+            let mut output = vec![0u8; buffer_size];
+            let mut bytes_returned = 0;
+            let ok = unsafe {
+                DeviceIoControl(
+                    handle.as_raw_handle() as Handle,
+                    IOCTL_STORAGE_QUERY_PROPERTY,
+                    query.as_mut_ptr() as *mut c_void,
+                    query.len() as Dword,
+                    output.as_mut_ptr() as *mut c_void,
+                    output.len() as Dword,
+                    &mut bytes_returned,
+                    ptr::null_mut(),
+                )
+            };
+            if ok == 0 {
+                let error = io::Error::last_os_error();
+                if matches!(
+                    error.raw_os_error(),
+                    Some(ERROR_INSUFFICIENT_BUFFER) | Some(ERROR_MORE_DATA)
+                ) && buffer_size < 64 * 1024
+                {
+                    buffer_size *= 2;
+                    continue;
+                }
+                return Err(error);
+            }
+
+            output.truncate(bytes_returned as usize);
+            if output.len() < 32 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "storage descriptor response is too short",
+                ));
+            }
+            let bus_type = u32::from_ne_bytes(output[28..32].try_into().unwrap());
+            let serial_offset = u32::from_ne_bytes(output[24..28].try_into().unwrap()) as usize;
+            return Ok(StorageDescriptor {
+                removable: output[10] != 0,
+                bus_type,
+                serial_number: storage_descriptor_string(&output, serial_offset)?,
+            });
+        }
+    }
+
+    /// Reads one nul-terminated ASCII field from a storage descriptor.
+    fn storage_descriptor_string(buffer: &[u8], offset: usize) -> io::Result<Option<String>> {
+        if offset == 0 {
+            return Ok(None);
+        }
+        if offset >= buffer.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "storage descriptor string offset is out of bounds",
+            ));
+        }
+        let bytes = &buffer[offset..];
+        let end = bytes
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(bytes.len());
+        let value = String::from_utf8_lossy(&bytes[..end]).trim().to_string();
+        Ok((!value.is_empty()).then_some(value))
+    }
+
+    /// Returns the physical disk numbers that contain the running Windows directory.
+    fn windows_system_disk_numbers() -> io::Result<Vec<u32>> {
+        let mut windows_directory = vec![0u16; 32 * 1024];
+        let length = unsafe {
+            GetWindowsDirectoryW(
+                windows_directory.as_mut_ptr(),
+                windows_directory.len() as Dword,
+            )
+        };
+        if length == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if length as usize >= windows_directory.len()
+            || length < 3
+            || windows_directory[1] != ':' as u16
+            || windows_directory[2] != '\\' as u16
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Windows directory is not on a drive-letter volume",
+            ));
+        }
+
+        let root = [windows_directory[0], ':' as u16, '\\' as u16, 0];
+        let mut volume_name = vec![0u16; 1024];
+        let ok = unsafe {
+            GetVolumeNameForVolumeMountPointW(
+                root.as_ptr(),
+                volume_name.as_mut_ptr(),
+                volume_name.len() as Dword,
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let volume_name = normalize_volume_path(&wide_buffer_to_string(&volume_name));
+        let handle = open_existing(&volume_name, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0)?;
+        volume_disk_numbers(&handle)
     }
 
     /// Sends a no-buffer `DeviceIoControl` request.
@@ -1030,8 +1345,12 @@ mod tests {
             "Test Target".to_string(),
             "--total-bytes".to_string(),
             "4".to_string(),
+            "--target-size-bytes".to_string(),
+            "8".to_string(),
             "--removable".to_string(),
             "false".to_string(),
+            "--file-backed".to_string(),
+            "true".to_string(),
         ])
         .unwrap();
 
@@ -1104,6 +1423,8 @@ mod tests {
             "Test Target".to_string(),
             "--total-bytes".to_string(),
             "4".to_string(),
+            "--target-size-bytes".to_string(),
+            "8".to_string(),
         ])
         .unwrap_err();
 
@@ -1123,7 +1444,11 @@ mod tests {
             "Test Target".to_string(),
             "--total-bytes".to_string(),
             "4".to_string(),
+            "--target-size-bytes".to_string(),
+            "8".to_string(),
             "--removable".to_string(),
+            "true".to_string(),
+            "--file-backed".to_string(),
             "true".to_string(),
             "--cancel-file".to_string(),
             "cancel.signal".to_string(),
@@ -1149,7 +1474,12 @@ mod tests {
             target: target.clone(),
             target_display_name: "Test Target".to_string(),
             total_bytes: image.len() as u64,
+            target_size_bytes: 8192,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: None,
             cancel_file: None,
             stdout: true,
@@ -1165,7 +1495,12 @@ mod tests {
             target,
             target_display_name: "Test Target".to_string(),
             total_bytes: image.len() as u64,
+            target_size_bytes: 8192,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: None,
             cancel_file: None,
             stdout: true,
@@ -1190,7 +1525,12 @@ mod tests {
             target: target.clone(),
             target_display_name: "Test Target".to_string(),
             total_bytes: image.len() as u64,
+            target_size_bytes: 8192,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: Some(event_log.clone()),
             cancel_file: None,
             stdout: false,
@@ -1221,7 +1561,12 @@ mod tests {
             target,
             target_display_name: "Test Target".to_string(),
             total_bytes: 4,
+            target_size_bytes: 4,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: None,
             cancel_file: None,
             stdout: true,
@@ -1245,7 +1590,12 @@ mod tests {
             target,
             target_display_name: "Test Target".to_string(),
             total_bytes: 3,
+            target_size_bytes: 8,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: None,
             cancel_file: None,
             stdout: true,
@@ -1254,6 +1604,72 @@ mod tests {
             validate_request(&request)
                 .unwrap_err()
                 .contains("source size mismatch")
+        );
+    }
+
+    /// Verifies images larger than the selected target are rejected before writing.
+    #[test]
+    fn rejects_source_larger_than_target() {
+        let temp = TempDirectory::new("rejects_source_larger_than_target");
+        let source = temp.path().join("source.raw");
+        let target = temp.path().join("target.raw");
+        fs::write(&source, [1u8; 8]).unwrap();
+        fs::write(&target, [0u8; 4]).unwrap();
+
+        let request = Request {
+            operation: Operation::Write,
+            source,
+            target,
+            target_display_name: "Test Target".to_string(),
+            total_bytes: 8,
+            target_size_bytes: 4,
+            removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
+            event_log: None,
+            cancel_file: None,
+            stdout: true,
+        };
+
+        assert!(
+            validate_request(&request)
+                .unwrap_err()
+                .contains("larger than target")
+        );
+    }
+
+    /// Verifies a changed file-backed target size is rejected before writing.
+    #[test]
+    fn rejects_changed_file_backed_target_size() {
+        let temp = TempDirectory::new("rejects_changed_file_backed_target_size");
+        let source = temp.path().join("source.raw");
+        let target = temp.path().join("target.raw");
+        fs::write(&source, [1u8; 4]).unwrap();
+        fs::write(&target, [0u8; 8]).unwrap();
+
+        let request = Request {
+            operation: Operation::Write,
+            source,
+            target,
+            target_display_name: "Test Target".to_string(),
+            total_bytes: 4,
+            target_size_bytes: 7,
+            removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
+            event_log: None,
+            cancel_file: None,
+            stdout: true,
+        };
+
+        assert!(
+            validate_request(&request)
+                .unwrap_err()
+                .contains("target size changed")
         );
     }
 
@@ -1273,7 +1689,12 @@ mod tests {
             target: target.clone(),
             target_display_name: "Test Target".to_string(),
             total_bytes: image.len() as u64,
+            target_size_bytes: 8,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: None,
             cancel_file: None,
             stdout: true,
@@ -1307,7 +1728,12 @@ mod tests {
             target: target.clone(),
             target_display_name: "Test Target".to_string(),
             total_bytes: 4,
+            target_size_bytes: 8,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: None,
             cancel_file: Some(cancel_file),
             stdout: true,
@@ -1336,7 +1762,12 @@ mod tests {
             target: source,
             target_display_name: "Test Target".to_string(),
             total_bytes: 4,
+            target_size_bytes: 4,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: None,
             cancel_file: None,
             stdout: true,
@@ -1363,7 +1794,12 @@ mod tests {
             target,
             target_display_name: "Test Target".to_string(),
             total_bytes: 4,
+            target_size_bytes: 8,
             removable: false,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: None,
             cancel_file: None,
             stdout: true,
@@ -1389,7 +1825,12 @@ mod tests {
             target,
             target_display_name: "Test Target".to_string(),
             total_bytes: 4,
+            target_size_bytes: 8,
             removable: true,
+            file_backed: true,
+            target_model: None,
+            target_bus_type: None,
+            target_hardware_id: None,
             event_log: Some(event_log.clone()),
             cancel_file: None,
             stdout: false,
