@@ -94,11 +94,6 @@ public final class MainWindow {
     /// Logger for GUI workflow events.
     private static final Logger LOGGER = LoggerFactory.getLogger(MainWindow.class);
 
-    /// Language choices exposed in the GUI.
-    private static final @Unmodifiable List<LanguageOption> LANGUAGE_OPTIONS = List.of(
-            new LanguageOption("gui.language.english", Locale.ENGLISH),
-            new LanguageOption("gui.language.simplifiedChinese", Locale.SIMPLIFIED_CHINESE));
-
     /// Binary size units used by storage device summaries.
     private static final @Unmodifiable List<String> SIZE_UNITS = List.of("B", "KiB", "MiB", "GiB", "TiB");
 
@@ -220,6 +215,9 @@ public final class MainWindow {
     /// Target selection button.
     private final Button storageButton = new MFXButton();
 
+    /// Settings button.
+    private final Button settingsButton = localizedButton("gui.button.settings");
+
     /// Repository metadata update button.
     private final Button repoUpdateButton = localizedButton("gui.button.updateMetadata");
 
@@ -334,15 +332,16 @@ public final class MainWindow {
         Label subtitle = localizedLabel("gui.header.subtitle");
         subtitle.getStyleClass().add("app-subtitle");
 
-        MFXComboBox<LanguageOption> languageSelector = createLanguageSelector();
-
         VBox titleText = new VBox(2, title, subtitle);
         titleText.getStyleClass().add("app-title-text");
 
         Region titleSpacer = new Region();
         HBox.setHgrow(titleSpacer, Priority.ALWAYS);
 
-        HBox titleRow = new HBox(16, createHeaderLogo(), titleText, titleSpacer, languageSelector);
+        settingsButton.setOnAction(_ -> showSettings());
+        settingsButton.getStyleClass().add("header-button");
+
+        HBox titleRow = new HBox(16, createHeaderLogo(), titleText, titleSpacer, settingsButton);
         titleRow.setAlignment(Pos.CENTER_LEFT);
 
         repoUpdateButton.setOnAction(_ -> updateRepository());
@@ -389,55 +388,6 @@ public final class MainWindow {
         logo.setPreserveRatio(true);
         logo.setSmooth(true);
         return logo;
-    }
-
-    /// Creates the runtime language selector.
-    ///
-    /// @return language selector.
-    private MFXComboBox<LanguageOption> createLanguageSelector() {
-        MFXComboBox<LanguageOption> selector = new MFXComboBox<>(
-                FXCollections.observableArrayList(LANGUAGE_OPTIONS));
-        selector.setAllowEdit(false);
-        selector.setRowsCount(LANGUAGE_OPTIONS.size());
-        selector.setPrefWidth(190);
-        selector.floatingTextProperty().bind(Messages.binding("gui.language"));
-        selector.setConverter(new StringConverter<>() {
-            /// Converts a language option to localized display text.
-            ///
-            /// @param option language option.
-            /// @return localized display text.
-            @Override
-            public String toString(@Nullable LanguageOption option) {
-                return languageLabel(option);
-            }
-
-            /// Converts localized display text back to a language option.
-            ///
-            /// @param text localized display text.
-            /// @return matching language option, or null when no option matches.
-            @Override
-            public @Nullable LanguageOption fromString(@Nullable String text) {
-                if (text == null) {
-                    return null;
-                }
-                for (LanguageOption option : LANGUAGE_OPTIONS) {
-                    if (languageLabel(option).equals(text)) {
-                        return option;
-                    }
-                }
-                return null;
-            }
-        });
-        selector.getStyleClass().add("language-selector");
-        updateLanguageSelectorValue(selector);
-        selector.valueProperty().addListener((_, _, selected) -> {
-            if (selected != null && !selected.locale().equals(languageOption(Messages.locale()).locale())) {
-                Messages.setLocale(selected.locale());
-                savePreferredLocale(selected.locale());
-            }
-        });
-        Messages.localeProperty().addListener((_, _, _) -> updateLanguageSelectorValue(selector));
-        return selector;
     }
 
     /// Creates the guided workflow controls.
@@ -924,36 +874,6 @@ public final class MainWindow {
         return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
     }
 
-    /// Updates the language selector to match the selected locale.
-    ///
-    /// @param selector language selector.
-    private static void updateLanguageSelectorValue(MFXComboBox<LanguageOption> selector) {
-        LanguageOption option = languageOption(Messages.locale());
-        if (!option.equals(selector.getValue())) {
-            selector.selectItem(option);
-        }
-        selector.setText(languageLabel(option));
-    }
-
-    /// Selects the supported language option for one locale.
-    ///
-    /// @param locale selected locale.
-    /// @return matching language option.
-    private static LanguageOption languageOption(Locale locale) {
-        if (Locale.SIMPLIFIED_CHINESE.getLanguage().equals(locale.getLanguage())) {
-            return LANGUAGE_OPTIONS.get(1);
-        }
-        return LANGUAGE_OPTIONS.getFirst();
-    }
-
-    /// Returns the localized display label for one language option.
-    ///
-    /// @param option language option.
-    /// @return localized language label.
-    private static String languageLabel(@Nullable LanguageOption option) {
-        return option == null ? "" : Messages.get(option.labelKey());
-    }
-
     /// Loads the persisted GUI language preference unless a system property override is present.
     private void loadPreferredLocale() {
         if (hasLocaleSystemProperty()) {
@@ -971,13 +891,33 @@ public final class MainWindow {
         }
     }
 
-    /// Persists the selected GUI language.
-    ///
-    /// @param locale selected locale.
-    private void savePreferredLocale(Locale locale) {
+    /// Shows the editable GUI settings.
+    private void showSettings() {
+        boolean startupSafetyWarningAccepted;
         try {
-            preferences.writeLocale(locale);
-            LOGGER.atInfo().log(() -> "Saved GUI locale preference. locale=" + locale);
+            startupSafetyWarningAccepted = preferences.readStartupSafetyWarningAccepted();
+        } catch (IOException exception) {
+            LOGGER.warn("Failed to read GUI preferences.", exception);
+            startupSafetyWarningAccepted = false;
+        }
+
+        SettingsDialog settings = new SettingsDialog(Messages.locale(), !startupSafetyWarningAccepted);
+        if (!showConfirmationDialog(
+                Messages.get("gui.settings.title"),
+                Messages.get("gui.settings.title"),
+                settings.root(),
+                "gui.settings.save",
+                "material-settings-dialog")) {
+            return;
+        }
+
+        Locale locale = settings.selectedLocale();
+        boolean accepted = !settings.showStartupSafetyWarning();
+        try {
+            preferences.writeSettings(locale, accepted);
+            Messages.setLocale(locale);
+            LOGGER.atInfo().log(() -> "Saved GUI settings. locale=" + locale
+                    + ", startupSafetyWarningAccepted=" + accepted);
         } catch (IOException exception) {
             LOGGER.warn("Failed to write GUI preferences.", exception);
             showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
@@ -1901,6 +1841,7 @@ public final class MainWindow {
         selectionControlsBox.setManaged(!showActiveFlashBox);
         activeFlashBox.setVisible(showActiveFlashBox);
         activeFlashBox.setManaged(showActiveFlashBox);
+        settingsButton.setDisable(busy);
         repoUpdateButton.setDisable(busy);
         manufacturerButton.setDisable(busy);
         boardButton.setDisable(busy || state.localImage() != null || state.manufacturerName() == null);
@@ -3090,14 +3031,6 @@ public final class MainWindow {
     private static @Nullable String applicationStylesheet() {
         URL stylesheet = MainWindow.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
         return stylesheet == null ? null : stylesheet.toExternalForm();
-    }
-
-    /// Supported GUI language option.
-    ///
-    /// @param labelKey message key for the language label.
-    /// @param locale locale selected by this option.
-    @NotNullByDefault
-    private record LanguageOption(String labelKey, Locale locale) {
     }
 
     /// Holds the current guided workflow selections.

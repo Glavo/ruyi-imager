@@ -30,19 +30,6 @@ public final class GuiPreferencesTest {
         assertNull(preferences.readLocale());
     }
 
-    /// Verifies that locale preferences are persisted and read as BCP 47 tags.
-    ///
-    /// @param temporaryDirectory temporary test directory.
-    /// @throws Exception when the preferences file cannot be written or read.
-    @Test
-    public void persistsLocalePreference(@TempDir Path temporaryDirectory) throws Exception {
-        GuiPreferences preferences = preferences(temporaryDirectory);
-
-        preferences.writeLocale(Locale.SIMPLIFIED_CHINESE);
-
-        assertEquals(Locale.SIMPLIFIED_CHINESE, preferences.readLocale());
-    }
-
     /// Verifies that missing preferences do not mark the startup warning as accepted.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -54,34 +41,33 @@ public final class GuiPreferencesTest {
         assertFalse(preferences.readStartupSafetyWarningAccepted());
     }
 
-    /// Verifies that the startup warning acknowledgement is persisted without clearing the locale.
+    /// Verifies that editable settings are persisted together.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the preferences file cannot be written or read.
     @Test
-    public void persistsStartupSafetyWarningAccepted(@TempDir Path temporaryDirectory) throws Exception {
+    public void persistsEditableSettings(@TempDir Path temporaryDirectory) throws Exception {
         GuiPreferences preferences = preferences(temporaryDirectory);
 
-        preferences.writeLocale(Locale.ENGLISH);
-        preferences.writeStartupSafetyWarningAccepted();
+        preferences.writeSettings(Locale.SIMPLIFIED_CHINESE, true);
 
+        assertEquals(Locale.SIMPLIFIED_CHINESE, preferences.readLocale());
         assertTrue(preferences.readStartupSafetyWarningAccepted());
-        assertEquals(Locale.ENGLISH, preferences.readLocale());
     }
 
-    /// Verifies that changing locale does not clear the startup warning acknowledgement.
+    /// Verifies that settings can re-enable the startup safety warning.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the preferences file cannot be written or read.
     @Test
-    public void preservesStartupSafetyWarningAcceptedWhenLocaleChanges(@TempDir Path temporaryDirectory) throws Exception {
+    public void reEnablesStartupSafetyWarning(@TempDir Path temporaryDirectory) throws Exception {
         GuiPreferences preferences = preferences(temporaryDirectory);
 
-        preferences.writeStartupSafetyWarningAccepted();
-        preferences.writeLocale(Locale.SIMPLIFIED_CHINESE);
+        preferences.writeSettings(Locale.ENGLISH, true);
+        preferences.writeSettings(Locale.ENGLISH, false);
 
-        assertTrue(preferences.readStartupSafetyWarningAccepted());
-        assertEquals(Locale.SIMPLIFIED_CHINESE, preferences.readLocale());
+        assertEquals(Locale.ENGLISH, preferences.readLocale());
+        assertFalse(preferences.readStartupSafetyWarningAccepted());
     }
 
     /// Creates a test preferences store.

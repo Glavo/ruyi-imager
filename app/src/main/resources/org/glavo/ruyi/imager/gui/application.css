@@ -138,7 +138,7 @@
 .cancel-flash-button,
 .header-button,
 .dialog-button,
-.language-selector,
+.settings-language-selector,
 .partition-target-selector {
     -fx-cursor: hand;
 }
@@ -149,7 +149,7 @@
 .cancel-flash-button:disabled,
 .header-button:disabled,
 .dialog-button:disabled,
-.language-selector:disabled,
+.settings-language-selector:disabled,
 .partition-target-selector:disabled {
     -fx-cursor: default;
 }
@@ -275,13 +275,13 @@
     -fx-border-radius: 8;
 }
 
-.language-selector {
+.settings-language-selector {
     -fx-background-color: #ffffff;
     -fx-text-fill: #394756;
     -fx-border-color: #d6e0ea;
     -fx-border-radius: 8;
     -fx-background-radius: 8;
-    -fx-min-width: 190px;
+    -fx-min-width: 220px;
 }
 
 .selection-list-view {
@@ -566,6 +566,35 @@
 .confirmation-content {
     -fx-min-width: 460px;
     -fx-max-width: 640px;
+}
+
+.settings-content {
+    -fx-min-width: 480px;
+    -fx-max-width: 560px;
+    -fx-spacing: 16;
+}
+
+.settings-section-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #18212b;
+}
+
+.settings-grid {
+    -fx-hgap: 24;
+    -fx-vgap: 18;
+}
+
+.settings-label {
+    -fx-font-size: 13px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #394756;
+}
+
+.settings-checkbox {
+    -fx-cursor: hand;
+    -fx-font-size: 13px;
+    -fx-text-fill: #394756;
 }
 
 .partition-target-content {

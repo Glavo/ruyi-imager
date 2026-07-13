@@ -53,13 +53,17 @@ final class GuiPreferences {
         return locale.getLanguage().isBlank() ? null : locale;
     }
 
-    /// Writes the locale preference.
+    /// Writes all editable GUI settings.
     ///
     /// @param locale locale to persist.
+    /// @param startupSafetyWarningAccepted whether the startup safety warning has been accepted.
     /// @throws IOException when the preferences file cannot be written.
-    public void writeLocale(Locale locale) throws IOException {
+    public void writeSettings(Locale locale, boolean startupSafetyWarningAccepted) throws IOException {
         Properties properties = readProperties();
         properties.setProperty(LOCALE_KEY, locale.toLanguageTag());
+        properties.setProperty(
+                STARTUP_SAFETY_WARNING_ACCEPTED_KEY,
+                Boolean.toString(startupSafetyWarningAccepted));
         writeProperties(properties);
     }
 
