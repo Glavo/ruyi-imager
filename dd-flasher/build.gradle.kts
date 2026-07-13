@@ -1,3 +1,5 @@
+import org.glavo.ruyi.imager.gradle.JlinkPackaging.platformTaskSuffix
+
 plugins {
     base
 }
@@ -233,12 +235,3 @@ fun releaseExecutable(platform: DDFlasherPlatform, rustTarget: String?) =
 /// @return bundled executable provider.
 fun bundledExecutable(platform: DDFlasherPlatform) =
     layout.buildDirectory.file("bundled-dd-flasher/${platform.directory}/${platform.executableName}")
-
-/// Converts a platform directory name into a Gradle task suffix.
-///
-/// @param platformDirectory distribution platform directory.
-/// @return Gradle task suffix.
-fun platformTaskSuffix(platformDirectory: String): String =
-    platformDirectory.split('-', '_').joinToString("") { token ->
-        token.replaceFirstChar { it.uppercaseChar() }
-    }

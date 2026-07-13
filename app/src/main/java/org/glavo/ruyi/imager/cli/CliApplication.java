@@ -18,7 +18,6 @@ import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.glavo.ruyi.imager.logging.LoggingProgressReporter;
-import org.glavo.ruyi.imager.logging.RuyiLogLevel;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -53,9 +52,6 @@ import org.slf4j.LoggerFactory;
 public final class CliApplication implements Runnable {
     /// Logger for CLI command execution.
     private static final Logger LOGGER = LoggerFactory.getLogger(CliApplication.class);
-
-    /// Services used by every command.
-    private final AppServices services;
 
     /// Picocli command specification injected at runtime.
     @Spec
@@ -104,10 +100,7 @@ public final class CliApplication implements Runnable {
     private @Nullable Path logFile;
 
     /// Creates the command root.
-    ///
-    /// @param services shared application services.
-    public CliApplication(AppServices services) {
-        this.services = services;
+    private CliApplication() {
     }
 
     /// Executes CLI arguments.
@@ -118,11 +111,11 @@ public final class CliApplication implements Runnable {
     public static int run(AppServices services, String @Unmodifiable [] args) {
         RuyiLogging.configure(
                 services.directories(),
-                RuyiLogging.cliLevel(optionValue(args, "--log-level"), hasFlag(args, "--verbose")),
-                pathOptionValue(args, "--log-file"));
+                RuyiLogging.cliLevel(optionValue(args, "--log-level"), hasVerboseFlag(args)),
+                logFileOptionValue(args));
         LOGGER.atInfo().log(() -> "CLI command started. args=" + LogRedactor.redactCommand(List.of(args)));
         try {
-            CliApplication root = new CliApplication(services);
+            CliApplication root = new CliApplication();
             CommandLine commandLine = new CommandLine(root);
             commandLine.addSubcommand("repo", repoCommand(services));
             commandLine.addSubcommand("image", imageCommand(services));
@@ -190,7 +183,7 @@ public final class CliApplication implements Runnable {
     private static ProgressReporter progressReporter(boolean json) {
         ProgressReporter reporter;
         if (json) {
-            reporter = event -> JsonOutput.print(eventMap("progress", event));
+            reporter = event -> JsonOutput.print(progressEventMap(event));
         } else {
             reporter = event -> System.err.printf("%s: %s%n", event.stage(), event.message());
         }
@@ -198,14 +191,13 @@ public final class CliApplication implements Runnable {
         return LoggingProgressReporter.wrap(reporter, LOGGER);
     }
 
-    /// Creates a JSON event object.
+    /// Creates a JSON progress event object.
     ///
-    /// @param type event type.
     /// @param event progress event.
     /// @return JSON-ready event map.
-    private static Map<String, Object> eventMap(String type, ProgressEvent event) {
+    private static Map<String, Object> progressEventMap(ProgressEvent event) {
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("type", type);
+        map.put("type", "progress");
         map.put("stage", event.stage());
         map.put("message", event.message());
         map.put("currentBytes", event.currentBytes());
@@ -316,14 +308,13 @@ public final class CliApplication implements Runnable {
         return result.success() ? CommandLine.ExitCode.OK : CommandLine.ExitCode.SOFTWARE;
     }
 
-    /// Returns whether an argument flag is present.
+    /// Returns whether verbose logging was requested.
     ///
     /// @param args command-line arguments.
-    /// @param name option name.
-    /// @return whether the flag is present.
-    private static boolean hasFlag(String @Unmodifiable [] args, String name) {
+    /// @return whether the verbose flag is present.
+    private static boolean hasVerboseFlag(String @Unmodifiable [] args) {
         for (String arg : args) {
-            if (name.equals(arg)) {
+            if ("--verbose".equals(arg)) {
                 return true;
             }
         }
@@ -349,13 +340,12 @@ public final class CliApplication implements Runnable {
         return null;
     }
 
-    /// Returns a path option value from CLI arguments without consuming it.
+    /// Returns the configured log file path without consuming its argument.
     ///
     /// @param args command-line arguments.
-    /// @param name option name.
-    /// @return option path, or null when absent.
-    private static @Nullable Path pathOptionValue(String @Unmodifiable [] args, String name) {
-        @Nullable String value = optionValue(args, name);
+    /// @return log file path, or null when absent.
+    private static @Nullable Path logFileOptionValue(String @Unmodifiable [] args) {
+        @Nullable String value = optionValue(args, "--log-file");
         return value == null || value.isBlank() ? null : Path.of(value);
     }
 

@@ -4,7 +4,6 @@
 package org.glavo.ruyi.imager.gradle;
 
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
 
 /// Provides WiX packaging helpers.
 @NotNullByDefault
@@ -13,29 +12,17 @@ public final class WixPackaging {
     private WixPackaging() {
     }
 
-    /// Returns the WiX architecture name for a jlink target platform.
-    ///
-    /// @param platform jlink target platform token.
-    /// @return WiX architecture name, or null when the platform cannot be packaged as MSI.
-    public static @Nullable String wixArchitecture(String platform) {
-        return switch (platform) {
-            case "windows-x86_64" -> "x64";
-            case "windows-aarch64" -> "arm64";
-            default -> null;
-        };
-    }
-
     /// Returns the WiX architecture name or fails with a clear packaging error.
     ///
     /// @param platform jlink target platform token.
     /// @return WiX architecture name.
     public static String requireWixArchitecture(String platform) {
-        String architecture = wixArchitecture(platform);
-        if (architecture == null) {
-            throw new IllegalStateException(
+        return switch (platform) {
+            case "windows-x86_64" -> "x64";
+            case "windows-aarch64" -> "arm64";
+            default -> throw new IllegalStateException(
                     "MSI packaging is supported only for Windows jlink platforms, but was requested for " + platform);
-        }
-        return architecture;
+        };
     }
 
     /// Converts a Gradle project version into a Windows Installer product version.

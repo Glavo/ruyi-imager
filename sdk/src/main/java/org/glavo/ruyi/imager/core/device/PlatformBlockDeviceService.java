@@ -31,7 +31,7 @@ public final class PlatformBlockDeviceService implements BlockDeviceService {
         } else if (osName.contains("mac") || osName.contains("darwin")) {
             this.delegate = new MacOSBlockDeviceService();
         } else {
-            this.delegate = new StubBlockDeviceService();
+            this.delegate = List::of;
         }
         LOGGER.atInfo().log(() -> "Selected block-device backend. osName="
                 + osName

@@ -1,3 +1,5 @@
+import org.glavo.ruyi.imager.gradle.JlinkPackaging.platformTaskSuffix
+
 plugins {
     base
 }
@@ -145,13 +147,4 @@ fun releaseExecutables(platform: LauncherPlatform) =
 fun bundledExecutables(platform: LauncherPlatform) =
     platform.executableNames.map { executableName ->
         layout.buildDirectory.file("bundled-launcher/${platform.directory}/$executableName")
-    }
-
-/// Converts a platform directory name into a Gradle task suffix.
-///
-/// @param platformDirectory distribution platform directory.
-/// @return Gradle task suffix.
-fun platformTaskSuffix(platformDirectory: String): String =
-    platformDirectory.split('-', '_').joinToString("") { token ->
-        token.replaceFirstChar { it.uppercaseChar() }
     }

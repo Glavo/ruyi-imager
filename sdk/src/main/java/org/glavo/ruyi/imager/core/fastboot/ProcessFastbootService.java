@@ -275,7 +275,7 @@ public final class ProcessFastbootService implements FastbootService {
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
-        @Nullable String missingPartition = missingPartition(partitions, SPACEMIT_K1_PARTITION_ORDER);
+        @Nullable String missingPartition = missingSpacemitPartition(partitions);
         if (missingPartition != null) {
             return OperationResult.failure(SdkMessages.get("core.fastboot.missingPartition", missingPartition));
         }
@@ -405,7 +405,7 @@ public final class ProcessFastbootService implements FastbootService {
         reporter.report(progress(waitMessage, 2, totalSteps));
         sleepLpi4aUbootHandoff();
         ResolvedFastbootDevice resolvedDevice =
-                resolveLpi4aUbootDevice(device, preHandoffOtherSerials, reporter, 2, totalSteps);
+                resolveLpi4aUbootDevice(device, preHandoffOtherSerials, reporter, totalSteps);
         if (!resolvedDevice.success()) {
             return OperationResult.failure(resolvedDevice.message());
         }
@@ -430,7 +430,6 @@ public final class ProcessFastbootService implements FastbootService {
     /// @param originalDevice device selected before the handoff.
     /// @param preHandoffOtherSerials serials that were already visible before the handoff except the selected device.
     /// @param reporter progress reporter.
-    /// @param completedSteps completed progress steps.
     /// @param totalSteps total progress steps.
     /// @return resolved device result.
     /// @throws IOException when fastboot cannot be executed or waiting is interrupted.
@@ -438,12 +437,11 @@ public final class ProcessFastbootService implements FastbootService {
             FastbootDevice originalDevice,
             @Unmodifiable Set<String> preHandoffOtherSerials,
             ProgressReporter reporter,
-            int completedSteps,
             int totalSteps) throws IOException {
         long deadlineNanos = System.nanoTime() + LPI4A_UBOOT_RECONNECT_TIMEOUT.toNanos();
         String message = SdkMessages.get("core.fastboot.waitingReconnect", originalDevice.serial());
         while (System.nanoTime() < deadlineNanos) {
-            reporter.report(progress(message, completedSteps, totalSteps));
+            reporter.report(progress(message, 2, totalSteps));
             LOGGER.atDebug().log(() -> "Polling LPi4A U-Boot fastboot device. serial=" + originalDevice.serial());
             CommandResult result = runner.run(List.of(executable, "devices"), DEVICE_POLL_TIMEOUT);
             if (result.timedOut()) {
@@ -610,16 +608,6 @@ public final class ProcessFastbootService implements FastbootService {
             Thread.currentThread().interrupt();
             throw new IOException(SdkMessages.get("core.fastboot.reconnectInterrupted"), e);
         }
-    }
-
-    /// Runs one fastboot command for a target device.
-    ///
-    /// @param device target fastboot device.
-    /// @param arguments fastboot arguments after the serial selector.
-    /// @return operation result.
-    /// @throws IOException when fastboot cannot be executed.
-    private OperationResult runFastboot(FastbootDevice device, @Unmodifiable List<String> arguments) throws IOException {
-        return runFastboot(device, arguments, null);
     }
 
     /// Runs one fastboot command for a target device and streams output into progress when available.
@@ -794,15 +782,12 @@ public final class ProcessFastbootService implements FastbootService {
         }
     }
 
-    /// Finds the first missing required partition.
+    /// Finds the first missing SpacemiT K1 partition.
     ///
     /// @param partitions partition map.
-    /// @param requiredPartitions required partition names.
     /// @return first missing partition name, or null when all are present.
-    private static @Nullable String missingPartition(
-            @Unmodifiable Map<String, Path> partitions,
-            @Unmodifiable List<String> requiredPartitions) {
-        for (String partition : requiredPartitions) {
+    private static @Nullable String missingSpacemitPartition(@Unmodifiable Map<String, Path> partitions) {
+        for (String partition : SPACEMIT_K1_PARTITION_ORDER) {
             if (!partitions.containsKey(partition)) {
                 return partition;
             }

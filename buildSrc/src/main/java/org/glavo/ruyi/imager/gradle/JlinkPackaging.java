@@ -4,7 +4,6 @@
 package org.glavo.ruyi.imager.gradle;
 
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
 
 /// Provides packaging helpers for jlink distributions.
 @NotNullByDefault
@@ -13,30 +12,18 @@ public final class JlinkPackaging {
     private JlinkPackaging() {
     }
 
-    /// Returns the Debian architecture name for a jlink target platform.
-    ///
-    /// @param platform jlink target platform token.
-    /// @return Debian architecture name, or null when the platform cannot be packaged as Debian.
-    public static @Nullable String debianArchitecture(String platform) {
-        return switch (platform) {
-            case "linux-x86_64" -> "amd64";
-            case "linux-aarch64" -> "arm64";
-            case "linux-riscv64" -> "riscv64";
-            default -> null;
-        };
-    }
-
     /// Returns the Debian architecture name or fails with a clear packaging error.
     ///
     /// @param platform jlink target platform token.
     /// @return Debian architecture name.
     public static String requireDebianArchitecture(String platform) {
-        String architecture = debianArchitecture(platform);
-        if (architecture == null) {
-            throw new IllegalStateException(
+        return switch (platform) {
+            case "linux-x86_64" -> "amd64";
+            case "linux-aarch64" -> "arm64";
+            case "linux-riscv64" -> "riscv64";
+            default -> throw new IllegalStateException(
                     "Debian packaging is supported only for Linux jlink platforms, but was requested for " + platform);
-        }
-        return architecture;
+        };
     }
 
     /// Converts a Gradle project version into a Debian-compatible package version.

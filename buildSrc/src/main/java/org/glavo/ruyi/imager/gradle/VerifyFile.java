@@ -28,10 +28,6 @@ import java.util.Locale;
 @DisableCachingByDefault(because = "Verification tasks have no outputs.")
 @NotNullByDefault
 public abstract class VerifyFile extends DefaultTask {
-    /// Creates a file verification task.
-    public VerifyFile() {
-    }
-
     /// Returns the file to verify.
     ///
     /// @return file to verify.

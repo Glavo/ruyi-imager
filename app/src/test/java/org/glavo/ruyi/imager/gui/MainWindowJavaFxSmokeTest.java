@@ -203,13 +203,13 @@ public final class MainWindowJavaFxSmokeTest {
 
         assertEquals(
                 List.of("download", "materialize", "prepare", "flash", "verify"),
-                MainWindow.initialPhaseProgressStages(ddImage, null, FlashTarget.blockDevice(block)));
+                MainWindow.initialPhaseProgressStages(ddImage, FlashTarget.blockDevice(block)));
         assertEquals(
                 List.of("prepare", "flash", "verify"),
-                MainWindow.initialPhaseProgressStages(null, Path.of("local.raw"), FlashTarget.blockDevice(block)));
+                MainWindow.initialPhaseProgressStages(null, FlashTarget.blockDevice(block)));
         assertEquals(
                 List.of("download", "materialize", "fastboot"),
-                MainWindow.initialPhaseProgressStages(fastbootImage, null, FlashTarget.fastbootDevice(fastboot)));
+                MainWindow.initialPhaseProgressStages(fastbootImage, FlashTarget.fastbootDevice(fastboot)));
     }
 
     /// Runs an action on the JavaFX application thread.

@@ -10,8 +10,6 @@ import org.junit.jupiter.api.Test;
 import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for localized manufacturer display names.
 @NotNullByDefault
@@ -26,7 +24,6 @@ public final class ManufacturerNamesTest {
             assertEquals("Allwinner (全志科技)", ManufacturerNames.displayName("Allwinner"));
             assertEquals("Sipeed (矽速科技)", ManufacturerNames.displayName("Sipeed"));
             assertEquals("WinChipHead (沁恒微电子)", ManufacturerNames.displayName("WinChipHead"));
-            assertTrue(ManufacturerNames.hasLocalizedName("Allwinner"));
         } finally {
             Messages.setLocale(originalLocale);
         }
@@ -41,7 +38,6 @@ public final class ManufacturerNamesTest {
 
             assertEquals("Allwinner", ManufacturerNames.displayName("Allwinner"));
             assertEquals("WinChipHead", ManufacturerNames.displayName("WinChipHead"));
-            assertFalse(ManufacturerNames.hasLocalizedName("Allwinner"));
         } finally {
             Messages.setLocale(originalLocale);
         }
@@ -55,7 +51,6 @@ public final class ManufacturerNamesTest {
             Messages.setLocale(Locale.SIMPLIFIED_CHINESE);
 
             assertEquals("Example Vendor", ManufacturerNames.displayName("Example Vendor"));
-            assertFalse(ManufacturerNames.hasLocalizedName("Example Vendor"));
         } finally {
             Messages.setLocale(originalLocale);
         }

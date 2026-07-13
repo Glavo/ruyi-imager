@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use std::env;
-#[cfg(test)]
-use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -87,11 +85,6 @@ fn default_jvm_args() -> Vec<String> {
 }
 
 #[cfg(test)]
-fn is_gui_launch(args: &[OsString]) -> bool {
-    args.is_empty() || (args.len() == 1 && args[0] == OsStr::new("gui"))
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -111,16 +104,5 @@ mod tests {
                 "--add-modules=javafx.base,javafx.controls,javafx.graphics",
             ]
         );
-    }
-
-    #[test]
-    fn detects_gui_launch_arguments() {
-        assert!(is_gui_launch(&[]));
-        assert!(is_gui_launch(&[OsString::from("gui")]));
-        assert!(!is_gui_launch(&[OsString::from("list")]));
-        assert!(!is_gui_launch(&[
-            OsString::from("gui"),
-            OsString::from("--help")
-        ]));
     }
 }

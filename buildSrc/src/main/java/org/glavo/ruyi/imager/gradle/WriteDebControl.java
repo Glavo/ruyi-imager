@@ -25,10 +25,6 @@ import java.util.stream.Stream;
 @CacheableTask
 @NotNullByDefault
 public abstract class WriteDebControl extends DefaultTask {
-    /// Creates a Debian control metadata task.
-    public WriteDebControl() {
-    }
-
     /// Returns the staged Debian data directory.
     ///
     /// @return staged data directory.

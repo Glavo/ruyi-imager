@@ -210,7 +210,9 @@ public abstract class WriteWixBundleSource extends DefaultTask {
             stream
                     .filter(Files::isRegularFile)
                     .filter(path -> isCultureLocalizationFile(localizationDirectory, path))
-                    .forEach(path -> addLocalizationPayload(payloads, localizationDirectory, path));
+                    .forEach(path -> payloads.put(
+                            localizationPayloadName(localizationDirectory, path),
+                            path));
         }
 
         for (Map.Entry<String, Path> payload : payloads.entrySet()) {
@@ -239,15 +241,6 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     private static boolean isCultureLocalizationFile(Path localizationDirectory, Path file) {
         Path relativePath = localizationDirectory.relativize(file);
         return relativePath.getNameCount() == 2 && relativePath.getFileName().toString().equals("thm.wxl");
-    }
-
-    /// Adds a localization payload and any required lookup alias.
-    ///
-    /// @param payloads localization payloads by bundle path.
-    /// @param localizationDirectory bootstrapper UI localization directory.
-    /// @param file localization source file.
-    private static void addLocalizationPayload(Map<String, Path> payloads, Path localizationDirectory, Path file) {
-        payloads.put(localizationPayloadName(localizationDirectory, file), file);
     }
 
     /// Returns the bundle payload name used by the standard bootstrapper UI localization probe.

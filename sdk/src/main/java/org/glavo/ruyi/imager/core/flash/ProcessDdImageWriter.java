@@ -252,7 +252,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         Path eventLog = temporaryEventLog(osName);
         Path cancelFile;
         try {
-            cancelFile = temporarySignalPath(osName, "ruyi-imager-dd-flasher-cancel-", ".signal");
+            cancelFile = temporaryCancelPath(osName);
         } catch (IOException exception) {
             deleteEventLog(eventLog);
             throw exception;
@@ -352,7 +352,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             List<String> arguments,
             String osName,
             ProgressReporter reporter) throws IOException {
-        Path cancelFile = temporarySignalPath(osName, "ruyi-imager-dd-flasher-cancel-", ".signal");
+        Path cancelFile = temporaryCancelPath(osName);
         ArrayList<String> elevatedArguments = new ArrayList<>(arguments.size() + 2);
         elevatedArguments.addAll(arguments);
         elevatedArguments.add("--cancel-file");
@@ -814,15 +814,17 @@ public final class ProcessDdImageWriter implements DdImageWriter {
                 || normalizedOs.contains("darwin");
     }
 
-    /// Creates a temporary signal path that does not currently exist.
+    /// Creates a temporary cancellation path that does not currently exist.
     ///
     /// @param osName operating system name.
-    /// @param prefix temporary file prefix.
-    /// @param suffix temporary file suffix.
     /// @return non-existing temporary path.
     /// @throws IOException when the path cannot be reserved.
-    private static Path temporarySignalPath(String osName, String prefix, String suffix) throws IOException {
-        Path path = createElevatedTemporaryFile(osName, prefix, suffix, false);
+    private static Path temporaryCancelPath(String osName) throws IOException {
+        Path path = createElevatedTemporaryFile(
+                osName,
+                "ruyi-imager-dd-flasher-cancel-",
+                ".signal",
+                false);
         Files.delete(path);
         return path;
     }

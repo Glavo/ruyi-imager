@@ -698,7 +698,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
             @Unmodifiable List<String> deviceIds) throws IOException {
         TomlParseResult manifest = parseToml(manifestPath);
         @Nullable TomlTable provisionable = manifest.getTable("provisionable");
-        if (provisionable == null || !hasKind(manifest, "provisionable")) {
+        if (provisionable == null || !hasProvisionableKind(manifest)) {
             return null;
         }
 
@@ -737,24 +737,23 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
                 ProvisionStrategies.classify(strategy));
     }
 
-    /// Checks whether a manifest has a package kind.
+    /// Checks whether a manifest declares the provisionable package kind.
     ///
     /// @param manifest package manifest.
-    /// @param kind package kind.
-    /// @return whether the manifest has the package kind.
-    private static boolean hasKind(TomlTable manifest, String kind) {
+    /// @return whether the manifest has the provisionable package kind.
+    private static boolean hasProvisionableKind(TomlTable manifest) {
         @Nullable TomlArray kinds = manifest.getArray("kind");
         if (kinds == null) {
-            return manifest.getTable(kind) != null;
+            return manifest.getTable("provisionable") != null;
         }
 
         for (int i = 0; i < kinds.size(); i++) {
             Object value = kinds.get(i);
-            if (kind.equals(value)) {
+            if ("provisionable".equals(value)) {
                 return true;
             }
         }
-        return manifest.getTable(kind) != null;
+        return manifest.getTable("provisionable") != null;
     }
 
     /// Reads distfile declarations.

@@ -38,11 +38,4 @@ final class ManufacturerNames {
         return key == null ? manufacturer : Messages.get(key);
     }
 
-    /// Returns whether a localized display name differs from the metadata name.
-    ///
-    /// @param manufacturer metadata manufacturer name.
-    /// @return whether the display name is localized.
-    static boolean hasLocalizedName(String manufacturer) {
-        return !displayName(manufacturer).equals(manufacturer);
-    }
 }

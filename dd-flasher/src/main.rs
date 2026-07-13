@@ -320,12 +320,6 @@ fn validate_request(request: &Request) -> Result<(), String> {
             request.target_display_name, request.total_bytes, request.target_size_bytes
         ));
     }
-    if !request.removable {
-        return Err(format!(
-            "target is not removable: {}",
-            request.target_display_name
-        ));
-    }
     if !request.stdout && request.event_log.is_none() {
         return Err("--no-stdout requires --event-log".to_string());
     }
@@ -357,13 +351,13 @@ fn same_path(left: &Path, right: &Path) -> bool {
 fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let _target_locks = lock_target_for_write(&request.target).map_err(|error| {
+    let _target_locks = platform::lock_target_for_write(&request.target).map_err(|error| {
         format!(
             "failed to lock target volumes ({}): {error}",
             request.target_display_name
         )
     })?;
-    let mut target = open_target_for_write(&request.target).map_err(|error| {
+    let mut target = platform::open_target_for_write(&request.target).map_err(|error| {
         format!(
             "failed to open target for writing ({}): {error}",
             request.target_display_name
@@ -377,13 +371,13 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
 fn write_and_verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let _target_locks = lock_target_for_write(&request.target).map_err(|error| {
+    let _target_locks = platform::lock_target_for_write(&request.target).map_err(|error| {
         format!(
             "failed to lock target volumes ({}): {error}",
             request.target_display_name
         )
     })?;
-    let mut target = open_target_for_write_verify(&request.target).map_err(|error| {
+    let mut target = platform::open_target_for_write_verify(&request.target).map_err(|error| {
         format!(
             "failed to open target for writing ({}): {error}",
             request.target_display_name
@@ -466,7 +460,7 @@ fn write_image_stream(
 fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let mut target = open_target_for_verify(&request.target).map_err(|error| {
+    let mut target = platform::open_target_for_verify(&request.target).map_err(|error| {
         format!(
             "failed to open target for reading ({}): {error}",
             request.target_display_name
@@ -474,26 +468,6 @@ fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String>
     })?;
 
     verify_image_stream(request, &mut source, &mut target, sink)
-}
-
-/// Opens a target handle for a write request.
-fn open_target_for_write(target: &Path) -> io::Result<File> {
-    platform::open_target_for_write(target)
-}
-
-/// Opens a read/write target handle for combined write and verification.
-fn open_target_for_write_verify(target: &Path) -> io::Result<File> {
-    platform::open_target_for_write_verify(target)
-}
-
-/// Opens a read-only target handle for verification.
-fn open_target_for_verify(target: &Path) -> io::Result<File> {
-    platform::open_target_for_verify(target)
-}
-
-/// Locks mounted target volumes that can block direct disk writes.
-fn lock_target_for_write(target: &Path) -> io::Result<TargetVolumeLocks> {
-    platform::lock_target_for_write(target)
 }
 
 /// Platform-specific target volume locks kept alive during destructive writes.

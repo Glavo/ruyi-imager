@@ -83,7 +83,6 @@ import org.slf4j.LoggerFactory;
 
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.catalogImageFlashable;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.compatibleTarget;
-import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetKeysMatch;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.partitionTargetsReady;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.supportedTargets;
 import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetPreparablyMounted;
@@ -1575,7 +1574,7 @@ public final class MainWindow {
         }
 
         flashInProgress = true;
-        long progressGeneration = beginPhaseProgress(selectedImage, selectedLocalImage, selectedTarget);
+        long progressGeneration = beginPhaseProgress(selectedImage, selectedTarget);
         Task<OperationResult> task = new Task<>() {
             /// Runs the flash operation outside the JavaFX application thread.
             ///
@@ -1720,29 +1719,24 @@ public final class MainWindow {
 
     /// Starts a fresh visible phase-progress generation for one flash task.
     ///
+    /// @param image selected catalog image, or null for a local image.
+    /// @param target selected target.
     /// @return generation token for the task.
-    private long beginPhaseProgress(
-            @Nullable ImageEntry image,
-            @Nullable Path localImage,
-            FlashTarget target) {
+    private long beginPhaseProgress(@Nullable ImageEntry image, FlashTarget target) {
         phaseProgressGeneration++;
         clearPhaseProgressRows();
-        initializePhaseProgressRows(image, localImage, target);
+        initializePhaseProgressRows(image, target);
         return phaseProgressGeneration;
     }
 
     /// Creates pending progress rows for the selected flash flow.
     ///
     /// @param image selected catalog image, or null for a local image.
-    /// @param localImage selected local image, or null for a catalog image.
     /// @param target selected target.
-    private void initializePhaseProgressRows(
-            @Nullable ImageEntry image,
-            @Nullable Path localImage,
-            FlashTarget target) {
+    private void initializePhaseProgressRows(@Nullable ImageEntry image, FlashTarget target) {
         phaseProgressBox.setVisible(true);
         phaseProgressBox.setManaged(true);
-        for (String stage : initialPhaseProgressStages(image, localImage, target)) {
+        for (String stage : initialPhaseProgressStages(image, target)) {
             PhaseProgressRow row = phaseProgressRows.computeIfAbsent(stage, this::createPhaseProgressRow);
             row.message().setText(Messages.get("gui.progress.pending"));
             row.progressBar().setProgress(0.0);
@@ -1753,12 +1747,10 @@ public final class MainWindow {
     /// Returns the progress stages to show before the first backend event arrives.
     ///
     /// @param image selected catalog image, or null for a local image.
-    /// @param localImage selected local image, or null for a catalog image.
     /// @param target selected target.
     /// @return stages to create immediately.
     static @Unmodifiable List<String> initialPhaseProgressStages(
             @Nullable ImageEntry image,
-            @Nullable Path localImage,
             FlashTarget target) {
         ArrayList<String> stages = new ArrayList<>();
         if (image != null) {
@@ -1776,10 +1768,6 @@ public final class MainWindow {
             stages.add("verify");
         }
 
-        if (localImage != null && stages.isEmpty()) {
-            stages.add("flash");
-            stages.add("verify");
-        }
         return List.copyOf(stages);
     }
 
@@ -2705,9 +2693,6 @@ public final class MainWindow {
         if (image.support() == StrategySupport.UNKNOWN) {
             return Messages.get("gui.image.support.unknown");
         }
-        if (image.support() == StrategySupport.UNSUPPORTED) {
-            return Messages.get("gui.image.support.unsupported");
-        }
         if (ProvisionStrategies.isFastboot(image.strategy())) {
             return Messages.get("gui.image.support.noPartitions");
         }
@@ -2984,17 +2969,6 @@ public final class MainWindow {
     /// @return whether the user accepted the dialog.
     private boolean showSearchableSelectionDialog(String title, Node content) {
         return showConfirmationDialog(title, "", content, "gui.dialog.select", "material-search-selection-dialog");
-    }
-
-    /// Shows a MaterialFX confirmation dialog with text content.
-    ///
-    /// @param title dialog title.
-    /// @param header dialog header.
-    /// @param message dialog message.
-    /// @param confirmKey confirm button message key.
-    /// @return whether the user accepted the dialog.
-    private boolean showConfirmationDialog(String title, String header, String message, String confirmKey) {
-        return showConfirmationDialog(title, header, messageContent(message), confirmKey, "material-confirm-dialog");
     }
 
     /// Shows a MaterialFX confirmation dialog with custom content.

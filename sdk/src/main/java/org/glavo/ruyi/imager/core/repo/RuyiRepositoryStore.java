@@ -181,7 +181,7 @@ public final class RuyiRepositoryStore {
 
         @Nullable String legacyDist = config.getString("dist");
         if (legacyDist != null) {
-            mirrors.put(RUYI_DIST_MIRROR_ID, List.of(joinUrl(legacyDist, "dist/")));
+            mirrors.put(RUYI_DIST_MIRROR_ID, List.of(distMirrorUrl(legacyDist)));
         }
 
         readMirrors(config.getArray("mirrors"), mirrors);
@@ -463,13 +463,12 @@ public final class RuyiRepositoryStore {
         return result;
     }
 
-    /// Joins a base URL and a relative path.
+    /// Resolves the legacy distfile directory below a configured base URL.
     ///
     /// @param base base URL.
-    /// @param path relative path.
-    /// @return joined URL.
-    private static String joinUrl(String base, String path) {
+    /// @return distfile directory URL.
+    private static String distMirrorUrl(String base) {
         String normalizedBase = base.endsWith("/") ? base : base + "/";
-        return java.net.URI.create(normalizedBase).resolve(path).toString();
+        return java.net.URI.create(normalizedBase).resolve("dist/").toString();
     }
 }

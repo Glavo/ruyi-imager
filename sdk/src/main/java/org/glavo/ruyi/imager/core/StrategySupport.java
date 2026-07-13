@@ -11,9 +11,6 @@ public enum StrategySupport {
     /// The strategy can be executed by the current application.
     SUPPORTED,
 
-    /// The strategy is known but is not implemented yet.
-    UNSUPPORTED,
-
     /// The strategy was not recognized.
     UNKNOWN
 }

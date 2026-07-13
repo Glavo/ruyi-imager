@@ -71,11 +71,6 @@ public final class Messages {
         setLocale(Locale.forLanguageTag(languageTag.replace('_', '-')));
     }
 
-    /// Re-reads the locale from the system property or system default.
-    public static void resetLocale() {
-        setLocale(selectedLocale());
-    }
-
     /// Returns the active resource bundle.
     ///
     /// @return active resource bundle.

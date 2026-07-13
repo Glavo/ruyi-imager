@@ -58,15 +58,7 @@ public final class LocalFlashService implements FlashService {
     ///
     /// @param images image catalog service.
     public LocalFlashService(ImageCatalogService images) {
-        this(images, (BlockDeviceService) null, new ProcessFastbootService());
-    }
-
-    /// Creates the local flash service.
-    ///
-    /// @param images image catalog service.
-    /// @param devices block-device service used to re-resolve targets.
-    public LocalFlashService(ImageCatalogService images, BlockDeviceService devices) {
-        this(images, devices, new ProcessFastbootService());
+        this(images, null, new ProcessFastbootService());
     }
 
     /// Creates the local flash service.
@@ -591,14 +583,13 @@ public final class LocalFlashService implements FlashService {
 
         @Nullable String validationError = validateBlockImage(source, blockDevice, canWriteMountedTarget(blockDevice));
         if (validationError != null) {
-            String message = validationError;
             Path targetPath = blockDevice.path();
             LOGGER.atWarn().log(() -> "Block target validation failed before write. source="
                     + source
                     + ", target="
                     + targetPath
                     + ", message="
-                    + message);
+                    + validationError);
             return OperationResult.failure(validationError);
         }
 

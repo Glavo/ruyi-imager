@@ -27,10 +27,6 @@ import java.util.Locale;
 @CacheableTask
 @NotNullByDefault
 public abstract class CreateDeb extends DefaultTask {
-    /// Creates a Debian package task.
-    public CreateDeb() {
-    }
-
     /// Returns the generated `control.tar.gz` member.
     ///
     /// @return control archive file.
