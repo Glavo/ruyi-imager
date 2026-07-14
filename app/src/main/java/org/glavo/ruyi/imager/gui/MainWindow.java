@@ -67,6 +67,8 @@ import java.net.URL;
 import java.nio.channels.ClosedByInterruptException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -78,6 +80,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -93,6 +96,9 @@ import static org.glavo.ruyi.imager.gui.GuiSelectionRules.targetWritable;
 public final class MainWindow {
     /// Logger for GUI workflow events.
     private static final Logger LOGGER = LoggerFactory.getLogger(MainWindow.class);
+
+    /// Minimum interval between successful automatic metadata updates.
+    private static final Duration METADATA_AUTO_UPDATE_INTERVAL = Duration.ofHours(24);
 
     /// Binary size units used by storage device summaries.
     private static final @Unmodifiable List<String> SIZE_UNITS = List.of("B", "KiB", "MiB", "GiB", "TiB");
@@ -218,8 +224,8 @@ public final class MainWindow {
     /// Settings button.
     private final Button settingsButton = localizedButton("gui.button.settings");
 
-    /// Repository metadata update button.
-    private final Button repoUpdateButton = localizedButton("gui.button.updateMetadata");
+    /// Whether an automatic metadata update was already attempted in this process.
+    private final AtomicBoolean automaticMetadataUpdateAttempted = new AtomicBoolean();
 
     /// Flash action button.
     private final Button flashButton = localizedButton("gui.button.flash");
@@ -341,13 +347,10 @@ public final class MainWindow {
         settingsButton.setOnAction(_ -> showSettings());
         settingsButton.getStyleClass().add("header-button");
 
-        repoUpdateButton.setOnAction(_ -> updateRepository());
-        repoUpdateButton.getStyleClass().add("header-button");
-
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox status = new HBox(12, statusLabel, progressBar, spacer, settingsButton, repoUpdateButton);
+        HBox status = new HBox(12, statusLabel, progressBar, spacer, settingsButton);
         status.setAlignment(Pos.CENTER_LEFT);
         progressBar.setPrefWidth(180);
         progressBar.setVisible(false);
@@ -891,6 +894,7 @@ public final class MainWindow {
     /// Shows the editable GUI settings.
     private void showSettings() {
         SettingsDialog settings = new SettingsDialog(Messages.locale());
+        settings.metadataUpdateButton().setOnAction(_ -> updateRepository(settings));
         if (!showConfirmationDialog(
                 Messages.get("gui.settings.title"),
                 Messages.get("gui.settings.title"),
@@ -923,8 +927,11 @@ public final class MainWindow {
         return configuredLocale != null && !configuredLocale.isBlank();
     }
 
-    /// Starts repository metadata update.
-    private void updateRepository() {
+    /// Starts a repository metadata update from the settings dialog.
+    ///
+    /// @param settings active settings dialog.
+    private void updateRepository(SettingsDialog settings) {
+        settings.metadataUpdateStarted();
         Task<OperationResult> task = new Task<>() {
             /// Updates local repository metadata outside the JavaFX application thread.
             ///
@@ -943,47 +950,105 @@ public final class MainWindow {
             }
         };
 
-        startBackgroundTask(task, Messages.get("gui.dialog.metadataUpdateFailed"), result -> {
+        startBackgroundTask(task, result -> {
             if (result.success()) {
+                recordMetadataUpdateSuccess();
                 state = new WizardState(null, null, null, null, null);
                 refreshState();
-                showInfo(Messages.get("gui.dialog.metadataUpdated"), result.message());
-            } else {
-                showError(Messages.get("gui.dialog.metadataUpdateFailed"), result.message());
             }
-        });
+            settings.metadataUpdateFinished(result.success(), result.message());
+        }, failure -> settings.metadataUpdateFinished(
+                false,
+                failure == null || failure.getMessage() == null
+                        ? Messages.get("gui.dialog.metadataUpdateFailed")
+                        : failure.getMessage()));
+    }
+
+    /// Records a successful metadata update without failing the completed update.
+    private void recordMetadataUpdateSuccess() {
+        try {
+            preferences.writeMetadataUpdatedAt(Instant.now());
+        } catch (IOException exception) {
+            LOGGER.warn("Failed to persist the metadata update time.", exception);
+        }
+    }
+
+    /// Returns whether cached metadata should be refreshed automatically.
+    ///
+    /// @return whether an automatic update is due.
+    private boolean automaticMetadataUpdateDue() {
+        try {
+            return metadataUpdateDue(preferences.readMetadataUpdatedAt(), Instant.now())
+                    && automaticMetadataUpdateAttempted.compareAndSet(false, true);
+        } catch (IOException exception) {
+            LOGGER.warn("Failed to read the metadata update time; scheduling an automatic update.", exception);
+            return automaticMetadataUpdateAttempted.compareAndSet(false, true);
+        }
+    }
+
+    /// Evaluates the automatic metadata update interval.
+    ///
+    /// @param updatedAt last successful update time, or null when unknown.
+    /// @param now current time.
+    /// @return whether an automatic update is due.
+    static boolean metadataUpdateDue(@Nullable Instant updatedAt, Instant now) {
+        return updatedAt == null
+                || Duration.between(updatedAt, now).compareTo(METADATA_AUTO_UPDATE_INTERVAL) >= 0;
     }
 
     /// Opens the manufacturer selection dialog.
     private void chooseManufacturer() {
-        Task<ImageCatalog> task = new Task<>() {
+        Task<CatalogLoadResult> task = new Task<>() {
             /// Loads the image catalog outside the JavaFX application thread.
             ///
-            /// @return image catalog.
+            /// @return catalog load result.
             @Override
-            protected ImageCatalog call() throws Exception {
-                if (!services.repository().hasLocalMetadata()) {
-                    LOGGER.info("Local repository metadata is missing; updating before manufacturer selection.");
+            protected CatalogLoadResult call() throws Exception {
+                boolean metadataUpdated = false;
+                boolean hasLocalMetadata = services.repository().hasLocalMetadata();
+                if (!hasLocalMetadata || automaticMetadataUpdateDue()) {
+                    LOGGER.atInfo().log(() -> hasLocalMetadata
+                            ? "Local repository metadata is stale; updating before manufacturer selection."
+                            : "Local repository metadata is missing; updating before manufacturer selection.");
                     updateMessage(Messages.get("gui.progress.updatingMetadata"));
-                    OperationResult result = services.repository().update(LoggingProgressReporter.wrap(event -> {
-                        updateMessage(event.message());
-                        @Nullable Long currentBytes = event.currentBytes();
-                        @Nullable Long totalBytes = event.totalBytes();
-                        if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
-                            updateProgress(currentBytes, totalBytes);
+                    try {
+                        OperationResult result = services.repository().update(LoggingProgressReporter.wrap(event -> {
+                            updateMessage(event.message());
+                            @Nullable Long currentBytes = event.currentBytes();
+                            @Nullable Long totalBytes = event.totalBytes();
+                            if (currentBytes != null && totalBytes != null && totalBytes > 0L) {
+                                updateProgress(currentBytes, totalBytes);
+                            }
+                        }, LOGGER));
+                        if (result.success()) {
+                            recordMetadataUpdateSuccess();
+                            metadataUpdated = true;
+                        } else if (!hasLocalMetadata) {
+                            throw new IOException(result.message());
+                        } else {
+                            LOGGER.warn("Automatic metadata update failed; continuing with cached metadata. message={}",
+                                    result.message());
                         }
-                    }, LOGGER));
-                    if (!result.success()) {
-                        throw new IOException(result.message());
+                    } catch (IOException exception) {
+                        if (!hasLocalMetadata) {
+                            throw exception;
+                        }
+                        LOGGER.warn("Automatic metadata update failed; continuing with cached metadata.", exception);
                     }
                     updateProgress(ProgressBar.INDETERMINATE_PROGRESS, 1.0);
                 }
                 updateMessage(Messages.get("gui.progress.loadingCatalog"));
-                return services.images().listImages();
+                return new CatalogLoadResult(services.images().listImages(), metadataUpdated);
             }
         };
 
-        startBackgroundTask(task, Messages.get("gui.dialog.imageError"), this::showManufacturerDialog);
+        startBackgroundTask(task, Messages.get("gui.dialog.imageError"), result -> {
+            if (result.metadataUpdated()) {
+                state = new WizardState(null, null, null, null, null);
+                refreshState();
+            }
+            showManufacturerDialog(result.catalog());
+        });
     }
 
     /// Shows the manufacturer selection dialog.
@@ -1009,10 +1074,10 @@ public final class MainWindow {
                 super.updateItem(item, empty);
                 setText(empty || item == null ? null
                         : Messages.get(
-                                "gui.list.manufacturer",
-                                item.displayName(),
-                                item.boardCount(),
-                                item.imageCount()));
+                        "gui.list.manufacturer",
+                        item.displayName(),
+                        item.boardCount(),
+                        item.imageCount()));
             }
         });
         selectCurrentManufacturer(listView, state.manufacturerName());
@@ -1538,13 +1603,27 @@ public final class MainWindow {
         });
     }
 
-    /// Starts a background task and binds UI state.
+    /// Starts a background task with the standard failure dialog.
     ///
     /// @param task task to run.
     /// @param failureTitle title used when the task fails.
     /// @param onSuccess action executed on the JavaFX application thread when the task succeeds.
     private <T> void startBackgroundTask(Task<T> task, String failureTitle, Consumer<T> onSuccess) {
-        LOGGER.atDebug().log(() -> "Starting GUI background task. failureTitle=" + failureTitle);
+        startBackgroundTask(task, onSuccess, failure -> showError(
+                failureTitle,
+                failure == null ? Messages.get("gui.dialog.emptyResult") : failure.getMessage()));
+    }
+
+    /// Starts a background task and binds UI state.
+    ///
+    /// @param task task to run.
+    /// @param onSuccess action executed on the JavaFX application thread when the task succeeds.
+    /// @param onFailure action executed on the JavaFX application thread when the task fails.
+    private <T> void startBackgroundTask(
+            Task<T> task,
+            Consumer<T> onSuccess,
+            Consumer<@Nullable Throwable> onFailure) {
+        LOGGER.debug("Starting GUI background task.");
         busy = true;
         cancellationRequested = false;
         refreshState();
@@ -1561,12 +1640,12 @@ public final class MainWindow {
                 onSuccess.accept(result);
             } else {
                 LOGGER.warn("GUI background task returned null.");
-                showError(failureTitle, Messages.get("gui.dialog.emptyResult"));
+                onFailure.accept(null);
             }
         });
         task.setOnFailed(_ -> {
             boolean cancelledFlash = flashInProgress && cancellationRequested;
-            Throwable failure = task.getException();
+            @Nullable Throwable failure = task.getException();
             finishBackgroundTask();
             if (cancelledFlash && isInterruptionFailure(failure)) {
                 LOGGER.info("GUI background task stopped after cancellation request.", failure);
@@ -1578,7 +1657,7 @@ public final class MainWindow {
             } else {
                 LOGGER.error("GUI background task failed.", failure);
             }
-            showError(failureTitle, failure == null ? null : failure.getMessage());
+            onFailure.accept(failure);
         });
 
         Thread thread = new Thread(task, "ruyi-imager-background");
@@ -1833,7 +1912,6 @@ public final class MainWindow {
         activeFlashBox.setVisible(showActiveFlashBox);
         activeFlashBox.setManaged(showActiveFlashBox);
         settingsButton.setDisable(busy);
-        repoUpdateButton.setDisable(busy);
         manufacturerButton.setDisable(busy);
         boardButton.setDisable(busy || state.localImage() != null || state.manufacturerName() == null);
         osButton.setDisable(busy
@@ -2378,10 +2456,10 @@ public final class MainWindow {
         return textMatches(manufacturer.name(), query)
                 || textMatches(manufacturer.displayName(), query)
                 || textMatches(Messages.get(
-                        "gui.list.manufacturer",
-                        manufacturer.displayName(),
-                        manufacturer.boardCount(),
-                        manufacturer.imageCount()), query);
+                "gui.list.manufacturer",
+                manufacturer.displayName(),
+                manufacturer.boardCount(),
+                manufacturer.imageCount()), query);
     }
 
     /// Returns whether a board option matches a search query.
@@ -3022,6 +3100,14 @@ public final class MainWindow {
     private static @Nullable String applicationStylesheet() {
         URL stylesheet = MainWindow.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
         return stylesheet == null ? null : stylesheet.toExternalForm();
+    }
+
+    /// Result of loading the image catalog for manufacturer selection.
+    ///
+    /// @param catalog loaded image catalog.
+    /// @param metadataUpdated whether repository metadata was refreshed before loading.
+    @NotNullByDefault
+    private record CatalogLoadResult(ImageCatalog catalog, boolean metadataUpdated) {
     }
 
     /// Holds the current guided workflow selections.

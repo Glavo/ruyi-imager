@@ -3,10 +3,12 @@
 
 package org.glavo.ruyi.imager.gui;
 
+import io.github.palexdev.materialfx.controls.MFXButton;
 import io.github.palexdev.materialfx.controls.MFXComboBox;
 import javafx.collections.FXCollections;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
@@ -33,25 +35,47 @@ final class SettingsDialog {
     /// Language selector.
     private final MFXComboBox<LanguageOption> languageSelector;
 
+    /// Manual metadata update button.
+    private final Button metadataUpdateButton;
+
+    /// Manual metadata update status.
+    private final Label metadataUpdateStatus;
+
     /// Creates settings controls with the currently selected locale.
     ///
     /// @param locale selected GUI locale.
     SettingsDialog(Locale locale) {
         this.languageSelector = createLanguageSelector(locale);
+        this.metadataUpdateButton = new MFXButton(Messages.get("gui.settings.updateMetadata"));
+        this.metadataUpdateButton.getStyleClass().add("settings-action-button");
+        this.metadataUpdateStatus = new Label();
+        this.metadataUpdateStatus.setWrapText(true);
+        this.metadataUpdateStatus.setVisible(false);
+        this.metadataUpdateStatus.setManaged(false);
+        this.metadataUpdateStatus.getStyleClass().add("settings-update-status");
 
-        Label sectionTitle = new Label(Messages.get("gui.settings.general"));
-        sectionTitle.getStyleClass().add("settings-section-title");
+        Label generalTitle = new Label(Messages.get("gui.settings.general"));
+        generalTitle.getStyleClass().add("settings-section-title");
 
         Label languageLabel = new Label(Messages.get("gui.language"));
         languageLabel.getStyleClass().add("settings-label");
 
-        GridPane grid = new GridPane();
-        grid.setAlignment(Pos.CENTER_LEFT);
-        grid.getStyleClass().add("settings-grid");
-        grid.add(languageLabel, 0, 0);
-        grid.add(languageSelector, 1, 0);
+        GridPane generalGrid = new GridPane();
+        generalGrid.setAlignment(Pos.CENTER_LEFT);
+        generalGrid.getStyleClass().add("settings-grid");
+        generalGrid.add(languageLabel, 0, 0);
+        generalGrid.add(languageSelector, 1, 0);
 
-        this.root = new VBox(sectionTitle, grid);
+        VBox generalSection = new VBox(generalTitle, generalGrid);
+        generalSection.getStyleClass().add("settings-section");
+
+        Label metadataTitle = new Label(Messages.get("gui.settings.metadata"));
+        metadataTitle.getStyleClass().add("settings-section-title");
+
+        VBox metadataSection = new VBox(metadataTitle, metadataUpdateButton, metadataUpdateStatus);
+        metadataSection.getStyleClass().add("settings-section");
+
+        this.root = new VBox(generalSection, metadataSection);
         this.root.getStyleClass().add("settings-content");
     }
 
@@ -67,6 +91,45 @@ final class SettingsDialog {
     /// @return selected locale.
     Locale selectedLocale() {
         return languageSelector.getValue().locale();
+    }
+
+    /// Returns the manual metadata update button.
+    ///
+    /// @return metadata update button.
+    Button metadataUpdateButton() {
+        return metadataUpdateButton;
+    }
+
+    /// Marks the manual metadata update as active.
+    void metadataUpdateStarted() {
+        metadataUpdateButton.setDisable(true);
+        setMetadataUpdateStatus(Messages.get("gui.progress.updatingMetadata"), "settings-update-active");
+    }
+
+    /// Shows the result of a manual metadata update.
+    ///
+    /// @param successful whether the update succeeded.
+    /// @param message    update result message.
+    void metadataUpdateFinished(boolean successful, String message) {
+        metadataUpdateButton.setDisable(false);
+        setMetadataUpdateStatus(
+                message,
+                successful ? "settings-update-success" : "settings-update-error");
+    }
+
+    /// Updates the visible metadata status.
+    ///
+    /// @param message    status text.
+    /// @param styleClass status style class.
+    private void setMetadataUpdateStatus(String message, String styleClass) {
+        metadataUpdateStatus.setText(message);
+        metadataUpdateStatus.getStyleClass().removeAll(
+                "settings-update-active",
+                "settings-update-success",
+                "settings-update-error");
+        metadataUpdateStatus.getStyleClass().add(styleClass);
+        metadataUpdateStatus.setVisible(true);
+        metadataUpdateStatus.setManaged(true);
     }
 
     /// Creates the language selector.
@@ -136,7 +199,7 @@ final class SettingsDialog {
     /// Supported GUI language option.
     ///
     /// @param labelKey message key for the language label.
-    /// @param locale locale selected by this option.
+    /// @param locale   locale selected by this option.
     @NotNullByDefault
     private record LanguageOption(String labelKey, Locale locale) {
     }

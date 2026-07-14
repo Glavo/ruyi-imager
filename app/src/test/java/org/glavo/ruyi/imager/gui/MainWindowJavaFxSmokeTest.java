@@ -45,6 +45,8 @@ import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -181,6 +183,17 @@ public final class MainWindowJavaFxSmokeTest {
             assertTrue(verticalScrollBar.isVisible());
             return null;
         });
+    }
+
+    /// Verifies the daily automatic metadata update boundary.
+    @Test
+    public void schedulesDailyMetadataUpdates() {
+        Instant now = Instant.parse("2026-07-14T06:00:00Z");
+
+        assertTrue(MainWindow.metadataUpdateDue(null, now));
+        assertFalse(MainWindow.metadataUpdateDue(now.minus(Duration.ofHours(23)), now));
+        assertTrue(MainWindow.metadataUpdateDue(now.minus(Duration.ofHours(24)), now));
+        assertFalse(MainWindow.metadataUpdateDue(now.plus(Duration.ofHours(1)), now));
     }
 
     /// Verifies flash progress rows are known before backend progress events arrive.

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,6 +42,22 @@ public final class GuiPreferencesTest {
         preferences.writeLocale(Locale.SIMPLIFIED_CHINESE);
 
         assertEquals(Locale.SIMPLIFIED_CHINESE, preferences.readLocale());
+    }
+
+    /// Verifies that metadata update times are persisted without clearing other preferences.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the preferences file cannot be written or read.
+    @Test
+    public void persistsMetadataUpdateTime(@TempDir Path temporaryDirectory) throws Exception {
+        GuiPreferences preferences = preferences(temporaryDirectory);
+        Instant updatedAt = Instant.parse("2026-07-14T06:00:00Z");
+
+        preferences.writeLocale(Locale.ENGLISH);
+        preferences.writeMetadataUpdatedAt(updatedAt);
+
+        assertEquals(updatedAt, preferences.readMetadataUpdatedAt());
+        assertEquals(Locale.ENGLISH, preferences.readLocale());
     }
 
     /// Verifies that missing preferences do not mark the startup warning as accepted.

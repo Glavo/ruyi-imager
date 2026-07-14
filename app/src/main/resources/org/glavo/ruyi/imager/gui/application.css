@@ -139,6 +139,7 @@
 .header-button,
 .dialog-button,
 .settings-language-selector,
+.settings-action-button,
 .partition-target-selector {
     -fx-cursor: hand;
 }
@@ -150,6 +151,7 @@
 .header-button:disabled,
 .dialog-button:disabled,
 .settings-language-selector:disabled,
+.settings-action-button:disabled,
 .partition-target-selector:disabled {
     -fx-cursor: default;
 }
@@ -571,7 +573,11 @@
 .settings-content {
     -fx-min-width: 480px;
     -fx-max-width: 560px;
-    -fx-spacing: 16;
+    -fx-spacing: 24;
+}
+
+.settings-section {
+    -fx-spacing: 12;
 }
 
 .settings-section-title {
@@ -589,6 +595,34 @@
     -fx-font-size: 13px;
     -fx-font-weight: 700;
     -fx-text-fill: #394756;
+}
+
+.settings-action-button {
+    -fx-min-width: 150px;
+    -fx-padding: 8 14;
+    -fx-background-color: #ffffff;
+    -fx-text-fill: #126879;
+    -fx-font-weight: 700;
+    -fx-background-radius: 8;
+    -fx-border-color: #bddde4;
+    -fx-border-radius: 8;
+}
+
+.settings-update-status {
+    -fx-font-size: 12px;
+    -fx-max-width: 520px;
+}
+
+.settings-update-active {
+    -fx-text-fill: #5a6673;
+}
+
+.settings-update-success {
+    -fx-text-fill: #1f7a4d;
+}
+
+.settings-update-error {
+    -fx-text-fill: #b3353e;
 }
 
 .partition-target-content {
