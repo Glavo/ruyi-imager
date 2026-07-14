@@ -7,7 +7,6 @@ import io.github.palexdev.materialfx.controls.MFXComboBox;
 import javafx.collections.FXCollections;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
-import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
@@ -34,18 +33,11 @@ final class SettingsDialog {
     /// Language selector.
     private final MFXComboBox<LanguageOption> languageSelector;
 
-    /// Whether the safety notice should be shown at startup.
-    private final CheckBox showStartupSafetyWarning;
-
-    /// Creates settings controls with the currently persisted values.
+    /// Creates settings controls with the currently selected locale.
     ///
-    /// @param locale                   selected GUI locale.
-    /// @param showStartupSafetyWarning whether to show the safety notice at startup.
-    SettingsDialog(Locale locale, boolean showStartupSafetyWarning) {
+    /// @param locale selected GUI locale.
+    SettingsDialog(Locale locale) {
         this.languageSelector = createLanguageSelector(locale);
-        this.showStartupSafetyWarning = new CheckBox(Messages.get("gui.settings.showStartupSafetyWarning"));
-        this.showStartupSafetyWarning.setSelected(showStartupSafetyWarning);
-        this.showStartupSafetyWarning.getStyleClass().add("settings-checkbox");
 
         Label sectionTitle = new Label(Messages.get("gui.settings.general"));
         sectionTitle.getStyleClass().add("settings-section-title");
@@ -58,7 +50,6 @@ final class SettingsDialog {
         grid.getStyleClass().add("settings-grid");
         grid.add(languageLabel, 0, 0);
         grid.add(languageSelector, 1, 0);
-        grid.add(this.showStartupSafetyWarning, 0, 1, 2, 1);
 
         this.root = new VBox(sectionTitle, grid);
         this.root.getStyleClass().add("settings-content");
@@ -76,13 +67,6 @@ final class SettingsDialog {
     /// @return selected locale.
     Locale selectedLocale() {
         return languageSelector.getValue().locale();
-    }
-
-    /// Returns whether the safety notice should be shown at startup.
-    ///
-    /// @return whether to show the safety notice at startup.
-    boolean showStartupSafetyWarning() {
-        return showStartupSafetyWarning.isSelected();
     }
 
     /// Creates the language selector.
@@ -152,7 +136,7 @@ final class SettingsDialog {
     /// Supported GUI language option.
     ///
     /// @param labelKey message key for the language label.
-    /// @param locale   locale selected by this option.
+    /// @param locale locale selected by this option.
     @NotNullByDefault
     private record LanguageOption(String labelKey, Locale locale) {
     }

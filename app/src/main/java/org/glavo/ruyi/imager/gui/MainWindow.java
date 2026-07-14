@@ -335,14 +335,11 @@ public final class MainWindow {
         VBox titleText = new VBox(2, title, subtitle);
         titleText.getStyleClass().add("app-title-text");
 
-        Region titleSpacer = new Region();
-        HBox.setHgrow(titleSpacer, Priority.ALWAYS);
+        HBox titleRow = new HBox(16, createHeaderLogo(), titleText);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
 
         settingsButton.setOnAction(_ -> showSettings());
         settingsButton.getStyleClass().add("header-button");
-
-        HBox titleRow = new HBox(16, createHeaderLogo(), titleText, titleSpacer, settingsButton);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
 
         repoUpdateButton.setOnAction(_ -> updateRepository());
         repoUpdateButton.getStyleClass().add("header-button");
@@ -350,7 +347,7 @@ public final class MainWindow {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox status = new HBox(12, statusLabel, progressBar, spacer, repoUpdateButton);
+        HBox status = new HBox(12, statusLabel, progressBar, spacer, settingsButton, repoUpdateButton);
         status.setAlignment(Pos.CENTER_LEFT);
         progressBar.setPrefWidth(180);
         progressBar.setVisible(false);
@@ -893,15 +890,7 @@ public final class MainWindow {
 
     /// Shows the editable GUI settings.
     private void showSettings() {
-        boolean startupSafetyWarningAccepted;
-        try {
-            startupSafetyWarningAccepted = preferences.readStartupSafetyWarningAccepted();
-        } catch (IOException exception) {
-            LOGGER.warn("Failed to read GUI preferences.", exception);
-            startupSafetyWarningAccepted = false;
-        }
-
-        SettingsDialog settings = new SettingsDialog(Messages.locale(), !startupSafetyWarningAccepted);
+        SettingsDialog settings = new SettingsDialog(Messages.locale());
         if (!showConfirmationDialog(
                 Messages.get("gui.settings.title"),
                 Messages.get("gui.settings.title"),
@@ -912,12 +901,14 @@ public final class MainWindow {
         }
 
         Locale locale = settings.selectedLocale();
-        boolean accepted = !settings.showStartupSafetyWarning();
+        if (locale.getLanguage().equals(Messages.locale().getLanguage())) {
+            return;
+        }
+
         try {
-            preferences.writeSettings(locale, accepted);
+            preferences.writeLocale(locale);
             Messages.setLocale(locale);
-            LOGGER.atInfo().log(() -> "Saved GUI settings. locale=" + locale
-                    + ", startupSafetyWarningAccepted=" + accepted);
+            LOGGER.atInfo().log(() -> "Saved GUI locale preference. locale=" + locale);
         } catch (IOException exception) {
             LOGGER.warn("Failed to write GUI preferences.", exception);
             showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());

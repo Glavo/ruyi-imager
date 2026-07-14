@@ -591,12 +591,6 @@
     -fx-text-fill: #394756;
 }
 
-.settings-checkbox {
-    -fx-cursor: hand;
-    -fx-font-size: 13px;
-    -fx-text-fill: #394756;
-}
-
 .partition-target-content {
     -fx-min-width: 640px;
     -fx-max-width: 760px;
