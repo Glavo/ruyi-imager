@@ -14,7 +14,7 @@ import java.util.Set;
 /// Describes one application release exposed by an update manifest.
 ///
 /// @param channel      release channel.
-/// @param version      semantic application version and update identity.
+/// @param version      application version and update identity.
 /// @param releaseNotes optional short release notes.
 /// @param artifacts    platform installer artifacts.
 @NotNullByDefault
@@ -25,11 +25,15 @@ public record UpdateRelease(
         @Unmodifiable List<UpdateArtifact> artifacts) {
     /// Validates and freezes release metadata.
     public UpdateRelease {
-        version = version.strip();
         if (version.isEmpty()) {
             throw new IllegalArgumentException("Update version must not be blank.");
         }
-        SemanticVersion.parse(version);
+        ApplicationVersion parsedVersion = ApplicationVersion.parse(version);
+        if ((channel == UpdateChannel.STABLE && !parsedVersion.isStable())
+                || (channel == UpdateChannel.NIGHTLY && !parsedVersion.isNightly())) {
+            throw new IllegalArgumentException(
+                    "Update version does not match release channel " + channel.token() + ": " + version);
+        }
         artifacts = List.copyOf(artifacts);
         Set<UpdatePlatform> platforms = new HashSet<>();
         for (UpdateArtifact artifact : artifacts) {

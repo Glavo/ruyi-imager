@@ -35,7 +35,8 @@ public final class JlinkPackaging {
         if (text.isEmpty()) {
             text = "0";
         }
-        text = text.replace("-SNAPSHOT", "~SNAPSHOT");
+        text = text.replace("-dev", "~dev");
+        text = text.replace("-nightly.", "~nightly.");
 
         StringBuilder builder = new StringBuilder(text.length() + 2);
         for (int i = 0; i < text.length(); i++) {

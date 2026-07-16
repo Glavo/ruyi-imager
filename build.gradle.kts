@@ -8,7 +8,7 @@ plugins {
 group = "org.glavo"
 
 version = providers.gradleProperty("ruyi.version")
-    .orElse("1.0-SNAPSHOT")
+    .orElse("1.0.0-dev")
     .get()
 
 allprojects {

@@ -117,13 +117,13 @@ public record UpdateChecker(BuildInfo current, Path source) {
         }
 
         UpdateRelease available = newestRelease(manifest, channel);
-        SemanticVersion currentVersion;
+        ApplicationVersion currentVersion;
         try {
-            currentVersion = SemanticVersion.parse(current.version());
+            currentVersion = ApplicationVersion.parse(current.version());
         } catch (IllegalArgumentException exception) {
             throw new IOException("Invalid running application version: " + current.version(), exception);
         }
-        int versionComparison = SemanticVersion.parse(available.version()).compareTo(currentVersion);
+        int versionComparison = ApplicationVersion.parse(available.version()).compareTo(currentVersion);
         return new UpdateCheckResult(
                 versionComparison > 0
                         ? UpdateCheckResult.Status.UPDATE_AVAILABLE
@@ -154,13 +154,13 @@ public record UpdateChecker(BuildInfo current, Path source) {
         return newest;
     }
 
-    /// Compares two releases by SemVer precedence.
+    /// Compares two releases by application version precedence.
     ///
     /// @param left  left release.
     /// @param right right release.
     /// @return comparison result.
     private static int compareReleases(UpdateRelease left, UpdateRelease right) {
-        return SemanticVersion.parse(left.version()).compareTo(SemanticVersion.parse(right.version()));
+        return ApplicationVersion.parse(left.version()).compareTo(ApplicationVersion.parse(right.version()));
     }
 
     /// Reads a bounded regular file.

@@ -37,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           timestamp="$(date -u '+%Y%m%dT%H%M%SZ')"
-          printf 'value=1.0.0-nightly.%s+git.%s\n' "${timestamp}" "${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+          printf 'value=1.0.0-nightly.%s.%s\n' "${timestamp}" "${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
 
   build:
     name: Build ${{ matrix.platform }}

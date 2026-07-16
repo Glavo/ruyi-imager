@@ -4,7 +4,6 @@
 package org.glavo.ruyi.imager.update;
 
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -12,7 +11,7 @@ import java.util.Properties;
 
 /// Identifies one Ruyi Imager build.
 ///
-/// @param version semantic application version.
+/// @param version application version.
 @NotNullByDefault
 public record BuildInfo(String version) {
     /// Generated build information resource.
@@ -23,9 +22,7 @@ public record BuildInfo(String version) {
 
     /// Validates build information.
     public BuildInfo {
-        if (version.isBlank()) {
-            throw new IllegalArgumentException("Application version must not be blank.");
-        }
+        ApplicationVersion.parse(version);
     }
 
     /// Returns build information for the running application.
@@ -39,10 +36,7 @@ public record BuildInfo(String version) {
     ///
     /// @return inferred build channel.
     public UpdateChannel inferredChannel() {
-        @Nullable String prerelease = SemanticVersion.parse(version).prerelease();
-        return prerelease != null && (prerelease.equals("nightly") || prerelease.startsWith("nightly."))
-                ? UpdateChannel.NIGHTLY
-                : UpdateChannel.STABLE;
+        return ApplicationVersion.parse(version).inferredChannel();
     }
 
     /// Loads generated build information from the application resources.
@@ -59,7 +53,7 @@ public record BuildInfo(String version) {
             throw new IllegalStateException("Failed to read application build information: " + RESOURCE, exception);
         }
 
-        String version = properties.getProperty("version", "").strip();
+        String version = properties.getProperty("version", "");
         try {
             return new BuildInfo(version);
         } catch (IllegalArgumentException exception) {

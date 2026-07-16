@@ -51,7 +51,7 @@ public final class UpdateCheckerTest {
                     },
                     {
                       "channel": "nightly",
-                      "version": "1.2.0-nightly.20260716T143052Z+git.3921d84",
+                      "version": "1.2.0-nightly.20260716T143052Z.3921d84",
                       "artifacts": []
                     }
                   ]
@@ -61,7 +61,7 @@ public final class UpdateCheckerTest {
         UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0"), manifest)
                 .check(UpdateChannel.NIGHTLY);
 
-        assertEquals("1.2.0-nightly.20260716T143052Z+git.3921d84", result.available().version());
+        assertEquals("1.2.0-nightly.20260716T143052Z.3921d84", result.available().version());
         assertEquals(UpdateChannel.NIGHTLY, result.available().channel());
     }
 
@@ -95,7 +95,7 @@ public final class UpdateCheckerTest {
         assertEquals("1.2.0", result.available().version());
     }
 
-    /// Rejects same-channel releases with equal SemVer precedence.
+    /// Rejects duplicate releases with equal application version precedence.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written.
@@ -108,12 +108,12 @@ public final class UpdateCheckerTest {
                   "releases": [
                     {
                       "channel": "stable",
-                      "version": "1.1.0+first",
+                      "version": "1.1.0",
                       "artifacts": []
                     },
                     {
                       "channel": "stable",
-                      "version": "1.1.0+second",
+                      "version": "1.1.0",
                       "artifacts": []
                     }
                   ]
@@ -171,10 +171,10 @@ public final class UpdateCheckerTest {
         Path manifest = writeManifest(
                 temporaryDirectory,
                 "nightly",
-                "1.0.0-nightly.20260716T143052Z+git.2222222");
+                "1.0.0-nightly.20260716T143052Z.2222222");
 
         UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0-nightly.20260716T143051Z+git.1111111"),
+                new BuildInfo("1.0.0-nightly.20260716T143051Z.1111111"),
                 manifest).check(UpdateChannel.NIGHTLY);
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
@@ -189,7 +189,7 @@ public final class UpdateCheckerTest {
         Path manifest = writeManifest(temporaryDirectory, "stable", "1.0.0");
 
         UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0-nightly.20260716T143052Z+git.3921d84"),
+                new BuildInfo("1.0.0-nightly.20260716T143052Z.3921d84"),
                 manifest).check(UpdateChannel.STABLE);
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
@@ -204,16 +204,16 @@ public final class UpdateCheckerTest {
         Path manifest = writeManifest(
                 temporaryDirectory,
                 "nightly",
-                "1.0.0-nightly.20260716T143051Z+git.1111111");
+                "1.0.0-nightly.20260716T143051Z.1111111");
 
         UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0-nightly.20260716T143052Z+git.2222222"),
+                new BuildInfo("1.0.0-nightly.20260716T143052Z.2222222"),
                 manifest).check(UpdateChannel.NIGHTLY);
 
         assertEquals(UpdateCheckResult.Status.UP_TO_DATE, result.status());
     }
 
-    /// Orders prerelease and release versions according to Semantic Versioning.
+    /// Orders development and stable versions according to application policy.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written or checked.
@@ -221,7 +221,7 @@ public final class UpdateCheckerTest {
     public void releaseSupersedesPrerelease(@TempDir Path temporaryDirectory) throws Exception {
         Path manifest = writeManifest(temporaryDirectory, "stable", "1.0.0");
 
-        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0-SNAPSHOT"), manifest).check();
+        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0-dev"), manifest).check();
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
     }
@@ -293,12 +293,12 @@ public final class UpdateCheckerTest {
                 () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
     }
 
-    /// Rejects invalid Semantic Versioning prerelease identifiers.
+    /// Rejects version syntax outside the application release policy.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written.
     @Test
-    public void rejectsInvalidPrereleaseVersion(@TempDir Path temporaryDirectory) throws Exception {
+    public void rejectsUnsupportedVersionFormat(@TempDir Path temporaryDirectory) throws Exception {
         Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0-rc.01");
 
         assertThrows(
