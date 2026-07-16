@@ -34,13 +34,16 @@ record ApplicationVersion(
         Stage stage,
         @Nullable Instant builtAt,
         @Nullable String commit) implements Comparable<ApplicationVersion> {
-    /// Accepted stable, development, and nightly version syntax.
-    private static final Pattern VERSION_PATTERN = Pattern.compile(
-            "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)"
-                    + "(?:-(dev)|-nightly\\.([0-9]{8}T[0-9]{6}Z)\\.([0-9a-f]{7}))?$");
+    /// Accepted numeric version syntax shared by every release type.
+    private static final Pattern BASE_VERSION_PATTERN = Pattern.compile(
+            "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$");
 
-    /// Accepted abbreviated Git commit syntax.
-    private static final Pattern COMMIT_PATTERN = Pattern.compile("^[0-9a-f]{7}$");
+    /// Accepted nightly arguments containing a UTC timestamp and Git commit prefix.
+    private static final Pattern NIGHTLY_ARGUMENTS_PATTERN = Pattern.compile(
+            "^([0-9]{8}T[0-9]{6}Z)\\.([0-9a-f]{7,40})$");
+
+    /// Accepted abbreviated or complete Git commit syntax.
+    private static final Pattern COMMIT_PATTERN = Pattern.compile("^[0-9a-f]{7,40}$");
 
     /// Strict UTC timestamp parser used by nightly versions.
     private static final DateTimeFormatter NIGHTLY_TIMESTAMP_FORMATTER = new DateTimeFormatterBuilder()
@@ -70,35 +73,81 @@ record ApplicationVersion(
     /// @param value version text.
     /// @return parsed application version.
     static ApplicationVersion parse(String value) {
-        Matcher matcher = VERSION_PATTERN.matcher(value);
-        if (!matcher.matches()) {
+        int releaseTypeSeparator = value.indexOf('-');
+        String baseVersion = releaseTypeSeparator < 0 ? value : value.substring(0, releaseTypeSeparator);
+        @Nullable String releaseType = releaseTypeSeparator < 0 ? null : value.substring(releaseTypeSeparator + 1);
+
+        Matcher baseMatcher = BASE_VERSION_PATTERN.matcher(baseVersion);
+        if (!baseMatcher.matches()) {
             throw invalidVersion(value, null);
         }
 
         try {
-            long major = Long.parseLong(matcher.group(1));
-            long minor = Long.parseLong(matcher.group(2));
-            long patch = Long.parseLong(matcher.group(3));
-            if (matcher.group(4) != null) {
-                return new ApplicationVersion(major, minor, patch, Stage.DEVELOPMENT, null, null);
+            long major = Long.parseLong(baseMatcher.group(1));
+            long minor = Long.parseLong(baseMatcher.group(2));
+            long patch = Long.parseLong(baseMatcher.group(3));
+            if (releaseType == null) {
+                return new ApplicationVersion(major, minor, patch, Stage.STABLE, null, null);
             }
 
-            @Nullable String timestamp = matcher.group(5);
-            if (timestamp != null) {
-                Instant builtAt = LocalDateTime.parse(timestamp, NIGHTLY_TIMESTAMP_FORMATTER)
-                        .toInstant(ZoneOffset.UTC);
-                return new ApplicationVersion(
-                        major,
-                        minor,
-                        patch,
-                        Stage.NIGHTLY,
-                        builtAt,
-                        Objects.requireNonNull(matcher.group(6)));
-            }
-            return new ApplicationVersion(major, minor, patch, Stage.STABLE, null, null);
+            int argumentSeparator = releaseType.indexOf('.');
+            String typeName = argumentSeparator < 0 ? releaseType : releaseType.substring(0, argumentSeparator);
+            @Nullable String arguments = argumentSeparator < 0 ? null : releaseType.substring(argumentSeparator + 1);
+            return switch (typeName) {
+                case "dev" -> parseDevelopment(major, minor, patch, arguments, value);
+                case "nightly" -> parseNightly(major, minor, patch, arguments, value);
+                default -> throw invalidVersion(value, null);
+            };
         } catch (NumberFormatException | DateTimeException exception) {
             throw invalidVersion(value, exception);
         }
+    }
+
+    /// Parses a local development version.
+    ///
+    /// @param major     major version number.
+    /// @param minor     minor version number.
+    /// @param patch     patch version number.
+    /// @param arguments release-type arguments, or null when absent.
+    /// @param value     complete version text for error reporting.
+    /// @return parsed development version.
+    private static ApplicationVersion parseDevelopment(
+            long major,
+            long minor,
+            long patch,
+            @Nullable String arguments,
+            String value) {
+        if (arguments != null) {
+            throw invalidVersion(value, null);
+        }
+        return new ApplicationVersion(major, minor, patch, Stage.DEVELOPMENT, null, null);
+    }
+
+    /// Parses a timestamped nightly version.
+    ///
+    /// @param major     major version number.
+    /// @param minor     minor version number.
+    /// @param patch     patch version number.
+    /// @param arguments release-type arguments, or null when absent.
+    /// @param value     complete version text for error reporting.
+    /// @return parsed nightly version.
+    private static ApplicationVersion parseNightly(
+            long major,
+            long minor,
+            long patch,
+            @Nullable String arguments,
+            String value) {
+        if (arguments == null) {
+            throw invalidVersion(value, null);
+        }
+        Matcher matcher = NIGHTLY_ARGUMENTS_PATTERN.matcher(arguments);
+        if (!matcher.matches()) {
+            throw invalidVersion(value, null);
+        }
+
+        Instant builtAt = LocalDateTime.parse(matcher.group(1), NIGHTLY_TIMESTAMP_FORMATTER)
+                .toInstant(ZoneOffset.UTC);
+        return new ApplicationVersion(major, minor, patch, Stage.NIGHTLY, builtAt, matcher.group(2));
     }
 
     /// Returns the update channel implied by this version.

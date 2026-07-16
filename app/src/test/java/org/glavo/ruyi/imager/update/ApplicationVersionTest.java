@@ -22,12 +22,15 @@ public final class ApplicationVersionTest {
         ApplicationVersion development = ApplicationVersion.parse("1.2.3-dev");
         ApplicationVersion nightly = ApplicationVersion.parse(
                 "1.2.3-nightly.20260716T143052Z.3921d84");
+        ApplicationVersion nightlyWithFullCommit = ApplicationVersion.parse(
+                "1.2.3-nightly.20260716T143052Z.0123456789abcdef0123456789abcdef01234567");
 
         assertEquals(ApplicationVersion.Stage.STABLE, stable.stage());
         assertEquals(ApplicationVersion.Stage.DEVELOPMENT, development.stage());
         assertEquals(ApplicationVersion.Stage.NIGHTLY, nightly.stage());
         assertEquals(Instant.parse("2026-07-16T14:30:52Z"), nightly.builtAt());
         assertEquals("3921d84", nightly.commit());
+        assertEquals("0123456789abcdef0123456789abcdef01234567", nightlyWithFullCommit.commit());
     }
 
     /// Orders numeric versions before considering release stages.
@@ -72,6 +75,9 @@ public final class ApplicationVersionTest {
         assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse(" 1.2.3"));
         assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-SNAPSHOT"));
         assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-alpha"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-beta.1"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-dev.extra"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-nightly"));
         assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3+git.3921d84"));
         assertThrows(
                 IllegalArgumentException.class,
@@ -82,6 +88,10 @@ public final class ApplicationVersionTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> ApplicationVersion.parse("1.2.3-nightly.20260716T143052Z.3921d8"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ApplicationVersion.parse(
+                        "1.2.3-nightly.20260716T143052Z.0123456789abcdef0123456789abcdef012345678"));
     }
 
     /// Rejects release versions assigned to a different update channel.
