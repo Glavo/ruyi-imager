@@ -4,12 +4,15 @@
 package org.glavo.ruyi.imager.gui;
 
 import org.glavo.ruyi.imager.core.AppDirectories;
+import org.glavo.ruyi.imager.update.UpdateChannel;
+import org.glavo.ruyi.imager.update.UpdateRelease;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -99,6 +102,67 @@ public final class GuiPreferencesTest {
 
         assertTrue(preferences.readStartupSafetyWarningAccepted());
         assertEquals(Locale.SIMPLIFIED_CHINESE, preferences.readLocale());
+    }
+
+    /// Verifies default application update policy values.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when preferences cannot be read.
+    @Test
+    public void returnsDefaultApplicationUpdatePolicy(@TempDir Path temporaryDirectory) throws Exception {
+        GuiPreferences preferences = preferences(temporaryDirectory);
+
+        assertTrue(preferences.readAutomaticUpdateChecksEnabled());
+        assertEquals(UpdateChannel.STABLE, preferences.readUpdateChannel());
+        assertEquals(UpdateChannel.NIGHTLY, preferences.readUpdateChannel(UpdateChannel.NIGHTLY));
+        assertNull(preferences.readApplicationUpdateCheckedAt(UpdateChannel.STABLE));
+        assertNull(preferences.readApplicationUpdateCheckedAt(UpdateChannel.NIGHTLY));
+    }
+
+    /// Persists application update settings without clearing unrelated preferences.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when preferences cannot be written or read.
+    @Test
+    public void persistsApplicationUpdateSettings(@TempDir Path temporaryDirectory) throws Exception {
+        GuiPreferences preferences = preferences(temporaryDirectory);
+        preferences.writeStartupSafetyWarningAccepted();
+
+        preferences.writeSettings(Locale.SIMPLIFIED_CHINESE, false, UpdateChannel.NIGHTLY);
+
+        assertEquals(Locale.SIMPLIFIED_CHINESE, preferences.readLocale());
+        assertFalse(preferences.readAutomaticUpdateChecksEnabled());
+        assertEquals(UpdateChannel.NIGHTLY, preferences.readUpdateChannel());
+        assertTrue(preferences.readStartupSafetyWarningAccepted());
+    }
+
+    /// Persists successful check times and an exact skipped release identity.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when preferences cannot be written or read.
+    @Test
+    public void persistsApplicationUpdateState(@TempDir Path temporaryDirectory) throws Exception {
+        GuiPreferences preferences = preferences(temporaryDirectory);
+        Instant checkedAt = Instant.parse("2026-07-16T06:00:00Z");
+        UpdateRelease skipped = new UpdateRelease(
+                UpdateChannel.NIGHTLY,
+                "1.1.0+nightly.test",
+                42L,
+                null,
+                List.of());
+
+        preferences.writeApplicationUpdateCheckedAt(UpdateChannel.NIGHTLY, checkedAt);
+        preferences.writeSkippedUpdate(skipped);
+
+        assertNull(preferences.readApplicationUpdateCheckedAt(UpdateChannel.STABLE));
+        assertEquals(checkedAt, preferences.readApplicationUpdateCheckedAt(UpdateChannel.NIGHTLY));
+        assertTrue(preferences.isUpdateSkipped(skipped));
+        assertFalse(preferences.isUpdateSkipped(new UpdateRelease(
+                UpdateChannel.NIGHTLY,
+                skipped.version(),
+                43L,
+                null,
+                List.of())));
     }
 
     /// Creates a test preferences store.

@@ -20,13 +20,18 @@ import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.glavo.ruyi.imager.logging.LoggingProgressReporter;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
 import org.glavo.ruyi.imager.update.BuildInfo;
+import org.glavo.ruyi.imager.update.PreparedUpdate;
+import org.glavo.ruyi.imager.update.UpdateChannel;
 import org.glavo.ruyi.imager.update.UpdateCheckResult;
 import org.glavo.ruyi.imager.update.UpdateChecker;
+import org.glavo.ruyi.imager.update.UpdateInstaller;
+import org.glavo.ruyi.imager.update.UpdatePackageManager;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.ITypeConverter;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
@@ -44,6 +49,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -184,18 +190,50 @@ public final class CliApplication implements Runnable {
     /// Checks a local update manifest for a newer application build.
     @Command(
             name = "check-update",
-            description = "Check for a newer Ruyi Imager build.")
+            description = "Check, verify, and launch a local application update.")
     @NotNullByDefault
     private static final class CheckUpdateCommand implements Callable<Integer> {
         /// Shared application services.
         private final AppServices services;
 
+        /// Whether usage help should be displayed.
+        @Option(
+                names = {"-h", "--help"},
+                usageHelp = true,
+                description = "Show this help message and exit.",
+                descriptionKey = "cli.option.help")
+        private boolean usageHelp;
+
         /// Optional local update manifest override.
         @Option(
                 names = "--source",
                 paramLabel = "PATH",
-                description = "Read the update manifest from this local JSON file.")
+                description = "Read the update manifest from this local JSON file.",
+                descriptionKey = "cli.option.updateSource")
         private @Nullable Path source;
+
+        /// Selected update channel.
+        @Option(
+                names = "--channel",
+                paramLabel = "CHANNEL",
+                converter = UpdateChannelConverter.class,
+                description = "Select the update channel.",
+                descriptionKey = "cli.option.updateChannel")
+        private @Nullable UpdateChannel channel;
+
+        /// Whether the installer package should be copied and verified.
+        @Option(
+                names = "--prepare",
+                description = "Copy and verify the installer package.",
+                descriptionKey = "cli.option.updatePrepare")
+        private boolean prepare;
+
+        /// Whether the verified installer should be launched.
+        @Option(
+                names = "--install",
+                description = "Copy, verify, and launch the installer package.",
+                descriptionKey = "cli.option.updateInstall")
+        private boolean install;
 
         /// Creates the update check command.
         ///
@@ -212,9 +250,12 @@ public final class CliApplication implements Runnable {
             Path updateSource = source == null
                     ? UpdateChecker.configuredSource(services.directories())
                     : source;
-            UpdateChecker checker = new UpdateChecker(BuildInfo.current(), updateSource);
+            UpdateChecker checker = UpdateChecker.createConfigured(updateSource);
             try {
-                UpdateCheckResult result = checker.check();
+                UpdateChannel selectedChannel = channel == null
+                        ? BuildInfo.current().inferredChannel()
+                        : channel;
+                UpdateCheckResult result = checker.check(selectedChannel);
                 if (result.status() == UpdateCheckResult.Status.UPDATE_AVAILABLE) {
                     System.out.println(Messages.get(
                             "cli.update.available",
@@ -222,11 +263,38 @@ public final class CliApplication implements Runnable {
                             result.current().version()));
                 } else {
                     System.out.println(Messages.get("cli.update.upToDate", result.current().version()));
+                    return 0;
+                }
+                if (!prepare && !install) {
+                    return 0;
+                }
+
+                UpdatePackageManager packageManager =
+                        UpdatePackageManager.createDefault(services.directories(), checker);
+                PreparedUpdate prepared = packageManager.prepare(result.available(), _ -> {
+                });
+                System.out.println(Messages.get("cli.update.prepared", prepared.packageFile()));
+                if (install) {
+                    UpdateInstaller.launch(prepared);
+                    System.out.println(Messages.get("cli.update.installerStarted", prepared.packageFile()));
                 }
                 return 0;
-            } catch (IOException exception) {
+            } catch (IOException | IllegalStateException exception) {
                 return failException(exception, false);
             }
+        }
+    }
+
+    /// Converts case-insensitive update channel tokens for Picocli.
+    @NotNullByDefault
+    private static final class UpdateChannelConverter implements ITypeConverter<UpdateChannel> {
+        /// Converts one command-line channel token.
+        ///
+        /// @param value channel token.
+        /// @return parsed update channel.
+        @Override
+        public UpdateChannel convert(String value) {
+            return UpdateChannel.parse(value);
         }
     }
 
@@ -320,6 +388,7 @@ public final class CliApplication implements Runnable {
         setDescription(device, "cli.device.description");
         setDescription(device.getSubcommands().get("list"), "cli.device.list.description");
         setDescription(commandLine.getSubcommands().get("flash"), "cli.flash.description");
+        setDescription(commandLine.getSubcommands().get("check-update"), "cli.update.description");
     }
 
     /// Sets one command description from the active message bundle.

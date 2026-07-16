@@ -608,6 +608,11 @@
     -fx-max-width: 520px;
 }
 
+.settings-checkbox {
+    -fx-font-size: 13px;
+    -fx-text-fill: #394756;
+}
+
 .settings-action-button {
     -fx-min-width: 150px;
     -fx-padding: 8 14;
@@ -638,6 +643,11 @@
 
 .settings-update-error {
     -fx-text-fill: #b3353e;
+}
+
+.update-release-notes {
+    -fx-padding: 10 0 0 0;
+    -fx-text-fill: #5a6673;
 }
 
 .partition-target-content {

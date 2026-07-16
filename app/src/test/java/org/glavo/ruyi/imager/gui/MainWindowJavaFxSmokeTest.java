@@ -196,6 +196,17 @@ public final class MainWindowJavaFxSmokeTest {
         assertFalse(MainWindow.metadataUpdateDue(now.plus(Duration.ofHours(1)), now));
     }
 
+    /// Verifies the daily automatic application update check boundary.
+    @Test
+    public void schedulesDailyApplicationUpdateChecks() {
+        Instant now = Instant.parse("2026-07-16T06:00:00Z");
+
+        assertTrue(MainWindow.applicationUpdateCheckDue(null, now));
+        assertFalse(MainWindow.applicationUpdateCheckDue(now.minus(Duration.ofHours(23)), now));
+        assertTrue(MainWindow.applicationUpdateCheckDue(now.minus(Duration.ofHours(24)), now));
+        assertFalse(MainWindow.applicationUpdateCheckDue(now.plus(Duration.ofHours(1)), now));
+    }
+
     /// Verifies flash progress rows are known before backend progress events arrive.
     @Test
     public void createsInitialFlashProgressStages() {

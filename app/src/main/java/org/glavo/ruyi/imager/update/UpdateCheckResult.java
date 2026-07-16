@@ -9,9 +9,9 @@ import org.jetbrains.annotations.NotNullByDefault;
 ///
 /// @param status    update comparison status.
 /// @param current   running application build.
-/// @param available build described by the update manifest.
+/// @param available newest release in the selected channel.
 @NotNullByDefault
-public record UpdateCheckResult(Status status, BuildInfo current, UpdateManifest available) {
+public record UpdateCheckResult(Status status, BuildInfo current, UpdateRelease available) {
     /// Update comparison outcomes.
     @NotNullByDefault
     public enum Status {

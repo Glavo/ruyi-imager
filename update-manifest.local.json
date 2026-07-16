@@ -1,6 +1,19 @@
 {
   "schemaVersion": 1,
-  "version": "1.1.0",
-  "buildNumber": 1,
-  "releaseNotes": "Local update-check test manifest"
+  "releases": [
+    {
+      "channel": "stable",
+      "version": "1.1.0",
+      "buildNumber": 1,
+      "releaseNotes": "Local update-check test manifest",
+      "artifacts": []
+    },
+    {
+      "channel": "nightly",
+      "version": "1.1.0+nightly.local",
+      "buildNumber": 2,
+      "releaseNotes": "Local nightly update-check test manifest",
+      "artifacts": []
+    }
+  ]
 }

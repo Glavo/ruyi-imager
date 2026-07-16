@@ -7,6 +7,7 @@ import org.jetbrains.annotations.NotNullByDefault;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Locale;
 import java.util.Properties;
 
 /// Identifies one Ruyi Imager build.
@@ -36,6 +37,15 @@ public record BuildInfo(String version, long buildNumber) {
     /// @return current build information.
     public static BuildInfo current() {
         return CURRENT;
+    }
+
+    /// Infers the build channel from the version metadata used by packaged builds.
+    ///
+    /// @return inferred build channel.
+    public UpdateChannel inferredChannel() {
+        return version.toLowerCase(Locale.ROOT).contains("+nightly.")
+                ? UpdateChannel.NIGHTLY
+                : UpdateChannel.STABLE;
     }
 
     /// Loads generated build information from the application resources.

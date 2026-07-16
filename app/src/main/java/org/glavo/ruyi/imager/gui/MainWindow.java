@@ -56,8 +56,13 @@ import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.logging.LoggingProgressReporter;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
+import org.glavo.ruyi.imager.update.PreparedUpdate;
+import org.glavo.ruyi.imager.update.UpdateChannel;
 import org.glavo.ruyi.imager.update.UpdateCheckResult;
 import org.glavo.ruyi.imager.update.UpdateChecker;
+import org.glavo.ruyi.imager.update.UpdateInstaller;
+import org.glavo.ruyi.imager.update.UpdatePackageManager;
+import org.glavo.ruyi.imager.update.UpdateRelease;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -80,6 +85,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 
@@ -101,6 +107,9 @@ public final class MainWindow {
 
     /// Minimum interval between successful automatic metadata updates.
     private static final Duration METADATA_AUTO_UPDATE_INTERVAL = Duration.ofHours(24);
+
+    /// Minimum interval between successful automatic application update checks.
+    private static final Duration APPLICATION_UPDATE_CHECK_INTERVAL = Duration.ofHours(24);
 
     /// Binary size units used by storage device summaries.
     private static final @Unmodifiable List<String> SIZE_UNITS = List.of("B", "KiB", "MiB", "GiB", "TiB");
@@ -153,6 +162,9 @@ public final class MainWindow {
 
     /// Application update checker.
     private final UpdateChecker updateChecker;
+
+    /// Application update package preparation service.
+    private final @Nullable UpdatePackageManager updatePackageManager;
 
     /// Root node for the window.
     private final BorderPane root;
@@ -257,6 +269,14 @@ public final class MainWindow {
         this.services = services;
         this.preferences = new GuiPreferences(services.directories());
         this.updateChecker = UpdateChecker.createDefault(services.directories());
+        UpdatePackageManager packageManager;
+        try {
+            packageManager = UpdatePackageManager.createDefault(services.directories(), updateChecker);
+        } catch (IllegalStateException exception) {
+            packageManager = null;
+            LOGGER.warn("Application update installers are unavailable on this platform.", exception);
+        }
+        this.updatePackageManager = packageManager;
         loadPreferredLocale();
         this.root = createRoot();
         Messages.localeProperty().addListener((_, _, _) -> {
@@ -310,6 +330,70 @@ public final class MainWindow {
             LOGGER.warn("Failed to write GUI startup safety warning preference.", exception);
             showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
         }
+    }
+
+    /// Shows first-run notices and schedules an automatic application update check.
+    public void showStartupActions() {
+        showStartupSafetyWarningIfNeeded();
+        checkApplicationUpdateOnStartup();
+    }
+
+    /// Starts a silent startup update check when the configured interval is due.
+    private void checkApplicationUpdateOnStartup() {
+        if (!Files.isRegularFile(updateChecker.source())) {
+            LOGGER.debug("Skipping automatic application update check because the local manifest is absent.");
+            return;
+        }
+
+        UpdateChannel channel;
+        try {
+            if (!preferences.readAutomaticUpdateChecksEnabled()) {
+                return;
+            }
+            channel = preferences.readUpdateChannel(updateChecker.current().inferredChannel());
+            if (!applicationUpdateCheckDue(
+                    preferences.readApplicationUpdateCheckedAt(channel),
+                    Instant.now())) {
+                return;
+            }
+        } catch (IOException exception) {
+            LOGGER.warn("Failed to read automatic application update preferences.", exception);
+            return;
+        }
+
+        Task<UpdateCheckResult> task = new Task<>() {
+            /// Checks the selected update channel outside the JavaFX application thread.
+            ///
+            /// @return update check result.
+            @Override
+            protected UpdateCheckResult call() throws Exception {
+                updateMessage(Messages.get("gui.progress.checkingForUpdates"));
+                return updateChecker.check(channel);
+            }
+        };
+        startBackgroundTask(task, result -> {
+            recordApplicationUpdateCheckSuccess(channel);
+            if (result.status() == UpdateCheckResult.Status.UPDATE_AVAILABLE
+                    && !isUpdateSkipped(result.available())) {
+                handleAvailableUpdate(result.available());
+            }
+        }, failure -> {
+            if (failure == null) {
+                LOGGER.warn("Automatic application update check failed without an exception.");
+            } else {
+                LOGGER.warn("Automatic application update check failed.", failure);
+            }
+        });
+    }
+
+    /// Evaluates the automatic application update check interval.
+    ///
+    /// @param checkedAt last successful check time, or null when unknown.
+    /// @param now       current time.
+    /// @return whether an automatic check is due.
+    static boolean applicationUpdateCheckDue(@Nullable Instant checkedAt, Instant now) {
+        return checkedAt == null
+                || Duration.between(checkedAt, now).compareTo(APPLICATION_UPDATE_CHECK_INTERVAL) >= 0;
     }
 
     /// Creates the main layout.
@@ -899,10 +983,21 @@ public final class MainWindow {
 
     /// Shows the editable GUI settings.
     private void showSettings() {
+        boolean automaticUpdateChecks = true;
+        UpdateChannel updateChannel = updateChecker.current().inferredChannel();
+        try {
+            automaticUpdateChecks = preferences.readAutomaticUpdateChecksEnabled();
+            updateChannel = preferences.readUpdateChannel(updateChecker.current().inferredChannel());
+        } catch (IOException exception) {
+            LOGGER.warn("Failed to read application update preferences.", exception);
+        }
+
         SettingsDialog settings = new SettingsDialog(
                 Messages.locale(),
                 updateChecker.current(),
-                updateChecker.source());
+                updateChecker.source(),
+                automaticUpdateChecks,
+                updateChannel);
         settings.applicationUpdateButton().setOnAction(_ -> checkApplicationUpdate(settings));
         settings.metadataUpdateButton().setOnAction(_ -> updateRepository(settings));
         if (!showConfirmationDialog(
@@ -915,14 +1010,20 @@ public final class MainWindow {
         }
 
         Locale locale = settings.selectedLocale();
-        if (locale.getLanguage().equals(Messages.locale().getLanguage())) {
-            return;
-        }
-
         try {
-            preferences.writeLocale(locale);
-            Messages.setLocale(locale);
-            LOGGER.atInfo().log(() -> "Saved GUI locale preference. locale=" + locale);
+            preferences.writeSettings(
+                    locale,
+                    settings.automaticUpdateChecksEnabled(),
+                    settings.selectedUpdateChannel());
+            if (!locale.getLanguage().equals(Messages.locale().getLanguage())) {
+                Messages.setLocale(locale);
+            }
+            LOGGER.atInfo().log(() -> "Saved GUI settings. locale="
+                    + locale
+                    + ", automaticUpdateChecks="
+                    + settings.automaticUpdateChecksEnabled()
+                    + ", updateChannel="
+                    + settings.selectedUpdateChannel().token());
         } catch (IOException exception) {
             LOGGER.warn("Failed to write GUI preferences.", exception);
             showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
@@ -942,6 +1043,7 @@ public final class MainWindow {
     /// @param settings active settings dialog.
     private void checkApplicationUpdate(SettingsDialog settings) {
         settings.applicationUpdateStarted();
+        UpdateChannel channel = settings.selectedUpdateChannel();
         Task<UpdateCheckResult> task = new Task<>() {
             /// Reads and compares the update manifest outside the JavaFX application thread.
             ///
@@ -949,11 +1051,12 @@ public final class MainWindow {
             @Override
             protected UpdateCheckResult call() throws Exception {
                 updateMessage(Messages.get("gui.progress.checkingForUpdates"));
-                return updateChecker.check();
+                return updateChecker.check(channel);
             }
         };
 
         startBackgroundTask(task, result -> {
+            recordApplicationUpdateCheckSuccess(channel);
             boolean updateAvailable = result.status() == UpdateCheckResult.Status.UPDATE_AVAILABLE;
             String message = updateAvailable
                     ? Messages.get(
@@ -962,10 +1065,94 @@ public final class MainWindow {
                             result.current().version())
                     : Messages.get("gui.settings.upToDate", result.current().version());
             settings.applicationUpdateFinished(updateAvailable, message);
+            if (updateAvailable) {
+                handleAvailableUpdate(result.available());
+            }
         }, failure -> settings.applicationUpdateFailed(
                 failure == null || failure.getMessage() == null
                         ? Messages.get("gui.settings.updateCheckFailed")
                         : failure.getMessage()));
+    }
+
+    /// Records a successful application update check without failing the completed check.
+    private void recordApplicationUpdateCheckSuccess(UpdateChannel channel) {
+        try {
+            preferences.writeApplicationUpdateCheckedAt(channel, Instant.now());
+        } catch (IOException exception) {
+            LOGGER.warn("Failed to persist the application update check time.", exception);
+        }
+    }
+
+    /// Returns whether the user skipped one available release.
+    ///
+    /// @param release available release.
+    /// @return whether the release should be suppressed during automatic checks.
+    private boolean isUpdateSkipped(UpdateRelease release) {
+        try {
+            return preferences.isUpdateSkipped(release);
+        } catch (IOException exception) {
+            LOGGER.warn("Failed to read the skipped application update.", exception);
+            return false;
+        }
+    }
+
+    /// Prompts for an available release and applies the selected action.
+    ///
+    /// @param release available release.
+    private void handleAvailableUpdate(UpdateRelease release) {
+        UpdatePackageManager packageManager = updatePackageManager;
+        boolean installerAvailable = packageManager != null && packageManager.artifactFor(release) != null;
+        UpdateDecision decision = showAvailableUpdateDialog(release, installerAvailable);
+        if (decision == UpdateDecision.INSTALL) {
+            if (packageManager == null) {
+                showError(
+                        Messages.get("gui.dialog.updateFailed"),
+                        Messages.get("gui.dialog.updateAvailable.noPlatformInstaller"));
+                return;
+            }
+            prepareAndInstallUpdate(packageManager, release);
+            return;
+        }
+        if (decision == UpdateDecision.SKIP) {
+            try {
+                preferences.writeSkippedUpdate(release);
+                LOGGER.atInfo().log(() -> "Skipped application update. channel="
+                        + release.channel().token()
+                        + ", version="
+                        + release.version()
+                        + ", buildNumber="
+                        + release.buildNumber());
+            } catch (IOException exception) {
+                LOGGER.warn("Failed to persist the skipped application update.", exception);
+                showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
+            }
+        }
+    }
+
+    /// Copies, verifies, and starts the installer for one release.
+    ///
+    /// @param packageManager update package preparation service.
+    /// @param release        selected release.
+    private void prepareAndInstallUpdate(UpdatePackageManager packageManager, UpdateRelease release) {
+        Task<PreparedUpdate> task = new Task<>() {
+            /// Prepares the selected update outside the JavaFX application thread.
+            ///
+            /// @return verified prepared update.
+            @Override
+            protected PreparedUpdate call() throws Exception {
+                updateMessage(Messages.get("gui.progress.preparingApplicationUpdate"));
+                PreparedUpdate prepared = packageManager.prepare(release, progress -> {
+                    updateProgress(progress.currentBytes(), progress.totalBytes());
+                    updateMessage(Messages.get("gui.progress.preparingApplicationUpdate"));
+                });
+                UpdateInstaller.launch(prepared);
+                return prepared;
+            }
+        };
+        startBackgroundTask(task, Messages.get("gui.dialog.updateFailed"), prepared -> {
+            LOGGER.atInfo().log(() -> "Started application update installer. package=" + prepared.packageFile());
+            Platform.exit();
+        });
     }
 
     /// Starts a repository metadata update from the settings dialog.
@@ -3039,6 +3226,82 @@ public final class MainWindow {
         return showMaterialDialog(title, header, content, confirmKey, styleClass, true);
     }
 
+    /// Shows the available application update actions.
+    ///
+    /// @param release            available release.
+    /// @param installerAvailable whether this platform has a published installer.
+    /// @return selected update action.
+    private UpdateDecision showAvailableUpdateDialog(UpdateRelease release, boolean installerAvailable) {
+        AtomicReference<UpdateDecision> decision = new AtomicReference<>(UpdateDecision.LATER);
+        Label message = messageContent(Messages.get(
+                installerAvailable
+                        ? "gui.dialog.updateAvailable.message"
+                        : "gui.dialog.updateAvailable.noInstaller",
+                release.version(),
+                updateChecker.current().version(),
+                Messages.get("gui.settings.updateChannel." + release.channel().token())));
+        VBox content = new VBox(12, message);
+        @Nullable String releaseNotes = release.releaseNotes();
+        if (releaseNotes != null && !releaseNotes.isBlank()) {
+            Label notes = messageContent(releaseNotes);
+            notes.getStyleClass().add("update-release-notes");
+            content.getChildren().add(notes);
+        }
+
+        MFXButton skipButton = dialogActionButton("gui.dialog.updateAvailable.skip", "dialog-secondary-button");
+        MFXButton laterButton = dialogActionButton("gui.dialog.updateAvailable.later", "dialog-secondary-button");
+        @Nullable MFXButton installButton = installerAvailable
+                ? dialogActionButton("gui.dialog.updateAvailable.install", "dialog-primary-button")
+                : null;
+        MFXGenericDialogBuilder dialogBuilder = MFXGenericDialogBuilder.build()
+                .setHeaderText(Messages.get("gui.dialog.updateAvailable"))
+                .setContent(content)
+                .setShowClose(false)
+                .setShowMinimize(false)
+                .setShowAlwaysOnTop(false)
+                .addStyleClasses("material-dialog", "material-update-dialog");
+        @Nullable String stylesheet = applicationStylesheet();
+        if (stylesheet != null) {
+            dialogBuilder.addStylesheets(stylesheet);
+        }
+        if (installButton == null) {
+            dialogBuilder.addActions(skipButton, laterButton);
+        } else {
+            dialogBuilder.addActions(skipButton, laterButton, installButton);
+        }
+
+        MFXStageDialogBuilder stageBuilder = MFXStageDialogBuilder.build()
+                .setContent(dialogBuilder.get())
+                .setOwnerNode(root)
+                .setCenterInOwnerNode(true)
+                .setScrimOwner(true)
+                .setScrimStrength(0.35)
+                .setDraggable(true)
+                .setOverlayClose(false)
+                .initModality(Modality.WINDOW_MODAL)
+                .setTitle(Messages.get("gui.dialog.updateAvailable"));
+        @Nullable Window owner = ownerWindow();
+        if (owner != null) {
+            stageBuilder.initOwner(owner);
+        }
+
+        MFXStageDialog dialog = stageBuilder.get();
+        skipButton.setOnAction(_ -> {
+            decision.set(UpdateDecision.SKIP);
+            dialog.close();
+        });
+        laterButton.setOnAction(_ -> dialog.close());
+        if (installButton != null) {
+            installButton.setOnAction(_ -> {
+                decision.set(UpdateDecision.INSTALL);
+                dialog.close();
+            });
+        }
+        dialog.showAndWait();
+        dialog.dispose();
+        return decision.get();
+    }
+
     /// Shows a MaterialFX dialog.
     ///
     /// @param title dialog title.
@@ -3141,6 +3404,18 @@ public final class MainWindow {
     private static @Nullable String applicationStylesheet() {
         URL stylesheet = MainWindow.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
         return stylesheet == null ? null : stylesheet.toExternalForm();
+    }
+
+    /// Actions available from the application update prompt.
+    private enum UpdateDecision {
+        /// Copy, verify, and start the installer.
+        INSTALL,
+
+        /// Suppress this exact release during automatic checks.
+        SKIP,
+
+        /// Dismiss the prompt without persisting a decision.
+        LATER
     }
 
     /// Result of loading the image catalog for manufacturer selection.

@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.update;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -19,5 +20,14 @@ public final class BuildInfoTest {
 
         assertFalse(buildInfo.version().isBlank());
         assertTrue(buildInfo.buildNumber() >= 0L);
+    }
+
+    /// Infers stable and nightly channels from packaged version metadata.
+    @Test
+    public void infersBuildChannel() {
+        assertEquals(UpdateChannel.STABLE, new BuildInfo("1.0.0", 1L).inferredChannel());
+        assertEquals(
+                UpdateChannel.NIGHTLY,
+                new BuildInfo("1.0.0+nightly.3921d84", 2L).inferredChannel());
     }
 }

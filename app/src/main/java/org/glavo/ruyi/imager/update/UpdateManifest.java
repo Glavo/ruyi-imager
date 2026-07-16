@@ -4,20 +4,20 @@
 package org.glavo.ruyi.imager.update;
 
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
-/// Describes the newest application build exposed by an update source.
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+/// Describes application releases exposed by an update source.
 ///
 /// @param schemaVersion update manifest schema version.
-/// @param version       human-readable application version.
-/// @param buildNumber   monotonically increasing build number.
-/// @param releaseNotes  optional short release notes.
+/// @param releases      releases available from all update channels.
 @NotNullByDefault
 public record UpdateManifest(
         int schemaVersion,
-        String version,
-        long buildNumber,
-        @Nullable String releaseNotes) {
+        @Unmodifiable List<UpdateRelease> releases) {
     /// Supported manifest schema version.
     public static final int CURRENT_SCHEMA_VERSION = 1;
 
@@ -26,12 +26,32 @@ public record UpdateManifest(
         if (schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new IllegalArgumentException("Unsupported update manifest schema version: " + schemaVersion);
         }
-        if (version.isBlank()) {
-            throw new IllegalArgumentException("Update version must not be blank.");
+        releases = List.copyOf(releases);
+        if (releases.isEmpty()) {
+            throw new IllegalArgumentException("Update manifest must contain at least one release.");
         }
-        if (buildNumber < 0L) {
-            throw new IllegalArgumentException("Update build number must not be negative.");
+        Set<ReleaseIdentity> identities = new HashSet<>();
+        for (UpdateRelease release : releases) {
+            ReleaseIdentity identity = new ReleaseIdentity(
+                    release.channel(),
+                    SemanticVersion.parse(release.version()),
+                    release.buildNumber());
+            if (!identities.add(identity)) {
+                throw new IllegalArgumentException(
+                        "Update manifest contains ambiguous releases for channel: " + release.channel().token());
+            }
         }
-        SemanticVersion.parse(version);
+    }
+
+    /// Semantic release identity used to reject manifest entries with equal update precedence.
+    ///
+    /// @param channel     release channel.
+    /// @param version     semantic version precedence.
+    /// @param buildNumber build number used after equal semantic precedence.
+    @NotNullByDefault
+    private record ReleaseIdentity(
+            UpdateChannel channel,
+            SemanticVersion version,
+            long buildNumber) {
     }
 }

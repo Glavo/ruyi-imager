@@ -85,7 +85,7 @@ public final class RuyiImager extends Application {
         primaryStage.setMinHeight(560);
         primaryStage.setScene(scene);
         primaryStage.show();
-        Platform.runLater(window::showStartupSafetyWarningIfNeeded);
+        Platform.runLater(window::showStartupActions);
     }
 
     /// Stops the JavaFX application and closes logging resources.
