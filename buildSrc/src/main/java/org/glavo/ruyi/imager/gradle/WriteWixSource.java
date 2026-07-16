@@ -153,7 +153,10 @@ public abstract class WriteWixSource extends DefaultTask {
         output.append(" Version=\"").append(xml(getProductVersion().get())).append('"');
         output.append(" UpgradeCode=\"").append(xml(normalizedGuid(getUpgradeCode().get()))).append('"');
         output.append(" Scope=\"").append(xml(installScope)).append("\">\n");
-        output.append("    <MajorUpgrade DowngradeErrorMessage=\"A newer version of ");
+        output.append("    <Launch Condition=\"Installed OR BURNMSIINSTALL\" Message=\"Use the ");
+        output.append(xml(getProductName().get()));
+        output.append(" setup executable to install this package.\" />\n");
+        output.append("    <MajorUpgrade AllowSameVersionUpgrades=\"yes\" DowngradeErrorMessage=\"A newer version of ");
         output.append(xml(getProductName().get()));
         output.append(" is already installed.\" />\n");
         output.append("    <MediaTemplate EmbedCab=\"yes\" />\n");

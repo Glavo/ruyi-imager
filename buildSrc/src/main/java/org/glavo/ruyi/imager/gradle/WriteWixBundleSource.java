@@ -96,7 +96,7 @@ public abstract class WriteWixBundleSource extends DefaultTask {
     ///
     /// @return bundle version.
     @Input
-    public abstract Property<String> getProductVersion();
+    public abstract Property<String> getBundleVersion();
 
     /// Returns the human-readable bundle display version.
     ///
@@ -146,7 +146,7 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         output.append(" xmlns:bal=\"http://wixtoolset.org/schemas/v4/wxs/bal\">\n");
         output.append("  <Bundle Name=\"").append(xml(getProductName().get())).append('"');
         output.append(" Manufacturer=\"").append(xml(getManufacturer().get())).append('"');
-        output.append(" Version=\"").append(xml(getProductVersion().get())).append('"');
+        output.append(" Version=\"").append(xml(getBundleVersion().get())).append('"');
         output.append(" UpgradeCode=\"").append(xml(normalizedGuid(getUpgradeCode().get()))).append('"');
         output.append(" IconSourceFile=\"");
         output.append(xml(getIconFile().get().getAsFile().getAbsolutePath()));

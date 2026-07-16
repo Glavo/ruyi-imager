@@ -692,7 +692,7 @@ val writeJlinkWixBundleSource = tasks.register<WriteWixBundleSource>("writeJlink
     localizationDirectory.set(jlinkSetupLocalizationDirectory)
     productName.set(jlinkMsiProductName)
     manufacturer.set(jlinkMsiManufacturer)
-    productVersion.set(jlinkMsiProductVersion)
+    bundleVersion.set(project.version.toString())
     displayVersion.set(project.version.toString())
     upgradeCode.set(jlinkSetupUpgradeCode)
     installScope.set(jlinkMsiInstallScope)
