@@ -34,8 +34,7 @@ public record UpdateManifest(
         for (UpdateRelease release : releases) {
             ReleaseIdentity identity = new ReleaseIdentity(
                     release.channel(),
-                    SemanticVersion.parse(release.version()),
-                    release.buildNumber());
+                    SemanticVersion.parse(release.version()));
             if (!identities.add(identity)) {
                 throw new IllegalArgumentException(
                         "Update manifest contains ambiguous releases for channel: " + release.channel().token());
@@ -45,13 +44,11 @@ public record UpdateManifest(
 
     /// Semantic release identity used to reject manifest entries with equal update precedence.
     ///
-    /// @param channel     release channel.
-    /// @param version     semantic version precedence.
-    /// @param buildNumber build number used after equal semantic precedence.
+    /// @param channel release channel.
+    /// @param version semantic version precedence.
     @NotNullByDefault
     private record ReleaseIdentity(
             UpdateChannel channel,
-            SemanticVersion version,
-            long buildNumber) {
+            SemanticVersion version) {
     }
 }

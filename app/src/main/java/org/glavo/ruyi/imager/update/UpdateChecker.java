@@ -49,7 +49,6 @@ public record UpdateChecker(BuildInfo current, Path source) {
     private static final @Unmodifiable Set<String> RELEASE_FIELDS = Set.of(
             "channel",
             "version",
-            "buildNumber",
             "releaseNotes",
             "artifacts");
 
@@ -125,12 +124,8 @@ public record UpdateChecker(BuildInfo current, Path source) {
             throw new IOException("Invalid running application version: " + current.version(), exception);
         }
         int versionComparison = SemanticVersion.parse(available.version()).compareTo(currentVersion);
-        boolean updateAvailable = versionComparison > 0
-                || (versionComparison == 0
-                && (available.buildNumber() > current.buildNumber()
-                || (channel == UpdateChannel.STABLE && current.inferredChannel() == UpdateChannel.NIGHTLY)));
         return new UpdateCheckResult(
-                updateAvailable
+                versionComparison > 0
                         ? UpdateCheckResult.Status.UPDATE_AVAILABLE
                         : UpdateCheckResult.Status.UP_TO_DATE,
                 current,
@@ -159,14 +154,13 @@ public record UpdateChecker(BuildInfo current, Path source) {
         return newest;
     }
 
-    /// Compares two releases by SemVer precedence and build number.
+    /// Compares two releases by SemVer precedence.
     ///
     /// @param left  left release.
     /// @param right right release.
     /// @return comparison result.
     private static int compareReleases(UpdateRelease left, UpdateRelease right) {
-        int result = SemanticVersion.parse(left.version()).compareTo(SemanticVersion.parse(right.version()));
-        return result == 0 ? Long.compare(left.buildNumber(), right.buildNumber()) : result;
+        return SemanticVersion.parse(left.version()).compareTo(SemanticVersion.parse(right.version()));
     }
 
     /// Reads a bounded regular file.
@@ -220,14 +214,13 @@ public record UpdateChecker(BuildInfo current, Path source) {
         rejectUnknownFields(node, RELEASE_FIELDS, "update release");
         UpdateChannel channel = UpdateChannel.parse(requiredText(node, "channel", "Update release"));
         String version = requiredText(node, "version", "Update release");
-        long buildNumber = requiredLong(node, "buildNumber", "Update release");
         @Nullable String releaseNotes = optionalText(node, "releaseNotes", "Update release");
         JsonNode artifactsNode = requiredArray(node, "artifacts", "Update release");
         List<UpdateArtifact> artifacts = new ArrayList<>();
         for (JsonNode artifactNode : artifactsNode) {
             artifacts.add(readArtifact(artifactNode));
         }
-        return new UpdateRelease(channel, version, buildNumber, releaseNotes, artifacts);
+        return new UpdateRelease(channel, version, releaseNotes, artifacts);
     }
 
     /// Reads one installer artifact object.

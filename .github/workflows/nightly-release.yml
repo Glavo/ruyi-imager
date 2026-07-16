@@ -52,9 +52,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_version="1.0.0+nightly.${GITHUB_SHA::7}"
+          package_version="1.0.0-nightly.${GITHUB_RUN_NUMBER}+${GITHUB_SHA::7}"
           printf 'ruyi.version=%s\n' "${package_version}" >> gradle.properties
-          printf 'ruyi.buildNumber=%s\n' "${GITHUB_RUN_NUMBER}" >> gradle.properties
 
       - name: Set up JDK 25
         uses: actions/setup-java@v5
@@ -167,7 +166,7 @@ jobs:
             echo
             echo "Source commit: ${GITHUB_SHA}"
             echo
-            echo "Package version: 1.0.0+nightly.${GITHUB_SHA::7}"
+            echo "Package version: 1.0.0-nightly.${GITHUB_RUN_NUMBER}+${GITHUB_SHA::7}"
             echo
             echo "Assets:"
             find release-assets -maxdepth 1 -type f -printf "- %f\n" | sort

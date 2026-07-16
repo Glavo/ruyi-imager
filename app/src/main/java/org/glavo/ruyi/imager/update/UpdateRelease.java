@@ -14,15 +14,13 @@ import java.util.Set;
 /// Describes one application release exposed by an update manifest.
 ///
 /// @param channel      release channel.
-/// @param version      semantic application version.
-/// @param buildNumber  monotonically increasing build number within equal SemVer precedence.
+/// @param version      semantic application version and update identity.
 /// @param releaseNotes optional short release notes.
 /// @param artifacts    platform installer artifacts.
 @NotNullByDefault
 public record UpdateRelease(
         UpdateChannel channel,
         String version,
-        long buildNumber,
         @Nullable String releaseNotes,
         @Unmodifiable List<UpdateArtifact> artifacts) {
     /// Validates and freezes release metadata.
@@ -30,9 +28,6 @@ public record UpdateRelease(
         version = version.strip();
         if (version.isEmpty()) {
             throw new IllegalArgumentException("Update version must not be blank.");
-        }
-        if (buildNumber < 0L) {
-            throw new IllegalArgumentException("Update build number must not be negative.");
         }
         SemanticVersion.parse(version);
         artifacts = List.copyOf(artifacts);

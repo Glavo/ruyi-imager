@@ -1119,9 +1119,7 @@ public final class MainWindow {
                 LOGGER.atInfo().log(() -> "Skipped application update. channel="
                         + release.channel().token()
                         + ", version="
-                        + release.version()
-                        + ", buildNumber="
-                        + release.buildNumber());
+                        + release.version());
             } catch (IOException exception) {
                 LOGGER.warn("Failed to persist the skipped application update.", exception);
                 showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());

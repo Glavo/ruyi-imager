@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests generated application build information.
 @NotNullByDefault
@@ -19,15 +18,14 @@ public final class BuildInfoTest {
         BuildInfo buildInfo = BuildInfo.current();
 
         assertFalse(buildInfo.version().isBlank());
-        assertTrue(buildInfo.buildNumber() >= 0L);
     }
 
     /// Infers stable and nightly channels from packaged version metadata.
     @Test
     public void infersBuildChannel() {
-        assertEquals(UpdateChannel.STABLE, new BuildInfo("1.0.0", 1L).inferredChannel());
+        assertEquals(UpdateChannel.STABLE, new BuildInfo("1.0.0").inferredChannel());
         assertEquals(
                 UpdateChannel.NIGHTLY,
-                new BuildInfo("1.0.0+nightly.3921d84", 2L).inferredChannel());
+                new BuildInfo("1.0.0-nightly.42+3921d84").inferredChannel());
     }
 }

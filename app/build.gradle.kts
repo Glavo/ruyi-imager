@@ -266,7 +266,6 @@ val generateBuildInfo = tasks.register<WriteProperties>("generateBuildInfo") {
     description = "Writes the application version used at runtime."
     destinationFile = generatedBuildInfo.get().asFile
     property("version", project.version.toString())
-    property("buildNumber", providers.gradleProperty("ruyi.buildNumber").orElse("0").get())
 }
 
 val extractFastbootTasks = fastbootBundles.map { bundle ->

@@ -4,18 +4,17 @@
 package org.glavo.ruyi.imager.update;
 
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Locale;
 import java.util.Properties;
 
 /// Identifies one Ruyi Imager build.
 ///
-/// @param version     human-readable application version.
-/// @param buildNumber monotonically increasing build number, or zero for local builds.
+/// @param version semantic application version.
 @NotNullByDefault
-public record BuildInfo(String version, long buildNumber) {
+public record BuildInfo(String version) {
     /// Generated build information resource.
     private static final String RESOURCE = "/org/glavo/ruyi/imager/update/build-info.properties";
 
@@ -26,9 +25,6 @@ public record BuildInfo(String version, long buildNumber) {
     public BuildInfo {
         if (version.isBlank()) {
             throw new IllegalArgumentException("Application version must not be blank.");
-        }
-        if (buildNumber < 0L) {
-            throw new IllegalArgumentException("Application build number must not be negative.");
         }
     }
 
@@ -43,7 +39,8 @@ public record BuildInfo(String version, long buildNumber) {
     ///
     /// @return inferred build channel.
     public UpdateChannel inferredChannel() {
-        return version.toLowerCase(Locale.ROOT).contains("+nightly.")
+        @Nullable String prerelease = SemanticVersion.parse(version).prerelease();
+        return prerelease != null && (prerelease.equals("nightly") || prerelease.startsWith("nightly."))
                 ? UpdateChannel.NIGHTLY
                 : UpdateChannel.STABLE;
     }
@@ -63,9 +60,8 @@ public record BuildInfo(String version, long buildNumber) {
         }
 
         String version = properties.getProperty("version", "").strip();
-        String buildNumber = properties.getProperty("buildNumber", "").strip();
         try {
-            return new BuildInfo(version, Long.parseLong(buildNumber));
+            return new BuildInfo(version);
         } catch (IllegalArgumentException exception) {
             throw new IllegalStateException("Invalid application build information: " + RESOURCE, exception);
         }

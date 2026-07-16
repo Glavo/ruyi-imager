@@ -25,9 +25,9 @@ public final class UpdateCheckerTest {
     /// @throws Exception when the manifest cannot be written or checked.
     @Test
     public void detectsNewerVersion(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0", 1L);
+        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0");
 
-        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0", 10L), manifest).check();
+        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0"), manifest).check();
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
         assertEquals("1.1.0", result.available().version());
@@ -47,23 +47,21 @@ public final class UpdateCheckerTest {
                     {
                       "channel": "stable",
                       "version": "1.1.0",
-                      "buildNumber": 10,
                       "artifacts": []
                     },
                     {
                       "channel": "nightly",
-                      "version": "1.2.0+nightly.test",
-                      "buildNumber": 20,
+                      "version": "1.2.0-nightly.20+test",
                       "artifacts": []
                     }
                   ]
                 }
                 """);
 
-        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest)
+        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0"), manifest)
                 .check(UpdateChannel.NIGHTLY);
 
-        assertEquals("1.2.0+nightly.test", result.available().version());
+        assertEquals("1.2.0-nightly.20+test", result.available().version());
         assertEquals(UpdateChannel.NIGHTLY, result.available().channel());
     }
 
@@ -81,25 +79,23 @@ public final class UpdateCheckerTest {
                     {
                       "channel": "stable",
                       "version": "1.1.0",
-                      "buildNumber": 20,
                       "artifacts": []
                     },
                     {
                       "channel": "stable",
                       "version": "1.2.0",
-                      "buildNumber": 10,
                       "artifacts": []
                     }
                   ]
                 }
                 """);
 
-        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest).check();
+        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0"), manifest).check();
 
         assertEquals("1.2.0", result.available().version());
     }
 
-    /// Rejects same-channel releases with equal SemVer precedence and build number.
+    /// Rejects same-channel releases with equal SemVer precedence.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written.
@@ -113,13 +109,11 @@ public final class UpdateCheckerTest {
                     {
                       "channel": "stable",
                       "version": "1.1.0+first",
-                      "buildNumber": 10,
                       "artifacts": []
                     },
                     {
                       "channel": "stable",
                       "version": "1.1.0+second",
-                      "buildNumber": 10,
                       "artifacts": []
                     }
                   ]
@@ -128,7 +122,7 @@ public final class UpdateCheckerTest {
 
         assertThrows(
                 IOException.class,
-                () -> new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest).check());
+                () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
     }
 
     /// Parses platform installer metadata from a release.
@@ -145,7 +139,6 @@ public final class UpdateCheckerTest {
                     {
                       "channel": "stable",
                       "version": "1.1.0",
-                      "buildNumber": 1,
                       "artifacts": [
                         {
                           "platform": "windows-x86_64",
@@ -160,7 +153,7 @@ public final class UpdateCheckerTest {
                 }
                 """.formatted("0".repeat(64)));
 
-        UpdateArtifact artifact = Objects.requireNonNull(new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest)
+        UpdateArtifact artifact = Objects.requireNonNull(new UpdateChecker(new BuildInfo("1.0.0"), manifest)
                 .check()
                 .available()
                 .artifactFor(UpdatePlatform.WINDOWS_X86_64));
@@ -169,16 +162,16 @@ public final class UpdateCheckerTest {
         assertEquals(123L, artifact.size());
     }
 
-    /// Detects a newer nightly build when SemVer build metadata differs.
+    /// Detects a newer nightly build from its numeric prerelease identifier.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written or checked.
     @Test
-    public void detectsNewerBuildNumber(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "nightly", "1.0.0+nightly.new", 42L);
+    public void detectsNewerNightlyVersion(@TempDir Path temporaryDirectory) throws Exception {
+        Path manifest = writeManifest(temporaryDirectory, "nightly", "1.0.0-nightly.42+new");
 
         UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0+nightly.old", 41L),
+                new BuildInfo("1.0.0-nightly.41+old"),
                 manifest).check(UpdateChannel.NIGHTLY);
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
@@ -190,24 +183,26 @@ public final class UpdateCheckerTest {
     /// @throws Exception when the manifest cannot be written or checked.
     @Test
     public void offersStableReleaseWhenLeavingNightly(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.0.0", 0L);
+        Path manifest = writeManifest(temporaryDirectory, "stable", "1.0.0");
 
         UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0+nightly.old", 41L),
+                new BuildInfo("1.0.0-nightly.41+old"),
                 manifest).check(UpdateChannel.STABLE);
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
     }
 
-    /// Does not offer an older manifest build.
+    /// Does not offer an older nightly version.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written or checked.
     @Test
-    public void rejectsOlderBuild(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.0.0", 40L);
+    public void rejectsOlderNightlyVersion(@TempDir Path temporaryDirectory) throws Exception {
+        Path manifest = writeManifest(temporaryDirectory, "nightly", "1.0.0-nightly.40+old");
 
-        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0", 41L), manifest).check();
+        UpdateCheckResult result = new UpdateChecker(
+                new BuildInfo("1.0.0-nightly.41+new"),
+                manifest).check(UpdateChannel.NIGHTLY);
 
         assertEquals(UpdateCheckResult.Status.UP_TO_DATE, result.status());
     }
@@ -218,9 +213,9 @@ public final class UpdateCheckerTest {
     /// @throws Exception when the manifest cannot be written or checked.
     @Test
     public void releaseSupersedesPrerelease(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.0.0", 0L);
+        Path manifest = writeManifest(temporaryDirectory, "stable", "1.0.0");
 
-        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0-SNAPSHOT", 0L), manifest).check();
+        UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0-SNAPSHOT"), manifest).check();
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
     }
@@ -242,7 +237,7 @@ public final class UpdateCheckerTest {
 
         assertThrows(
                 IOException.class,
-                () -> new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest).check());
+                () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
     }
 
     /// Rejects unsupported manifest schema versions.
@@ -261,7 +256,7 @@ public final class UpdateCheckerTest {
 
         IOException exception = assertThrows(
                 IOException.class,
-                () -> new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest).check());
+                () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
 
         assertTrue(exception.getMessage().contains("update"));
     }
@@ -280,7 +275,6 @@ public final class UpdateCheckerTest {
                     {
                       "channel": "stable",
                       "version": "1.1.0",
-                      "buildNumber": 1,
                       "artifacts": [],
                       "unexpected": true
                     }
@@ -290,7 +284,7 @@ public final class UpdateCheckerTest {
 
         assertThrows(
                 IOException.class,
-                () -> new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest).check());
+                () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
     }
 
     /// Rejects invalid Semantic Versioning prerelease identifiers.
@@ -299,11 +293,11 @@ public final class UpdateCheckerTest {
     /// @throws Exception when the manifest cannot be written.
     @Test
     public void rejectsInvalidPrereleaseVersion(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0-rc.01", 1L);
+        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0-rc.01");
 
         assertThrows(
                 IOException.class,
-                () -> new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest).check());
+                () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
     }
 
     /// Reports a missing local manifest as an I/O failure.
@@ -315,7 +309,7 @@ public final class UpdateCheckerTest {
 
         IOException exception = assertThrows(
                 IOException.class,
-                () -> new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest).check());
+                () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
 
         assertTrue(exception.getMessage().contains(manifest.toAbsolutePath().toString()));
     }
@@ -325,14 +319,12 @@ public final class UpdateCheckerTest {
     /// @param temporaryDirectory temporary test directory.
     /// @param channel            available channel token.
     /// @param version            available version.
-    /// @param buildNumber        available build number.
     /// @return manifest path.
     /// @throws IOException when the manifest cannot be written.
     private static Path writeManifest(
             Path temporaryDirectory,
             String channel,
-            String version,
-            long buildNumber) throws IOException {
+            String version) throws IOException {
         Path manifest = temporaryDirectory.resolve("update.json");
         Files.writeString(manifest, """
                 {
@@ -340,14 +332,13 @@ public final class UpdateCheckerTest {
                   "releases": [
                     {
                       "channel": "%s",
-                  "version": "%s",
-                  "buildNumber": %d,
+                      "version": "%s",
                       "releaseNotes": "Test release",
                       "artifacts": []
                     }
                   ]
                 }
-                """.formatted(channel, version, buildNumber));
+                """.formatted(channel, version));
         return manifest;
     }
 

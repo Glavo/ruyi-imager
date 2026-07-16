@@ -50,9 +50,6 @@ final class GuiPreferences {
     /// Skipped application update version preference key.
     private static final String APPLICATION_UPDATE_SKIPPED_VERSION_KEY = "applicationUpdate.skipped.version";
 
-    /// Skipped application update build number preference key.
-    private static final String APPLICATION_UPDATE_SKIPPED_BUILD_KEY = "applicationUpdate.skipped.buildNumber";
-
     /// Preferences file path.
     private final Path path;
 
@@ -170,14 +167,12 @@ final class GuiPreferences {
         Properties properties = readProperties();
         @Nullable String channel = properties.getProperty(APPLICATION_UPDATE_SKIPPED_CHANNEL_KEY);
         @Nullable String version = properties.getProperty(APPLICATION_UPDATE_SKIPPED_VERSION_KEY);
-        @Nullable String buildNumber = properties.getProperty(APPLICATION_UPDATE_SKIPPED_BUILD_KEY);
-        if (channel == null || version == null || buildNumber == null) {
+        if (channel == null || version == null) {
             return false;
         }
         try {
             return release.channel() == UpdateChannel.parse(channel)
-                    && release.version().equals(version)
-                    && release.buildNumber() == Long.parseLong(buildNumber);
+                    && release.version().equals(version);
         } catch (IllegalArgumentException ignored) {
             return false;
         }
@@ -191,7 +186,6 @@ final class GuiPreferences {
         Properties properties = readProperties();
         properties.setProperty(APPLICATION_UPDATE_SKIPPED_CHANNEL_KEY, release.channel().token());
         properties.setProperty(APPLICATION_UPDATE_SKIPPED_VERSION_KEY, release.version());
-        properties.setProperty(APPLICATION_UPDATE_SKIPPED_BUILD_KEY, Long.toString(release.buildNumber()));
         writeProperties(properties);
     }
 
