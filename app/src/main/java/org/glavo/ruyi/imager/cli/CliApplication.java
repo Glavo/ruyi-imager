@@ -19,6 +19,9 @@ import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.logging.LogRedactor;
 import org.glavo.ruyi.imager.logging.LoggingProgressReporter;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
+import org.glavo.ruyi.imager.update.BuildInfo;
+import org.glavo.ruyi.imager.update.UpdateCheckResult;
+import org.glavo.ruyi.imager.update.UpdateChecker;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -117,10 +120,12 @@ public final class CliApplication implements Runnable {
         try {
             CliApplication root = new CliApplication();
             CommandLine commandLine = new CommandLine(root);
+            commandLine.getCommandSpec().version(BuildInfo.current().version());
             commandLine.addSubcommand("repo", repoCommand(services));
             commandLine.addSubcommand("image", imageCommand(services));
             commandLine.addSubcommand("device", deviceCommand(services));
             commandLine.addSubcommand("flash", new FlashCommand(services));
+            commandLine.addSubcommand("check-update", new CheckUpdateCommand(services));
             localizeCommands(commandLine);
             int exitCode = commandLine.execute(args);
             LOGGER.atInfo().log(() -> "CLI command finished. exitCode=" + exitCode);
@@ -173,6 +178,55 @@ public final class CliApplication implements Runnable {
     private static void printUsage(@Nullable CommandSpec spec) {
         if (spec != null) {
             spec.commandLine().usage(System.out);
+        }
+    }
+
+    /// Checks a local update manifest for a newer application build.
+    @Command(
+            name = "check-update",
+            description = "Check for a newer Ruyi Imager build.")
+    @NotNullByDefault
+    private static final class CheckUpdateCommand implements Callable<Integer> {
+        /// Shared application services.
+        private final AppServices services;
+
+        /// Optional local update manifest override.
+        @Option(
+                names = "--source",
+                paramLabel = "PATH",
+                description = "Read the update manifest from this local JSON file.")
+        private @Nullable Path source;
+
+        /// Creates the update check command.
+        ///
+        /// @param services shared application services.
+        private CheckUpdateCommand(AppServices services) {
+            this.services = services;
+        }
+
+        /// Checks the update manifest and prints the comparison result.
+        ///
+        /// @return process exit code.
+        @Override
+        public Integer call() {
+            Path updateSource = source == null
+                    ? UpdateChecker.configuredSource(services.directories())
+                    : source;
+            UpdateChecker checker = new UpdateChecker(BuildInfo.current(), updateSource);
+            try {
+                UpdateCheckResult result = checker.check();
+                if (result.status() == UpdateCheckResult.Status.UPDATE_AVAILABLE) {
+                    System.out.println(Messages.get(
+                            "cli.update.available",
+                            result.available().version(),
+                            result.current().version()));
+                } else {
+                    System.out.println(Messages.get("cli.update.upToDate", result.current().version()));
+                }
+                return 0;
+            } catch (IOException exception) {
+                return failException(exception, false);
+            }
         }
     }
 

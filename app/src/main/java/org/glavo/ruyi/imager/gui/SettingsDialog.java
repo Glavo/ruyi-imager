@@ -14,10 +14,12 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.util.StringConverter;
 import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.update.BuildInfo;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 
@@ -35,6 +37,12 @@ final class SettingsDialog {
     /// Language selector.
     private final MFXComboBox<LanguageOption> languageSelector;
 
+    /// Application update check button.
+    private final Button applicationUpdateButton;
+
+    /// Application update status.
+    private final Label applicationUpdateStatus;
+
     /// Manual metadata update button.
     private final Button metadataUpdateButton;
 
@@ -43,16 +51,17 @@ final class SettingsDialog {
 
     /// Creates settings controls with the currently selected locale.
     ///
-    /// @param locale selected GUI locale.
-    SettingsDialog(Locale locale) {
+    /// @param locale       selected GUI locale.
+    /// @param buildInfo    running application build.
+    /// @param updateSource local update manifest path.
+    SettingsDialog(Locale locale, BuildInfo buildInfo, Path updateSource) {
         this.languageSelector = createLanguageSelector(locale);
+        this.applicationUpdateButton = new MFXButton(Messages.get("gui.settings.checkForUpdates"));
+        this.applicationUpdateButton.getStyleClass().add("settings-action-button");
+        this.applicationUpdateStatus = createStatusLabel();
         this.metadataUpdateButton = new MFXButton(Messages.get("gui.settings.updateMetadata"));
         this.metadataUpdateButton.getStyleClass().add("settings-action-button");
-        this.metadataUpdateStatus = new Label();
-        this.metadataUpdateStatus.setWrapText(true);
-        this.metadataUpdateStatus.setVisible(false);
-        this.metadataUpdateStatus.setManaged(false);
-        this.metadataUpdateStatus.getStyleClass().add("settings-update-status");
+        this.metadataUpdateStatus = createStatusLabel();
 
         Label generalTitle = new Label(Messages.get("gui.settings.general"));
         generalTitle.getStyleClass().add("settings-section-title");
@@ -60,14 +69,36 @@ final class SettingsDialog {
         Label languageLabel = new Label(Messages.get("gui.language"));
         languageLabel.getStyleClass().add("settings-label");
 
+        Label versionLabel = new Label(Messages.get("gui.settings.version"));
+        versionLabel.getStyleClass().add("settings-label");
+
+        Label versionValue = new Label(buildInfo.version());
+        versionValue.getStyleClass().add("settings-value");
+
         GridPane generalGrid = new GridPane();
         generalGrid.setAlignment(Pos.CENTER_LEFT);
         generalGrid.getStyleClass().add("settings-grid");
         generalGrid.add(languageLabel, 0, 0);
         generalGrid.add(languageSelector, 1, 0);
+        generalGrid.add(versionLabel, 0, 1);
+        generalGrid.add(versionValue, 1, 1);
 
         VBox generalSection = new VBox(generalTitle, generalGrid);
         generalSection.getStyleClass().add("settings-section");
+
+        Label applicationUpdateTitle = new Label(Messages.get("gui.settings.applicationUpdates"));
+        applicationUpdateTitle.getStyleClass().add("settings-section-title");
+
+        Label updateSourceLabel = new Label(Messages.get("gui.settings.updateSource", updateSource));
+        updateSourceLabel.setWrapText(true);
+        updateSourceLabel.getStyleClass().add("settings-source");
+
+        VBox applicationUpdateSection = new VBox(
+                applicationUpdateTitle,
+                updateSourceLabel,
+                applicationUpdateButton,
+                applicationUpdateStatus);
+        applicationUpdateSection.getStyleClass().add("settings-section");
 
         Label metadataTitle = new Label(Messages.get("gui.settings.metadata"));
         metadataTitle.getStyleClass().add("settings-section-title");
@@ -75,7 +106,7 @@ final class SettingsDialog {
         VBox metadataSection = new VBox(metadataTitle, metadataUpdateButton, metadataUpdateStatus);
         metadataSection.getStyleClass().add("settings-section");
 
-        this.root = new VBox(generalSection, metadataSection);
+        this.root = new VBox(generalSection, applicationUpdateSection, metadataSection);
         this.root.getStyleClass().add("settings-content");
     }
 
@@ -100,10 +131,46 @@ final class SettingsDialog {
         return metadataUpdateButton;
     }
 
+    /// Returns the application update check button.
+    ///
+    /// @return application update check button.
+    Button applicationUpdateButton() {
+        return applicationUpdateButton;
+    }
+
+    /// Marks the application update check as active.
+    void applicationUpdateStarted() {
+        setOperationButtonsDisabled(true);
+        setStatus(
+                applicationUpdateStatus,
+                Messages.get("gui.progress.checkingForUpdates"),
+                "settings-update-active");
+    }
+
+    /// Shows the result of an application update check.
+    ///
+    /// @param updateAvailable whether a newer build is available.
+    /// @param message         update check result message.
+    void applicationUpdateFinished(boolean updateAvailable, String message) {
+        setOperationButtonsDisabled(false);
+        setStatus(
+                applicationUpdateStatus,
+                message,
+                updateAvailable ? "settings-update-available" : "settings-update-success");
+    }
+
+    /// Shows an application update check failure.
+    ///
+    /// @param message failure message.
+    void applicationUpdateFailed(String message) {
+        setOperationButtonsDisabled(false);
+        setStatus(applicationUpdateStatus, message, "settings-update-error");
+    }
+
     /// Marks the manual metadata update as active.
     void metadataUpdateStarted() {
-        metadataUpdateButton.setDisable(true);
-        setMetadataUpdateStatus(Messages.get("gui.progress.updatingMetadata"), "settings-update-active");
+        setOperationButtonsDisabled(true);
+        setStatus(metadataUpdateStatus, Messages.get("gui.progress.updatingMetadata"), "settings-update-active");
     }
 
     /// Shows the result of a manual metadata update.
@@ -111,25 +178,48 @@ final class SettingsDialog {
     /// @param successful whether the update succeeded.
     /// @param message    update result message.
     void metadataUpdateFinished(boolean successful, String message) {
-        metadataUpdateButton.setDisable(false);
-        setMetadataUpdateStatus(
+        setOperationButtonsDisabled(false);
+        setStatus(
+                metadataUpdateStatus,
                 message,
                 successful ? "settings-update-success" : "settings-update-error");
     }
 
-    /// Updates the visible metadata status.
+    /// Creates an initially hidden operation status label.
     ///
+    /// @return operation status label.
+    private static Label createStatusLabel() {
+        Label status = new Label();
+        status.setWrapText(true);
+        status.setVisible(false);
+        status.setManaged(false);
+        status.getStyleClass().add("settings-update-status");
+        return status;
+    }
+
+    /// Enables or disables settings operations together.
+    ///
+    /// @param disabled whether operations are disabled.
+    private void setOperationButtonsDisabled(boolean disabled) {
+        applicationUpdateButton.setDisable(disabled);
+        metadataUpdateButton.setDisable(disabled);
+    }
+
+    /// Updates a visible operation status.
+    ///
+    /// @param status     status label.
     /// @param message    status text.
     /// @param styleClass status style class.
-    private void setMetadataUpdateStatus(String message, String styleClass) {
-        metadataUpdateStatus.setText(message);
-        metadataUpdateStatus.getStyleClass().removeAll(
+    private static void setStatus(Label status, String message, String styleClass) {
+        status.setText(message);
+        status.getStyleClass().removeAll(
                 "settings-update-active",
+                "settings-update-available",
                 "settings-update-success",
                 "settings-update-error");
-        metadataUpdateStatus.getStyleClass().add(styleClass);
-        metadataUpdateStatus.setVisible(true);
-        metadataUpdateStatus.setManaged(true);
+        status.getStyleClass().add(styleClass);
+        status.setVisible(true);
+        status.setManaged(true);
     }
 
     /// Creates the language selector.

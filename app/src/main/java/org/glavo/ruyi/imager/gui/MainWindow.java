@@ -56,6 +56,8 @@ import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.logging.LoggingProgressReporter;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
+import org.glavo.ruyi.imager.update.UpdateCheckResult;
+import org.glavo.ruyi.imager.update.UpdateChecker;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -148,6 +150,9 @@ public final class MainWindow {
 
     /// GUI preferences store.
     private final GuiPreferences preferences;
+
+    /// Application update checker.
+    private final UpdateChecker updateChecker;
 
     /// Root node for the window.
     private final BorderPane root;
@@ -251,6 +256,7 @@ public final class MainWindow {
     public MainWindow(AppServices services) {
         this.services = services;
         this.preferences = new GuiPreferences(services.directories());
+        this.updateChecker = UpdateChecker.createDefault(services.directories());
         loadPreferredLocale();
         this.root = createRoot();
         Messages.localeProperty().addListener((_, _, _) -> {
@@ -893,7 +899,11 @@ public final class MainWindow {
 
     /// Shows the editable GUI settings.
     private void showSettings() {
-        SettingsDialog settings = new SettingsDialog(Messages.locale());
+        SettingsDialog settings = new SettingsDialog(
+                Messages.locale(),
+                updateChecker.current(),
+                updateChecker.source());
+        settings.applicationUpdateButton().setOnAction(_ -> checkApplicationUpdate(settings));
         settings.metadataUpdateButton().setOnAction(_ -> updateRepository(settings));
         if (!showConfirmationDialog(
                 Messages.get("gui.settings.title"),
@@ -925,6 +935,37 @@ public final class MainWindow {
     private static boolean hasLocaleSystemProperty() {
         @Nullable String configuredLocale = System.getProperty(Messages.LOCALE_PROPERTY);
         return configuredLocale != null && !configuredLocale.isBlank();
+    }
+
+    /// Checks the configured manifest for a newer application build.
+    ///
+    /// @param settings active settings dialog.
+    private void checkApplicationUpdate(SettingsDialog settings) {
+        settings.applicationUpdateStarted();
+        Task<UpdateCheckResult> task = new Task<>() {
+            /// Reads and compares the update manifest outside the JavaFX application thread.
+            ///
+            /// @return update check result.
+            @Override
+            protected UpdateCheckResult call() throws Exception {
+                updateMessage(Messages.get("gui.progress.checkingForUpdates"));
+                return updateChecker.check();
+            }
+        };
+
+        startBackgroundTask(task, result -> {
+            boolean updateAvailable = result.status() == UpdateCheckResult.Status.UPDATE_AVAILABLE;
+            String message = updateAvailable
+                    ? Messages.get(
+                            "gui.settings.updateAvailable",
+                            result.available().version(),
+                            result.current().version())
+                    : Messages.get("gui.settings.upToDate", result.current().version());
+            settings.applicationUpdateFinished(updateAvailable, message);
+        }, failure -> settings.applicationUpdateFailed(
+                failure == null || failure.getMessage() == null
+                        ? Messages.get("gui.settings.updateCheckFailed")
+                        : failure.getMessage()));
     }
 
     /// Starts a repository metadata update from the settings dialog.

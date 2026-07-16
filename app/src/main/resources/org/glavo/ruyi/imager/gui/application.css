@@ -597,6 +597,17 @@
     -fx-text-fill: #394756;
 }
 
+.settings-value {
+    -fx-font-size: 13px;
+    -fx-text-fill: #394756;
+}
+
+.settings-source {
+    -fx-font-size: 12px;
+    -fx-text-fill: #5a6673;
+    -fx-max-width: 520px;
+}
+
 .settings-action-button {
     -fx-min-width: 150px;
     -fx-padding: 8 14;
@@ -619,6 +630,10 @@
 
 .settings-update-success {
     -fx-text-fill: #1f7a4d;
+}
+
+.settings-update-available {
+    -fx-text-fill: #9a5b00;
 }
 
 .settings-update-error {

@@ -18,6 +18,7 @@ import org.glavo.ruyi.imager.gradle.WriteJlinkLaunchers
 import org.glavo.ruyi.imager.gradle.WriteWixBundleSource
 import org.glavo.ruyi.imager.gradle.WriteWixSource
 import org.gradle.api.file.RelativePath
+import org.gradle.api.tasks.WriteProperties
 import org.gradle.api.tasks.bundling.Compression
 import java.net.URI
 
@@ -228,6 +229,8 @@ val alibabaPuhuitiFontUrl =
 val alibabaPuhuitiFontArchive =
     rootProject.layout.buildDirectory.file("downloads/fonts/alibaba-puhuiti-3-0-0.0.0.tgz")
 val generatedResourcesDirectory = layout.buildDirectory.dir("generated/resources/main")
+val generatedBuildInfo =
+    generatedResourcesDirectory.map { it.file("org/glavo/ruyi/imager/update/build-info.properties") }
 val alibabaPuhuitiMediumFont =
     generatedResourcesDirectory.map { it.file("org/glavo/ruyi/imager/fonts/AlibabaPuHuiTi-3-65-Medium.ttf") }
 
@@ -256,6 +259,14 @@ val extractAlibabaPuhuitiMediumFont = tasks.register<Copy>("extractAlibabaPuhuit
     }
     into(generatedResourcesDirectory)
     outputs.file(alibabaPuhuitiMediumFont)
+}
+
+val generateBuildInfo = tasks.register<WriteProperties>("generateBuildInfo") {
+    group = "build"
+    description = "Writes the application version used at runtime."
+    destinationFile = generatedBuildInfo.get().asFile
+    property("version", project.version.toString())
+    property("buildNumber", providers.gradleProperty("ruyi.buildNumber").orElse("0").get())
 }
 
 val extractFastbootTasks = fastbootBundles.map { bundle ->
@@ -410,6 +421,12 @@ tasks.named<JavaExec>("run") {
     doFirst {
         systemProperty("ruyi.imager.ddFlasher.executable", testDDFlasherExecutable.get().asFile.absolutePath)
         systemProperty("ruyi.imager.powershell.scripts", powerShellScriptsDirectory.asFile.absolutePath)
+        systemProperty(
+            "ruyi.imager.update.source",
+            providers.gradleProperty("update.manifest")
+                .orElse(rootProject.layout.projectDirectory.file("update-manifest.local.json").asFile.absolutePath)
+                .get(),
+        )
     }
     runFastbootBundle?.let { bundle ->
         val executable = bundledFastbootDirectory.map {
@@ -466,6 +483,7 @@ tasks.test {
 
 tasks.processResources {
     dependsOn(extractAlibabaPuhuitiMediumFont)
+    dependsOn(generateBuildInfo)
 }
 
 tasks.register<CreateJlinkRuntime>("jlinkRuntime") {

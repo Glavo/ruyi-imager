@@ -20,7 +20,7 @@
 - Windows/Linux/macOS block-device and fastboot enumeration are implemented with concurrent stdout/stderr draining.
 - Linux and macOS mounted removable targets are automatically unmounted before writing, then re-enumerated before destructive access.
 - Fastboot flows cover ordinary partition flashing, LPi4A/Meles U-Boot handoff, SpacemiT K1 stage/continue, sparse progress parsing, duplicate serial rejection, and post-handoff ambiguity checks.
-- GUI supports catalog/local image selection, automatic metadata updates when catalog data is missing or older than 24 hours, target selection, safety confirmation, progress, cancellation, log path display, a settings dialog for language and manual metadata updates, Chinese vendor display names, window icons, and short progress status text without trailing full stops.
+- GUI supports catalog/local image selection, automatic metadata updates when catalog data is missing or older than 24 hours, target selection, safety confirmation, progress, cancellation, log path display, a settings dialog for language, local JSON application update checks, and manual metadata updates, Chinese vendor display names, window icons, and short progress status text without trailing full stops.
 - Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, WiX MSI packages, WiX Burn setup executables, and nightly release workflow. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. Fastboot and JLink JDK archives are verified by declared size and SHA-256 before extraction. Fastboot verification/extraction, JLink runtime and launcher generation, Debian package metadata/assembly, WiX MSI source/build orchestration, and WiX Burn bundle source/build orchestration are implemented as Java tasks/helpers in `buildSrc`; WiX MSI packages default to per-user installation under `LocalAppDataFolder` and include a directory selection UI. Windows setup executables use a single Burn package with a custom no-license bootstrapper theme, embedded bootstrapper UI localization payloads, a bootstrapper window titlebar icon payload, and a separate display version variable for full project versions that cannot be stored in WiX numeric version fields. Linux nightly builds publish `.deb` packages, Windows nightly builds publish setup `.exe` bundles, and commit-based nightly artifacts use a `1.0.0+nightly.<short-sha>` project version.
 
 ### Remaining
@@ -29,6 +29,7 @@
 - Continue real Windows removable-device validation for raw physical-drive write, volume lock/dismount, cancellation, and verification.
 - Install and validate linker or `cross` support for non-host `dd-flasher` release targets; the current Windows environment lacks the Linux linker/Docker setup.
 - After the next real-device pass, remove or downgrade any diagnostics that are still only useful for troubleshooting.
+- Replace the local application update manifest with a signed HTTPS source, then add verified package download and platform-specific installer handoff.
 
 ### Recent Verification
 
@@ -73,6 +74,10 @@
 - `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:verifyJlinkJdk`
 - Custom `jlink.jdk.url` configuration without `jlink.jdk.sha256` fails during Gradle configuration.
 - `./gradlew -g .gradle-user-home test`
+- `./gradlew -g .gradle-user-home cleanTest test`
+- `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.update.UpdateCheckerTest --tests org.glavo.ruyi.imager.update.BuildInfoTest`
+- `./gradlew -g .gradle-user-home :app:run --args='check-update'`
+- Local update manifest CLI check: `1.1.0` is reported as newer than `1.0-SNAPSHOT`.
 - `git diff --check`
 
 ### Known Limits
