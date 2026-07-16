@@ -162,7 +162,7 @@ public final class UpdateCheckerTest {
         assertEquals(123L, artifact.size());
     }
 
-    /// Detects a newer nightly build from its numeric prerelease identifier.
+    /// Detects a newer nightly build from lexically ordered opaque suffixes.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written or checked.
@@ -293,13 +293,13 @@ public final class UpdateCheckerTest {
                 () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
     }
 
-    /// Rejects version syntax outside the application release policy.
+    /// Rejects versions outside the stable ordering envelope.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written.
     @Test
     public void rejectsUnsupportedVersionFormat(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0-rc.01");
+        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0-preview/1");
 
         assertThrows(
                 IOException.class,

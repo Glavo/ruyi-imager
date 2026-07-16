@@ -28,12 +28,7 @@ public record UpdateRelease(
         if (version.isEmpty()) {
             throw new IllegalArgumentException("Update version must not be blank.");
         }
-        ApplicationVersion parsedVersion = ApplicationVersion.parse(version);
-        if ((channel == UpdateChannel.STABLE && !parsedVersion.isStable())
-                || (channel == UpdateChannel.NIGHTLY && !parsedVersion.isNightly())) {
-            throw new IllegalArgumentException(
-                    "Update version does not match release channel " + channel.token() + ": " + version);
-        }
+        ApplicationVersion.parse(version);
         artifacts = List.copyOf(artifacts);
         Set<UpdatePlatform> platforms = new HashSet<>();
         for (UpdateArtifact artifact : artifacts) {

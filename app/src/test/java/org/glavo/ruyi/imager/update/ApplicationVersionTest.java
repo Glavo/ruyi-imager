@@ -6,34 +6,32 @@ package org.glavo.ruyi.imager.update;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/// Tests the Ruyi Imager application version policy.
+/// Tests the Ruyi Imager application version ordering envelope.
 @NotNullByDefault
 public final class ApplicationVersionTest {
-    /// Parses every supported release stage.
+    /// Parses unsuffixed and opaque suffixed versions.
     @Test
-    public void parsesSupportedVersions() {
+    public void parsesSupportedEnvelope() {
         ApplicationVersion stable = ApplicationVersion.parse("1.2.3");
         ApplicationVersion development = ApplicationVersion.parse("1.2.3-dev");
         ApplicationVersion nightly = ApplicationVersion.parse(
                 "1.2.3-nightly.20260716T143052Z.3921d84");
-        ApplicationVersion nightlyWithFullCommit = ApplicationVersion.parse(
-                "1.2.3-nightly.20260716T143052Z.0123456789abcdef0123456789abcdef01234567");
+        ApplicationVersion future = ApplicationVersion.parse("1.2.3-preview_2027+build.4");
+        ApplicationVersion releaseCandidate = ApplicationVersion.parse("1.2.3-rc.01");
 
-        assertEquals(ApplicationVersion.Stage.STABLE, stable.stage());
-        assertEquals(ApplicationVersion.Stage.DEVELOPMENT, development.stage());
-        assertEquals(ApplicationVersion.Stage.NIGHTLY, nightly.stage());
-        assertEquals(Instant.parse("2026-07-16T14:30:52Z"), nightly.builtAt());
-        assertEquals("3921d84", nightly.commit());
-        assertEquals("0123456789abcdef0123456789abcdef01234567", nightlyWithFullCommit.commit());
+        assertNull(stable.suffix());
+        assertEquals("dev", development.suffix());
+        assertEquals("nightly.20260716T143052Z.3921d84", nightly.suffix());
+        assertEquals("preview_2027+build.4", future.suffix());
+        assertEquals("rc.01", releaseCandidate.suffix());
     }
 
-    /// Orders numeric versions before considering release stages.
+    /// Orders numeric versions before considering suffixes.
     @Test
     public void ordersNumericVersions() {
         assertTrue(ApplicationVersion.parse("1.2.3").compareTo(ApplicationVersion.parse("1.2.4-dev")) < 0);
@@ -41,73 +39,47 @@ public final class ApplicationVersionTest {
         assertTrue(ApplicationVersion.parse("1.9.9").compareTo(ApplicationVersion.parse("2.0.0-dev")) < 0);
     }
 
-    /// Orders development, nightly, and stable stages within one numeric version.
+    /// Orders opaque suffixes lexically and keeps unsuffixed versions last.
     @Test
-    public void ordersReleaseStages() {
+    public void ordersOpaqueSuffixes() {
         ApplicationVersion development = ApplicationVersion.parse("1.2.3-dev");
-        ApplicationVersion nightly = ApplicationVersion.parse(
-                "1.2.3-nightly.20260716T143052Z.3921d84");
+        ApplicationVersion earlierNightly = ApplicationVersion.parse(
+                "1.2.3-nightly.20260716T143051Z.fffffff");
+        ApplicationVersion laterNightly = ApplicationVersion.parse(
+                "1.2.3-nightly.20260716T143052Z.0000000");
         ApplicationVersion stable = ApplicationVersion.parse("1.2.3");
 
-        assertTrue(development.compareTo(nightly) < 0);
-        assertTrue(nightly.compareTo(stable) < 0);
+        assertTrue(development.compareTo(earlierNightly) < 0);
+        assertTrue(earlierNightly.compareTo(laterNightly) < 0);
+        assertTrue(laterNightly.compareTo(stable) < 0);
     }
 
-    /// Orders nightly builds by UTC build time and then commit identity.
+    /// Rejects malformed numeric envelopes and unsafe suffix characters.
     @Test
-    public void ordersNightlyBuilds() {
-        ApplicationVersion earlier = ApplicationVersion.parse(
-                "1.2.3-nightly.20260716T143051Z.fffffff");
-        ApplicationVersion later = ApplicationVersion.parse(
-                "1.2.3-nightly.20260716T143052Z.0000000");
-        ApplicationVersion sameTimeLaterCommit = ApplicationVersion.parse(
-                "1.2.3-nightly.20260716T143052Z.0000001");
-
-        assertTrue(earlier.compareTo(later) < 0);
-        assertTrue(later.compareTo(sameTimeLaterCommit) < 0);
-    }
-
-    /// Rejects syntax not defined by the application release policy.
-    @Test
-    public void rejectsUnsupportedSyntax() {
+    public void rejectsMalformedEnvelope() {
         assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2"));
         assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("01.2.3"));
         assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse(" 1.2.3"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-SNAPSHOT"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-alpha"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-beta.1"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-dev.extra"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-nightly"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3+git.3921d84"));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> ApplicationVersion.parse("1.2.3-nightly.20260230T143052Z.3921d84"));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> ApplicationVersion.parse("1.2.3-nightly.20260716T143052Z.3921D84"));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> ApplicationVersion.parse("1.2.3-nightly.20260716T143052Z.3921d8"));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> ApplicationVersion.parse(
-                        "1.2.3-nightly.20260716T143052Z.0123456789abcdef0123456789abcdef012345678"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-preview/4"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-preview 4"));
     }
 
-    /// Rejects release versions assigned to a different update channel.
+    /// Uses only the known nightly prefix when inferring a default channel.
     @Test
-    public void rejectsReleaseChannelMismatch() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new UpdateRelease(UpdateChannel.STABLE,
-                        "1.2.3-nightly.20260716T143052Z.3921d84",
-                        null,
-                        java.util.List.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new UpdateRelease(UpdateChannel.NIGHTLY, "1.2.3", null, java.util.List.of()));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new UpdateRelease(UpdateChannel.STABLE, "1.2.3-dev", null, java.util.List.of()));
+    public void infersKnownChannelConvention() {
+        assertEquals(UpdateChannel.STABLE, ApplicationVersion.parse("1.2.3").inferredChannel());
+        assertEquals(UpdateChannel.STABLE, ApplicationVersion.parse("1.2.3-dev").inferredChannel());
+        assertEquals(UpdateChannel.STABLE, ApplicationVersion.parse("1.2.3-preview.4").inferredChannel());
+        assertEquals(
+                UpdateChannel.NIGHTLY,
+                ApplicationVersion.parse("1.2.3-nightly.future-format").inferredChannel());
+    }
+
+    /// Keeps update channel metadata independent from version suffix conventions.
+    @Test
+    public void acceptsChannelIndependentSuffixes() {
+        new UpdateRelease(UpdateChannel.STABLE, "1.2.3-preview.4", null, java.util.List.of());
+        new UpdateRelease(UpdateChannel.NIGHTLY, "1.2.3-build.2027", null, java.util.List.of());
     }
 }
