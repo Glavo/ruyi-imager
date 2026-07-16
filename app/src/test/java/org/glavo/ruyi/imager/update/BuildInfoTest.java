@@ -26,6 +26,6 @@ public final class BuildInfoTest {
         assertEquals(UpdateChannel.STABLE, new BuildInfo("1.0.0").inferredChannel());
         assertEquals(
                 UpdateChannel.NIGHTLY,
-                new BuildInfo("1.0.0-nightly.42+3921d84").inferredChannel());
+                new BuildInfo("1.0.0-nightly.20260716T143052Z+git.3921d84").inferredChannel());
     }
 }

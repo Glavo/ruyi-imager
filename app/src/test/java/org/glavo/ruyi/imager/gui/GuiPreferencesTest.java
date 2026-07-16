@@ -146,7 +146,7 @@ public final class GuiPreferencesTest {
         Instant checkedAt = Instant.parse("2026-07-16T06:00:00Z");
         UpdateRelease skipped = new UpdateRelease(
                 UpdateChannel.NIGHTLY,
-                "1.1.0-nightly.42+test",
+                "1.1.0-nightly.20260716T143052Z+git.1111111",
                 null,
                 List.of());
 
@@ -158,7 +158,7 @@ public final class GuiPreferencesTest {
         assertTrue(preferences.isUpdateSkipped(skipped));
         assertFalse(preferences.isUpdateSkipped(new UpdateRelease(
                 UpdateChannel.NIGHTLY,
-                "1.1.0-nightly.43+test",
+                "1.1.0-nightly.20260716T143053Z+git.2222222",
                 null,
                 List.of())));
     }

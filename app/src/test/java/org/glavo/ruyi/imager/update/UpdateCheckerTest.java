@@ -51,7 +51,7 @@ public final class UpdateCheckerTest {
                     },
                     {
                       "channel": "nightly",
-                      "version": "1.2.0-nightly.20+test",
+                      "version": "1.2.0-nightly.20260716T143052Z+git.3921d84",
                       "artifacts": []
                     }
                   ]
@@ -61,7 +61,7 @@ public final class UpdateCheckerTest {
         UpdateCheckResult result = new UpdateChecker(new BuildInfo("1.0.0"), manifest)
                 .check(UpdateChannel.NIGHTLY);
 
-        assertEquals("1.2.0-nightly.20+test", result.available().version());
+        assertEquals("1.2.0-nightly.20260716T143052Z+git.3921d84", result.available().version());
         assertEquals(UpdateChannel.NIGHTLY, result.available().channel());
     }
 
@@ -168,10 +168,13 @@ public final class UpdateCheckerTest {
     /// @throws Exception when the manifest cannot be written or checked.
     @Test
     public void detectsNewerNightlyVersion(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "nightly", "1.0.0-nightly.42+new");
+        Path manifest = writeManifest(
+                temporaryDirectory,
+                "nightly",
+                "1.0.0-nightly.20260716T143052Z+git.2222222");
 
         UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0-nightly.41+old"),
+                new BuildInfo("1.0.0-nightly.20260716T143051Z+git.1111111"),
                 manifest).check(UpdateChannel.NIGHTLY);
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
@@ -186,7 +189,7 @@ public final class UpdateCheckerTest {
         Path manifest = writeManifest(temporaryDirectory, "stable", "1.0.0");
 
         UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0-nightly.41+old"),
+                new BuildInfo("1.0.0-nightly.20260716T143052Z+git.3921d84"),
                 manifest).check(UpdateChannel.STABLE);
 
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
@@ -198,10 +201,13 @@ public final class UpdateCheckerTest {
     /// @throws Exception when the manifest cannot be written or checked.
     @Test
     public void rejectsOlderNightlyVersion(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "nightly", "1.0.0-nightly.40+old");
+        Path manifest = writeManifest(
+                temporaryDirectory,
+                "nightly",
+                "1.0.0-nightly.20260716T143051Z+git.1111111");
 
         UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0-nightly.41+new"),
+                new BuildInfo("1.0.0-nightly.20260716T143052Z+git.2222222"),
                 manifest).check(UpdateChannel.NIGHTLY);
 
         assertEquals(UpdateCheckResult.Status.UP_TO_DATE, result.status());
