@@ -15,52 +15,27 @@ import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.GeneralSecurityException;
-import java.security.KeyFactory;
-import java.security.PublicKey;
-import java.security.Signature;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
 /// Checks a local JSON manifest for a newer Ruyi Imager build.
 ///
-/// @param current           running application build.
-/// @param source            local update manifest path.
-/// @param publicKey         trusted Ed25519 public key path, or null for an explicitly trusted unsigned local source.
-/// @param signatureRequired whether a detached manifest signature is mandatory.
+/// @param current running application build.
+/// @param source  local update manifest path.
 @NotNullByDefault
-public record UpdateChecker(
-        BuildInfo current,
-        Path source,
-        @Nullable Path publicKey,
-        boolean signatureRequired) {
+public record UpdateChecker(BuildInfo current, Path source) {
     /// JVM property that overrides the local update manifest path.
     public static final String SOURCE_PROPERTY = "ruyi.imager.update.source";
-
-    /// JVM property that configures an X.509 PEM or DER Ed25519 public key.
-    public static final String PUBLIC_KEY_PROPERTY = "ruyi.imager.update.publicKey";
-
-    /// JVM property that explicitly trusts unsigned local manifests for development.
-    public static final String ALLOW_UNSIGNED_LOCAL_PROPERTY = "ruyi.imager.update.allowUnsignedLocal";
 
     /// Default update manifest file name under the application configuration directory.
     private static final String DEFAULT_SOURCE_FILE_NAME = "update-manifest.json";
 
     /// Maximum accepted manifest size.
     private static final long MAX_MANIFEST_SIZE = 1024L * 1024L;
-
-    /// Maximum accepted detached signature size.
-    private static final long MAX_SIGNATURE_SIZE = 16L * 1024L;
-
-    /// Maximum accepted public key file size.
-    private static final long MAX_PUBLIC_KEY_SIZE = 16L * 1024L;
 
     /// Strict JSON reader for update manifests.
     private static final ObjectMapper MAPPER = new ObjectMapper(
@@ -86,24 +61,12 @@ public record UpdateChecker(
             "size",
             "sha256");
 
-    /// Creates a checker for a trusted unsigned local manifest.
-    ///
-    /// @param current running application build.
-    /// @param source  local update manifest path.
-    public UpdateChecker(BuildInfo current, Path source) {
-        this(current, source, null, false);
-    }
-
-    /// Normalizes local update paths and signature policy.
+    /// Normalizes the local update manifest path.
     public UpdateChecker {
         source = source.toAbsolutePath().normalize();
-        if (publicKey != null) {
-            publicKey = publicKey.toAbsolutePath().normalize();
-            signatureRequired = true;
-        }
     }
 
-    /// Creates a checker using configured local manifest and signature paths.
+    /// Creates a checker using the configured local manifest path.
     ///
     /// @param directories application directories.
     /// @return configured update checker.
@@ -111,16 +74,12 @@ public record UpdateChecker(
         return createConfigured(configuredSource(directories));
     }
 
-    /// Creates a checker using configured signature policy and an explicit local manifest.
+    /// Creates a checker using an explicit local manifest.
     ///
     /// @param source explicit local manifest path.
     /// @return configured update checker.
     public static UpdateChecker createConfigured(Path source) {
-        @Nullable Path key = configuredPublicKey();
-        boolean allowUnsignedLocal = Boolean.parseBoolean(
-                System.getProperty(ALLOW_UNSIGNED_LOCAL_PROPERTY, "false"));
-        boolean requireSignature = key != null || !allowUnsignedLocal;
-        return new UpdateChecker(BuildInfo.current(), source, key, requireSignature);
+        return new UpdateChecker(BuildInfo.current(), source);
     }
 
     /// Resolves the configured local update manifest path.
@@ -135,20 +94,10 @@ public record UpdateChecker(
         return Path.of(configured).toAbsolutePath().normalize();
     }
 
-    /// Resolves the configured trusted Ed25519 public key path.
-    ///
-    /// @return public key path, or null when unsigned local manifests are explicitly allowed.
-    private static @Nullable Path configuredPublicKey() {
-        @Nullable String configured = System.getProperty(PUBLIC_KEY_PROPERTY);
-        return configured == null || configured.isBlank()
-                ? null
-                : Path.of(configured).toAbsolutePath().normalize();
-    }
-
     /// Reads the stable channel and compares it with the running build.
     ///
     /// @return update check result.
-    /// @throws IOException when the manifest cannot be read, authenticated, or parsed.
+    /// @throws IOException when the manifest cannot be read or parsed.
     public UpdateCheckResult check() throws IOException {
         return check(UpdateChannel.STABLE);
     }
@@ -157,10 +106,9 @@ public record UpdateChecker(
     ///
     /// @param channel selected update channel.
     /// @return update check result.
-    /// @throws IOException when the manifest cannot be read, authenticated, or parsed.
+    /// @throws IOException when the manifest cannot be read or parsed.
     public UpdateCheckResult check(UpdateChannel channel) throws IOException {
         byte[] manifestBytes = readBoundedFile(source, MAX_MANIFEST_SIZE, "Update manifest");
-        verifySignature(manifestBytes);
 
         UpdateManifest manifest;
         try {
@@ -187,13 +135,6 @@ public record UpdateChecker(
                         : UpdateCheckResult.Status.UP_TO_DATE,
                 current,
                 available);
-    }
-
-    /// Returns the detached signature path for this manifest.
-    ///
-    /// @return detached signature path.
-    public Path signaturePath() {
-        return source.resolveSibling(source.getFileName() + ".sig");
     }
 
     /// Selects the newest release in one channel.
@@ -226,65 +167,6 @@ public record UpdateChecker(
     private static int compareReleases(UpdateRelease left, UpdateRelease right) {
         int result = SemanticVersion.parse(left.version()).compareTo(SemanticVersion.parse(right.version()));
         return result == 0 ? Long.compare(left.buildNumber(), right.buildNumber()) : result;
-    }
-
-    /// Verifies the detached Ed25519 signature when configured or required.
-    ///
-    /// @param manifestBytes exact manifest bytes covered by the signature.
-    /// @throws IOException when signature policy or verification fails.
-    private void verifySignature(byte[] manifestBytes) throws IOException {
-        Path signature = signaturePath();
-        boolean signatureExists = Files.isRegularFile(signature);
-        if (publicKey == null) {
-            if (signatureRequired) {
-                throw new IOException("Update manifest signatures are required but no trusted public key is configured.");
-            }
-            if (signatureExists) {
-                throw new IOException("Update manifest has a signature but no trusted public key is configured: " + signature);
-            }
-            return;
-        }
-        if (!signatureExists) {
-            throw new IOException("Update manifest signature is missing: " + signature);
-        }
-
-        try {
-            PublicKey key = readPublicKey(publicKey);
-            String encodedSignature = new String(
-                    readBoundedFile(signature, MAX_SIGNATURE_SIZE, "Update manifest signature"),
-                    StandardCharsets.US_ASCII).strip();
-            byte[] signatureBytes = Base64.getDecoder().decode(encodedSignature);
-            Signature verifier = Signature.getInstance("Ed25519");
-            verifier.initVerify(key);
-            verifier.update(manifestBytes);
-            if (!verifier.verify(signatureBytes)) {
-                throw new IOException("Update manifest signature verification failed: " + source);
-            }
-        } catch (GeneralSecurityException | IllegalArgumentException exception) {
-            throw new IOException("Failed to verify update manifest signature: " + source, exception);
-        }
-    }
-
-    /// Reads an Ed25519 public key in X.509 PEM or DER form.
-    ///
-    /// @param path public key path.
-    /// @return parsed public key.
-    /// @throws IOException              when the key cannot be read.
-    /// @throws GeneralSecurityException when the key cannot be parsed.
-    private static PublicKey readPublicKey(Path path) throws IOException, GeneralSecurityException {
-        byte[] keyBytes = readBoundedFile(path, MAX_PUBLIC_KEY_SIZE, "Update public key");
-        String text = new String(keyBytes, StandardCharsets.US_ASCII).strip();
-        byte[] encoded;
-        if (text.startsWith("-----BEGIN PUBLIC KEY-----")) {
-            String base64 = text
-                    .replace("-----BEGIN PUBLIC KEY-----", "")
-                    .replace("-----END PUBLIC KEY-----", "")
-                    .replaceAll("\\s+", "");
-            encoded = Base64.getDecoder().decode(base64);
-        } else {
-            encoded = keyBytes;
-        }
-        return KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(encoded));
     }
 
     /// Reads a bounded regular file.

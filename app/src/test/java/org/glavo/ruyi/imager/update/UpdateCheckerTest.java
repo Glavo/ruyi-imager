@@ -10,10 +10,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.Signature;
-import java.util.Base64;
 import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -229,62 +225,6 @@ public final class UpdateCheckerTest {
         assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
     }
 
-    /// Accepts a valid detached Ed25519 signature.
-    ///
-    /// @param temporaryDirectory temporary test directory.
-    /// @throws Exception when test keys or files cannot be created.
-    @Test
-    public void verifiesDetachedSignature(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0", 1L);
-        KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        Path publicKey = temporaryDirectory.resolve("update-public-key.der");
-        Files.write(publicKey, keyPair.getPublic().getEncoded());
-        writeSignature(manifest, keyPair);
-
-        UpdateCheckResult result = new UpdateChecker(
-                new BuildInfo("1.0.0", 0L),
-                manifest,
-                publicKey,
-                true).check();
-
-        assertEquals(UpdateCheckResult.Status.UPDATE_AVAILABLE, result.status());
-    }
-
-    /// Rejects a manifest modified after it was signed.
-    ///
-    /// @param temporaryDirectory temporary test directory.
-    /// @throws Exception when test keys or files cannot be created.
-    @Test
-    public void rejectsTamperedSignedManifest(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0", 1L);
-        KeyPair keyPair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        Path publicKey = temporaryDirectory.resolve("update-public-key.der");
-        Files.write(publicKey, keyPair.getPublic().getEncoded());
-        writeSignature(manifest, keyPair);
-        Files.writeString(manifest, Files.readString(manifest).replace("1.1.0", "1.2.0"));
-
-        assertThrows(
-                IOException.class,
-                () -> new UpdateChecker(
-                        new BuildInfo("1.0.0", 0L),
-                        manifest,
-                        publicKey,
-                        true).check());
-    }
-
-    /// Rejects unsigned manifests when signature enforcement is enabled.
-    ///
-    /// @param temporaryDirectory temporary test directory.
-    /// @throws Exception when the manifest cannot be written.
-    @Test
-    public void rejectsUnsignedManifestWhenRequired(@TempDir Path temporaryDirectory) throws Exception {
-        Path manifest = writeManifest(temporaryDirectory, "stable", "1.1.0", 1L);
-
-        assertThrows(
-                IOException.class,
-                () -> new UpdateChecker(new BuildInfo("1.0.0", 0L), manifest, null, true).check());
-    }
-
     /// Rejects duplicate JSON fields.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -411,17 +351,4 @@ public final class UpdateCheckerTest {
         return manifest;
     }
 
-    /// Signs exact manifest bytes and writes the detached Base64 signature.
-    ///
-    /// @param manifest manifest path.
-    /// @param keyPair  signing key pair.
-    /// @throws Exception when signing or writing fails.
-    private static void writeSignature(Path manifest, KeyPair keyPair) throws Exception {
-        Signature signature = Signature.getInstance("Ed25519");
-        signature.initSign(keyPair.getPrivate());
-        signature.update(Files.readAllBytes(manifest));
-        Files.writeString(
-                manifest.resolveSibling(manifest.getFileName() + ".sig"),
-                Base64.getEncoder().encodeToString(signature.sign()));
-    }
 }

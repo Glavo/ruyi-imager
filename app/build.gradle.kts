@@ -427,13 +427,6 @@ tasks.named<JavaExec>("run") {
                 .orElse(rootProject.layout.projectDirectory.file("update-manifest.local.json").asFile.absolutePath)
                 .get(),
         )
-        providers.gradleProperty("update.publicKey").orNull?.let {
-            systemProperty("ruyi.imager.update.publicKey", it)
-        }
-        systemProperty(
-            "ruyi.imager.update.allowUnsignedLocal",
-            providers.gradleProperty("update.allowUnsignedLocal").orElse("true").get(),
-        )
     }
     runFastbootBundle?.let { bundle ->
         val executable = bundledFastbootDirectory.map {
