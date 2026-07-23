@@ -7,12 +7,19 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /// Tests for Windows disk enumeration JSON parsing.
 @NotNullByDefault
@@ -121,5 +128,61 @@ public final class WindowsBlockDeviceServiceTest {
                 """);
 
         assertTrue(devices.isEmpty());
+    }
+
+    /// Verifies the PowerShell enumerator combines mount-point and Storage Management system flags.
+    ///
+    /// @throws Exception when the script cannot be loaded or executed.
+    @Test
+    public void powershellClassifiesSystemDisks() throws Exception {
+        assumeTrue(System.getProperty("os.name", "").startsWith("Windows"));
+        Path executable = Path.of(
+                System.getenv("SystemRoot"),
+                "System32",
+                "WindowsPowerShell",
+                "v1.0",
+                "powershell.exe");
+        assumeTrue(Files.isRegularFile(executable));
+
+        String source;
+        try (InputStream input = Objects.requireNonNull(WindowsBlockDeviceServiceTest.class.getResourceAsStream(
+                "/org/glavo/ruyi/imager/core/powershell/list-windows-block-devices.ps1"))) {
+            source = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        int mainScriptOffset = source.indexOf("$storageByNumber = @{}");
+        assertTrue(mainScriptOffset > 0, "PowerShell function definitions not found");
+
+        String script = source.substring(0, mainScriptOffset) + """
+                $results = @(
+                    (Test-SystemDisk -MountPoints @() -Storage ([pscustomobject]@{ IsBoot = $true }))
+                    (Test-SystemDisk -MountPoints @() -Storage ([pscustomobject]@{ IsSystem = $true }))
+                    (Test-SystemDisk -MountPoints @() -Storage ([pscustomobject]@{ BootFromDisk = $true }))
+                    (Test-SystemDisk -MountPoints @(($systemDrive + '\\')) -Storage $null)
+                    (Test-SystemDisk -MountPoints @() -Storage ([pscustomobject]@{
+                        IsBoot = $false
+                        IsSystem = $false
+                        BootFromDisk = $false
+                    }))
+                )
+                if ($results.Count -ne 5 -or
+                    -not $results[0] -or
+                    -not $results[1] -or
+                    -not $results[2] -or
+                    -not $results[3] -or
+                    $results[4]) {
+                    throw "Unexpected system disk classifications: $($results -join ',')"
+                }
+                """;
+        String encodedCommand = Base64.getEncoder().encodeToString(script.getBytes(StandardCharsets.UTF_16LE));
+        Process process = new ProcessBuilder(
+                executable.toString(),
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                encodedCommand)
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, process.waitFor(), output);
     }
 }

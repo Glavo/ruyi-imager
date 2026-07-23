@@ -20,10 +20,7 @@ public enum UpdatePackageType {
     PKG("pkg", ".pkg"),
 
     /// macOS disk image opened by Launch Services.
-    DMG("dmg", ".dmg"),
-
-    /// Portable macOS tar archive opened by Launch Services.
-    TAR_GZ("tar-gz", ".tar.gz");
+    DMG("dmg", ".dmg");
 
     /// JSON token for this package type.
     private final String token;

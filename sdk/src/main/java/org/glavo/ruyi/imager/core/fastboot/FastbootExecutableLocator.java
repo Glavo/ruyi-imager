@@ -45,19 +45,32 @@ public final class FastbootExecutableLocator {
             return override;
         }
 
-        @Nullable Path appHome = appHome();
+        return resolve(appHome(), System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
+    }
+
+    /// Resolves bundled fastboot or falls back to the executable name searched through `PATH`.
+    ///
+    /// This method does not verify that the fallback executable exists in `PATH`.
+    ///
+    /// @param appHome application home directory, or null when it is unavailable.
+    /// @param osName operating system name.
+    /// @param osArch operating system architecture.
+    /// @return bundled fastboot path or the `fastboot` executable name.
+    static String resolve(@Nullable Path appHome, String osName, String osArch) {
         if (appHome != null) {
-            @Nullable Path bundled = bundledExecutable(
-                    appHome,
-                    System.getProperty("os.name", ""),
-                    System.getProperty("os.arch", ""));
+            @Nullable Path bundled = bundledExecutable(appHome, osName, osArch);
             if (bundled != null) {
                 LOGGER.atInfo().log(() -> "Using bundled fastboot executable. executable=" + bundled);
                 return bundled.toString();
             }
         }
 
-        LOGGER.info("Using fastboot executable from PATH.");
+        if (platform(osName, osArch) == null) {
+            LOGGER.atInfo().log(() -> "No bundled fastboot is available for this platform; using fastboot from PATH. "
+                    + "os=" + osName + ", architecture=" + osArch);
+        } else {
+            LOGGER.info("Bundled fastboot is absent; using fastboot from PATH.");
+        }
         return PATH_EXECUTABLE;
     }
 
@@ -100,10 +113,11 @@ public final class FastbootExecutableLocator {
 
         String normalizedOs = osName.toLowerCase(Locale.ROOT);
         if (normalizedOs.contains("mac") || normalizedOs.contains("darwin")) {
-            if (!"x86_64".equals(arch)) {
-                return null;
-            }
-            return new FastbootPlatform("macos-x86_64", "fastboot", false);
+            return switch (arch) {
+                case "x86_64" -> new FastbootPlatform("macos-x86_64", "fastboot", false);
+                case "aarch64" -> new FastbootPlatform("macos-aarch64", "fastboot", false);
+                default -> null;
+            };
         }
         if (normalizedOs.startsWith("windows")) {
             if (!"x86_64".equals(arch)) {
@@ -112,7 +126,10 @@ public final class FastbootExecutableLocator {
             return new FastbootPlatform("windows-x86_64", "fastboot.exe", true);
         }
         if (normalizedOs.contains("linux")) {
-            return new FastbootPlatform("linux-" + arch, "fastboot", false);
+            if (!"x86_64".equals(arch)) {
+                return null;
+            }
+            return new FastbootPlatform("linux-x86_64", "fastboot", false);
         }
         return null;
     }
@@ -124,6 +141,7 @@ public final class FastbootExecutableLocator {
     private static @Nullable String normalizedArch(String osArch) {
         return switch (osArch.toLowerCase(Locale.ROOT)) {
             case "amd64", "x86_64", "x86-64", "x64" -> "x86_64";
+            case "aarch64", "arm64" -> "aarch64";
             case "riscv64", "risc-v64", "riscv64gc" -> "riscv64";
             default -> null;
         };

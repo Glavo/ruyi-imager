@@ -155,6 +155,53 @@ public final class LinuxBlockDeviceServiceTest {
         assertFalse(devices.getFirst().removable());
     }
 
+    /// Treats separate boot and EFI system filesystems as system disks.
+    ///
+    /// @throws IOException when parsing fails.
+    @Test
+    public void protectsSeparateBootDisks() throws IOException {
+        List<BlockDevice> devices = LinuxBlockDeviceService.parseDevices("""
+                {
+                  "blockdevices": [
+                    {
+                      "name": "sda",
+                      "type": "disk",
+                      "children": [
+                        {"name": "sda1", "type": "part", "mountpoints": ["/boot"]}
+                      ]
+                    },
+                    {
+                      "name": "sdb",
+                      "type": "disk",
+                      "children": [
+                        {"name": "sdb1", "type": "part", "mountpoints": ["/boot/efi"]}
+                      ]
+                    },
+                    {
+                      "name": "sdc",
+                      "type": "disk",
+                      "children": [
+                        {"name": "sdc1", "type": "part", "mountpoints": ["/efi"]}
+                      ]
+                    },
+                    {
+                      "name": "sdd",
+                      "type": "disk",
+                      "children": [
+                        {"name": "sdd1", "type": "part", "mountpoints": ["/bootable"]}
+                      ]
+                    }
+                  ]
+                }
+                """);
+
+        assertEquals(4, devices.size());
+        assertTrue(devices.get(0).system());
+        assertTrue(devices.get(1).system());
+        assertTrue(devices.get(2).system());
+        assertFalse(devices.get(3).system());
+    }
+
     /// Parses empty payloads as an empty list.
     ///
     /// @throws IOException when parsing fails.

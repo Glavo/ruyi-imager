@@ -143,6 +143,247 @@ public final class RuyiImageMaterializerTest {
         assertArrayEquals(content, Files.readAllBytes(result));
     }
 
+    /// Rejects a compressed entry whose expanded content exceeds the per-entry limit.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsExpandedEntryOverLimit(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = "expanded image".getBytes(StandardCharsets.UTF_8);
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.raw.gz");
+        Files.createDirectories(source.getParent());
+        try (GZIPOutputStream output = new GZIPOutputStream(Files.newOutputStream(source))) {
+            output.write(content);
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.raw.gz", null, "image.raw");
+        RuyiImageMaterializer materializer = new RuyiImageMaterializer(4L, 1024L, 10, 0L);
+
+        assertThrows(IOException.class, () -> materializer.materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertFalse(Files.exists(artifactDirectory));
+    }
+
+    /// Rejects archive output whose combined expanded content exceeds the aggregate limit.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsAggregateExpansionOverLimit(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.zip");
+        Files.createDirectories(source.getParent());
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(source))) {
+            output.putNextEntry(new ZipEntry("first.raw"));
+            output.write("1234".getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
+            output.putNextEntry(new ZipEntry("second.raw"));
+            output.write("5678".getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.zip", null, "first.raw");
+        RuyiImageMaterializer materializer = new RuyiImageMaterializer(8L, 6L, 10, 0L);
+
+        assertThrows(IOException.class, () -> materializer.materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertFalse(Files.exists(artifactDirectory));
+    }
+
+    /// Rejects archives that exceed the traversal entry-count limit.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsArchiveEntryCountOverLimit(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.zip");
+        Files.createDirectories(source.getParent());
+        try (ZipOutputStream output = new ZipOutputStream(Files.newOutputStream(source))) {
+            for (String name : List.of("first.raw", "second.raw", "third.raw")) {
+                output.putNextEntry(new ZipEntry(name));
+                output.write(name.getBytes(StandardCharsets.UTF_8));
+                output.closeEntry();
+            }
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.zip", null, "first.raw");
+        RuyiImageMaterializer materializer = new RuyiImageMaterializer(1024L, 4096L, 2, 0L);
+
+        assertThrows(IOException.class, () -> materializer.materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertFalse(Files.exists(artifactDirectory));
+    }
+
+    /// Rejects oversized GNU long-name metadata before the TAR parser expands it in memory.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsOversizedTarMetadata(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.tar");
+        Files.createDirectories(source.getParent());
+        try (OutputStream output = Files.newOutputStream(source)) {
+            writeTarHeader(output, "././@LongLink", 2L * 1024L * 1024L, (byte) 'L');
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.tar", "tar", "image.raw");
+        RuyiImageMaterializer materializer = new RuyiImageMaterializer(4096L, 8192L, 100, 0L);
+
+        IOException failure = assertThrows(IOException.class, () -> materializer.materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertTrue(failure.getMessage().contains("TAR metadata"));
+        assertFalse(Files.exists(artifactDirectory));
+    }
+
+    /// Rejects invalid TAR checksums before malformed metadata can bypass size accounting.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsInvalidTarMetadataChecksum(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("invalid-checksum.tar");
+        Files.createDirectories(source.getParent());
+        for (byte invalidChecksumByte : List.of((byte) '1', (byte) 'x')) {
+            byte[] header = createTarHeader("././@LongLink", 2L * 1024L * 1024L, (byte) 'L');
+            header[148] = invalidChecksumByte;
+            Files.write(source, header);
+
+            Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+            ImageEntry image = image("invalid-checksum.tar", "tar", "image.raw");
+            RuyiImageMaterializer materializer = new RuyiImageMaterializer(4096L, 8192L, 100, 0L);
+
+            IOException failure = assertThrows(IOException.class, () -> materializer.materialize(
+                    image,
+                    List.of(source),
+                    artifactDirectory,
+                    NO_PROGRESS));
+            assertTrue(failure.getMessage().contains("checksum"));
+            assertFalse(Files.exists(artifactDirectory));
+        }
+    }
+
+    /// Rejects old GNU sparse TAR entries before their extension records are parsed.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsOldGnuSparseTarEntry(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("gnu-sparse.tar");
+        Files.createDirectories(source.getParent());
+        try (OutputStream output = Files.newOutputStream(source)) {
+            writeTarHeader(output, "image.raw", 0L, (byte) 'S');
+            finishTar(output);
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("gnu-sparse.tar", "tar", "image.raw");
+        RuyiImageMaterializer materializer = new RuyiImageMaterializer(4096L, 8192L, 100, 0L);
+
+        IOException failure = assertThrows(IOException.class, () -> materializer.materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertTrue(failure.getMessage().contains("Sparse TAR"));
+        assertFalse(Files.exists(artifactDirectory));
+    }
+
+    /// Rejects PAX sparse TAR declarations before their sparse maps are parsed.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsPaxSparseTarEntry(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("pax-sparse.tar");
+        Files.createDirectories(source.getParent());
+        byte[] sparseMetadata = "22 GNU.sparse.major=1\n".getBytes(StandardCharsets.UTF_8);
+        try (OutputStream output = Files.newOutputStream(source)) {
+            writeTarEntry(output, "PaxHeaders.X/image.raw", sparseMetadata, (byte) 'x');
+            finishTar(output);
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("pax-sparse.tar", "tar", "image.raw");
+        RuyiImageMaterializer materializer = new RuyiImageMaterializer(4096L, 8192L, 100, 0L);
+
+        IOException failure = assertThrows(IOException.class, () -> materializer.materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertTrue(failure.getMessage().contains("Sparse TAR"));
+        assertFalse(Files.exists(artifactDirectory));
+    }
+
+    /// Rejects recursive TAR metadata chains before parser recursion can exhaust the stack.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written.
+    @Test
+    public void rejectsDeepTarMetadataChain(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.tar");
+        Files.createDirectories(source.getParent());
+        try (OutputStream output = Files.newOutputStream(source)) {
+            for (int index = 0; index < 40; index++) {
+                writeTarHeader(output, "pax-" + index, 0L, (byte) 'g');
+            }
+            writeTarEntry(output, "image.raw", "image".getBytes(StandardCharsets.UTF_8));
+            finishTar(output);
+        }
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.tar", "tar", "image.raw");
+        RuyiImageMaterializer materializer = new RuyiImageMaterializer(4096L, 8192L, 100, 0L);
+
+        IOException failure = assertThrows(IOException.class, () -> materializer.materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertTrue(failure.getMessage().contains("metadata chain"));
+        assertFalse(Files.exists(artifactDirectory));
+    }
+
+    /// Rejects materialization when the configured free-space reserve cannot be preserved.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be written or inspected.
+    @Test
+    public void rejectsInsufficientReservedSpaceAndCleansStaging(@TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve("image.raw");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "image");
+
+        Path artifactDirectory = temporaryDirectory.resolve("artifacts");
+        ImageEntry image = image("image.raw", null, "image.raw");
+        RuyiImageMaterializer materializer = new RuyiImageMaterializer(1024L, 4096L, 10, Long.MAX_VALUE);
+
+        assertThrows(IOException.class, () -> materializer.materialize(
+                image,
+                List.of(source),
+                artifactDirectory,
+                NO_PROGRESS));
+        assertFalse(Files.exists(artifactDirectory));
+        try (var children = Files.list(temporaryDirectory)) {
+            assertFalse(children.anyMatch(path -> path.getFileName().toString().startsWith("artifacts.tmp-")));
+        }
+    }
+
     /// Verifies zip distfiles are extracted into the artifact directory.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -426,8 +667,8 @@ public final class RuyiImageMaterializerTest {
 
     /// Creates a minimal image entry.
     ///
-    /// @param distfileName distfile name.
-    /// @param unpack unpack method.
+    /// @param distfileName  distfile name.
+    /// @param unpack        unpack method.
     /// @param partitionPath partition image path.
     /// @return image entry.
     private static ImageEntry image(String distfileName, @Nullable String unpack, String partitionPath) {
@@ -436,10 +677,10 @@ public final class RuyiImageMaterializerTest {
 
     /// Creates a minimal image entry.
     ///
-    /// @param distfileName distfile name.
-    /// @param unpack unpack method.
+    /// @param distfileName    distfile name.
+    /// @param unpack          unpack method.
     /// @param stripComponents archive path components to strip.
-    /// @param partitionPath partition image path.
+    /// @param partitionPath   partition image path.
     /// @return image entry.
     private static ImageEntry image(
             String distfileName,
@@ -451,11 +692,11 @@ public final class RuyiImageMaterializerTest {
 
     /// Creates a minimal image entry.
     ///
-    /// @param distfileName distfile name.
-    /// @param unpack unpack method.
-    /// @param stripComponents archive path components to strip.
+    /// @param distfileName     distfile name.
+    /// @param unpack           unpack method.
+    /// @param stripComponents  archive path components to strip.
     /// @param prefixesToUnpack archive path prefixes to extract.
-    /// @param partitionPath partition image path.
+    /// @param partitionPath    partition image path.
     /// @return image entry.
     private static ImageEntry image(
             String distfileName,
@@ -493,9 +734,9 @@ public final class RuyiImageMaterializerTest {
 
     /// Writes a one-file tar archive.
     ///
-    /// @param target target archive path.
+    /// @param target    target archive path.
     /// @param entryName archive entry name.
-    /// @param content entry content.
+    /// @param content   entry content.
     /// @throws IOException when writing fails.
     private static void writeTar(Path target, String entryName, byte[] content) throws IOException {
         try (OutputStream output = Files.newOutputStream(target)) {
@@ -505,10 +746,10 @@ public final class RuyiImageMaterializerTest {
 
     /// Writes a one-file compressed tar archive.
     ///
-    /// @param target target archive path.
+    /// @param target         target archive path.
     /// @param compressorName Kala Compress compressor name.
-    /// @param entryName archive entry name.
-    /// @param content entry content.
+    /// @param entryName      archive entry name.
+    /// @param content        entry content.
     /// @throws IOException when writing fails.
     private static void writeCompressedTar(
             Path target,
@@ -522,9 +763,9 @@ public final class RuyiImageMaterializerTest {
 
     /// Writes a minimal Debian package archive.
     ///
-    /// @param target target deb path.
+    /// @param target         target deb path.
     /// @param dataMemberName data tar member name.
-    /// @param dataMember data tar member content.
+    /// @param dataMember     data tar member content.
     /// @throws IOException when writing fails.
     private static void writeDeb(Path target, String dataMemberName, byte @Unmodifiable [] dataMember) throws IOException {
         try (OutputStream output = Files.newOutputStream(target)) {
@@ -536,8 +777,8 @@ public final class RuyiImageMaterializerTest {
 
     /// Writes one Unix ar member.
     ///
-    /// @param output target stream.
-    /// @param name member name.
+    /// @param output  target stream.
+    /// @param name    member name.
     /// @param content member content.
     /// @throws IOException when writing fails.
     private static void writeArMember(
@@ -562,7 +803,7 @@ public final class RuyiImageMaterializerTest {
 
     /// Opens a compressed output stream.
     ///
-    /// @param output backing output stream.
+    /// @param output         backing output stream.
     /// @param compressorName Kala Compress compressor name.
     /// @return compressor output stream.
     /// @throws IOException when the compressor cannot be created.
@@ -583,9 +824,9 @@ public final class RuyiImageMaterializerTest {
 
     /// Writes a one-file tar archive.
     ///
-    /// @param output target stream.
+    /// @param output    target stream.
     /// @param entryName archive entry name.
-    /// @param content entry content.
+    /// @param content   entry content.
     /// @throws IOException when writing fails.
     private static void writeTar(OutputStream output, String entryName, byte[] content) throws IOException {
         writeTarEntry(output, entryName, content);
@@ -594,26 +835,74 @@ public final class RuyiImageMaterializerTest {
 
     /// Writes one tar file entry.
     ///
-    /// @param output target stream.
+    /// @param output    target stream.
     /// @param entryName archive entry name.
-    /// @param content entry content.
+    /// @param content   entry content.
     /// @throws IOException when writing fails.
     private static void writeTarEntry(
             OutputStream output,
             String entryName,
             byte @Unmodifiable [] content) throws IOException {
+        writeTarEntry(output, entryName, content, (byte) '0');
+    }
+
+    /// Writes one TAR entry with the requested type flag.
+    ///
+    /// @param output    target stream.
+    /// @param entryName archive entry name.
+    /// @param content   entry content.
+    /// @param typeFlag  TAR entry type flag.
+    /// @throws IOException when writing fails.
+    private static void writeTarEntry(
+            OutputStream output,
+            String entryName,
+            byte @Unmodifiable [] content,
+            byte typeFlag) throws IOException {
+        writeTarHeader(output, entryName, content.length, typeFlag);
+        output.write(content);
+        int padding = (512 - (content.length % 512)) % 512;
+        if (padding > 0) {
+            output.write(new byte[padding]);
+        }
+    }
+
+    /// Writes one TAR header record.
+    ///
+    /// @param output       target stream.
+    /// @param entryName    archive entry name.
+    /// @param declaredSize declared entry size.
+    /// @param typeFlag     TAR entry type flag.
+    /// @throws IOException when writing fails.
+    private static void writeTarHeader(
+            OutputStream output,
+            String entryName,
+            long declaredSize,
+            byte typeFlag) throws IOException {
+        output.write(createTarHeader(entryName, declaredSize, typeFlag));
+    }
+
+    /// Creates one TAR header record.
+    ///
+    /// @param entryName    archive entry name.
+    /// @param declaredSize declared entry size.
+    /// @param typeFlag     TAR entry type flag.
+    /// @return mutable TAR header bytes.
+    private static byte[] createTarHeader(
+            String entryName,
+            long declaredSize,
+            byte typeFlag) {
         byte[] header = new byte[512];
         byte[] name = entryName.getBytes(StandardCharsets.UTF_8);
         System.arraycopy(name, 0, header, 0, Math.min(name.length, 100));
         writeOctal(header, 100, 8, 0644);
         writeOctal(header, 108, 8, 0);
         writeOctal(header, 116, 8, 0);
-        writeOctal(header, 124, 12, content.length);
+        writeOctal(header, 124, 12, declaredSize);
         writeOctal(header, 136, 12, 0);
         for (int i = 148; i < 156; i++) {
             header[i] = ' ';
         }
-        header[156] = '0';
+        header[156] = typeFlag;
         byte[] magic = "ustar".getBytes(StandardCharsets.US_ASCII);
         System.arraycopy(magic, 0, header, 257, magic.length);
         header[263] = '0';
@@ -625,12 +914,7 @@ public final class RuyiImageMaterializerTest {
         }
         writeOctal(header, 148, 8, checksum);
 
-        output.write(header);
-        output.write(content);
-        int padding = (512 - (content.length % 512)) % 512;
-        if (padding > 0) {
-            output.write(new byte[padding]);
-        }
+        return header;
     }
 
     /// Writes tar end-of-archive blocks.
@@ -646,7 +930,7 @@ public final class RuyiImageMaterializerTest {
     /// @param header tar header.
     /// @param offset field offset.
     /// @param length field length.
-    /// @param value numeric value.
+    /// @param value  numeric value.
     private static void writeOctal(byte[] header, int offset, int length, long value) {
         String text = String.format(Locale.ROOT, "%0" + (length - 1) + "o", value);
         byte[] bytes = text.getBytes(StandardCharsets.US_ASCII);

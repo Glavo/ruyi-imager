@@ -6,9 +6,10 @@ package org.glavo.ruyi.imager.update;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 /// Describes application releases exposed by an update source.
 ///
@@ -30,7 +31,9 @@ public record UpdateManifest(
         if (releases.isEmpty()) {
             throw new IllegalArgumentException("Update manifest must contain at least one release.");
         }
-        Set<ReleaseIdentity> identities = new HashSet<>();
+        Set<ReleaseIdentity> identities = new TreeSet<>(
+                Comparator.comparing(ReleaseIdentity::channel)
+                        .thenComparing(ReleaseIdentity::version));
         for (UpdateRelease release : releases) {
             ReleaseIdentity identity = new ReleaseIdentity(
                     release.channel(),

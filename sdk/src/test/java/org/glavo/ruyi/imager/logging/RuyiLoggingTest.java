@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests application logging configuration.
@@ -44,9 +45,11 @@ public final class RuyiLoggingTest {
 
             assertEquals(expected, RuyiLogging.currentLogFile());
             assertEquals(RuyiLogLevel.INFO, RuyiLogging.currentLevel());
+            assertTrue(RuyiLogging.isConfigured());
         } finally {
             RuyiLogging.shutdown();
         }
+        assertFalse(RuyiLogging.isConfigured());
         assertTrue(Files.isRegularFile(expected));
     }
 

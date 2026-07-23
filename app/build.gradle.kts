@@ -36,6 +36,7 @@ data class FastbootBundle(
     val sizeBytes: Long,
     val archiveEntries: List<String>,
     val executableName: String,
+    val targetPlatformDirectories: List<String> = listOf(platformDirectory),
 )
 
 data class JlinkJdkBundle(
@@ -78,6 +79,7 @@ val fastbootBundles = listOf(
         sizeBytes = 16_442_240L,
         archiveEntries = listOf("platform-tools/fastboot"),
         executableName = "fastboot",
+        targetPlatformDirectories = listOf("macos-x86_64", "macos-aarch64"),
     ),
     FastbootBundle(
         taskSuffix = "LinuxX8664",
@@ -124,9 +126,9 @@ val prepareJlinkNativeLauncherTask =
     } else {
         null
     }
-val jlinkFastbootBundle = fastbootBundles.firstOrNull { it.platformDirectory == jlinkJdkPlatform }
+val jlinkFastbootBundle = fastbootBundles.firstOrNull { jlinkJdkPlatform in it.targetPlatformDirectories }
 val runFastbootBundle = currentJlinkPlatform()?.let { platform ->
-    fastbootBundles.firstOrNull { it.platformDirectory == platform }
+    fastbootBundles.firstOrNull { platform in it.targetPlatformDirectories }
 }
 val jlinkRuntimeDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/runtime")
 val jlinkLaunchersDirectory = layout.buildDirectory.dir("jlink/$jlinkJdkPlatform/launchers")
@@ -444,6 +446,15 @@ distributions {
             into("tools/fastboot") {
                 from(bundledFastbootDirectory)
             }
+            fastbootBundles.forEach { bundle ->
+                bundle.targetPlatformDirectories
+                    .filterNot { it == bundle.platformDirectory }
+                    .forEach { targetPlatformDirectory ->
+                        into("tools/fastboot/$targetPlatformDirectory") {
+                            from(bundledFastbootDirectory.map { it.dir(bundle.platformDirectory) })
+                        }
+                    }
+            }
             into("tools/dd-flasher") {
                 from(bundledDDFlasherDirectory)
             }
@@ -541,7 +552,7 @@ tasks.register<Sync>("installJlinkDist") {
     }
     jlinkFastbootBundle?.let { bundle ->
         from(bundledFastbootDirectory.map { it.dir(bundle.platformDirectory) }) {
-            into("tools/fastboot/${bundle.platformDirectory}")
+            into("tools/fastboot/$jlinkJdkPlatform")
         }
     }
     from(jlinkDDFlasherPlatformDirectory) {

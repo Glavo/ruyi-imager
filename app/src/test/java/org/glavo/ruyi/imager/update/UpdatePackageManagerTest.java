@@ -4,6 +4,7 @@
 package org.glavo.ruyi.imager.update;
 
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,11 +14,14 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests verified local update package preparation and platform handoff commands.
 @NotNullByDefault
@@ -36,7 +40,7 @@ public final class UpdatePackageManagerTest {
         Files.writeString(manifest, "{}");
         UpdateArtifact artifact = artifact("packages/ruyi-imager-setup.exe", packageBytes);
         UpdateRelease release = release(artifact);
-        AtomicReference<UpdateProgress> lastProgress = new AtomicReference<>();
+        AtomicReference<@Nullable UpdateProgress> lastProgress = new AtomicReference<>();
 
         PreparedUpdate prepared = new UpdatePackageManager(
                 manifest,
@@ -44,7 +48,7 @@ public final class UpdatePackageManagerTest {
                 UpdatePlatform.WINDOWS_X86_64).prepare(release, lastProgress::set);
 
         assertArrayEquals(packageBytes, Files.readAllBytes(prepared.packageFile()));
-        assertEquals(packageBytes.length, lastProgress.get().currentBytes());
+        assertEquals(packageBytes.length, Objects.requireNonNull(lastProgress.get()).currentBytes());
         assertEquals(artifact.sha256(), prepared.packageFile().getParent().getFileName().toString());
     }
 
@@ -106,6 +110,7 @@ public final class UpdatePackageManagerTest {
         Path windowsPackage = temporaryDirectory.resolve("setup with spaces.exe");
         Path linuxPackage = temporaryDirectory.resolve("ruyi-imager.deb");
         Path macPackage = temporaryDirectory.resolve("ruyi-imager.pkg");
+        Path macDiskImage = temporaryDirectory.resolve("ruyi-imager.dmg");
 
         assertEquals(
                 List.of(windowsPackage.toAbsolutePath().toString()),
@@ -125,6 +130,21 @@ public final class UpdatePackageManagerTest {
                         UpdatePlatform.MACOS_AARCH64,
                         UpdatePackageType.PKG,
                         macPackage));
+        assertEquals(
+                List.of("open", macDiskImage.toAbsolutePath().toString()),
+                UpdateInstaller.commandFor(
+                        UpdatePlatform.MACOS_X86_64,
+                        UpdatePackageType.DMG,
+                        macDiskImage));
+    }
+
+    /// Limits macOS handoff metadata to installer packages and disk images.
+    @Test
+    public void rejectsPortableMacArchivesAsInstallers() {
+        assertTrue(UpdatePlatform.MACOS_X86_64.supports(UpdatePackageType.PKG));
+        assertTrue(UpdatePlatform.MACOS_AARCH64.supports(UpdatePackageType.DMG));
+        assertFalse(UpdatePlatform.MACOS_X86_64.supports(UpdatePackageType.DEB));
+        assertThrows(IllegalArgumentException.class, () -> UpdatePackageType.parse("tar-gz"));
     }
 
     /// Detects common Java operating system and architecture aliases.

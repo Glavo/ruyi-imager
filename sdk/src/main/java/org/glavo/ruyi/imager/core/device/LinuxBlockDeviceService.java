@@ -299,9 +299,12 @@ public final class LinuxBlockDeviceService implements BlockDeviceService {
     /// Checks whether any mount point indicates a system disk.
     ///
     /// @param mountPoints mount point list.
-    /// @return whether the disk hosts the system root.
+    /// @return whether the disk hosts the system root or a separate boot filesystem.
     private static boolean isSystemMount(List<String> mountPoints) {
-        return mountPoints.contains("/");
+        return mountPoints.contains("/")
+                || mountPoints.contains("/boot")
+                || mountPoints.contains("/boot/efi")
+                || mountPoints.contains("/efi");
     }
 
     /// Sanitizes a platform disk name for a stable id.

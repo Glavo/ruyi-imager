@@ -62,6 +62,9 @@ public final class RuyiLogging {
     /// Current configured log level.
     private static RuyiLogLevel currentLevel = RuyiLogLevel.INFO;
 
+    /// Whether logging configuration has been attempted for the current application run.
+    private static boolean configured;
+
     /// Prevents construction of the logging utility.
     private RuyiLogging() {
     }
@@ -124,10 +127,19 @@ public final class RuyiLogging {
         return currentLevel;
     }
 
+    /// Returns whether application logging has been configured.
+    ///
+    /// @return whether [#configure(AppDirectories)] or its explicit-override variant has run since
+    /// the last [#shutdown()].
+    public static synchronized boolean isConfigured() {
+        return configured;
+    }
+
     /// Closes active logging handlers.
     public static synchronized void shutdown() {
         closeActiveHandler();
         removeRootHandlers();
+        configured = false;
     }
 
     /// Configures the root logger and file handler.
@@ -138,6 +150,7 @@ public final class RuyiLogging {
     private static void configureFileHandler(Path logFile, RuyiLogLevel level, boolean rotating) {
         closeActiveHandler();
         removeRootHandlers();
+        configured = true;
         currentLevel = level;
 
         if (level == RuyiLogLevel.OFF) {

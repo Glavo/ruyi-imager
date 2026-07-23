@@ -17,17 +17,14 @@ import org.glavo.ruyi.imager.core.repo.RuyiRepositoryService;
 import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.jetbrains.annotations.NotNullByDefault;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /// Shared service graph used by the CLI and JavaFX front end.
 ///
 /// @param directories application filesystem directories.
-/// @param repository repository metadata service.
-/// @param images image catalog and download service.
-/// @param devices target device service.
-/// @param fastboot fastboot device and flashing service.
-/// @param flash flash orchestration service.
+/// @param repository  repository metadata service.
+/// @param images      image catalog and download service.
+/// @param devices     target device service.
+/// @param fastboot    fastboot device and flashing service.
+/// @param flash       flash orchestration service.
 @NotNullByDefault
 public record AppServices(
         AppDirectories directories,
@@ -36,23 +33,25 @@ public record AppServices(
         BlockDeviceService devices,
         FastbootService fastboot,
         FlashService flash) {
-    /// Logger for service graph construction.
-    private static final Logger LOGGER = LoggerFactory.getLogger(AppServices.class);
-
     /// Creates the default production service graph.
     ///
     /// @return default services.
     public static AppServices createDefault() {
+        return createDefault(AppDirectories.defaults());
+    }
+
+    /// Creates the default production service graph for resolved application directories.
+    ///
+    /// @param directories application filesystem directories.
+    /// @return default services using the supplied directories.
+    public static AppServices createDefault(AppDirectories directories) {
         NetworkDefaults.enableSystemProxiesByDefault();
-        LOGGER.info("Creating default application services.");
-        AppDirectories directories = AppDirectories.defaults();
         RuyiRepositoryStore repositoryStore = new RuyiRepositoryStore(directories);
         ImageCatalogService images = new RuyiImageCatalogService(directories, repositoryStore);
         RepositoryService repository = new RuyiRepositoryService(repositoryStore, images::invalidateCache);
         BlockDeviceService devices = new PlatformBlockDeviceService();
         FastbootService fastboot = new ProcessFastbootService();
         FlashService flash = new LocalFlashService(images, devices, fastboot, BlockDevicePreparer.platformDefault());
-        LOGGER.info("Default application services created.");
         return new AppServices(directories, repository, images, devices, fastboot, flash);
     }
 }

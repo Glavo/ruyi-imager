@@ -13,6 +13,7 @@ import javafx.stage.Stage;
 import io.github.palexdev.materialfx.theming.JavaFXThemes;
 import io.github.palexdev.materialfx.theming.MaterialFXStylesheets;
 import io.github.palexdev.materialfx.theming.UserAgentBuilder;
+import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.gui.MainWindow;
 import org.glavo.ruyi.imager.i18n.Messages;
@@ -23,6 +24,7 @@ import org.jetbrains.annotations.Unmodifiable;
 
 import java.net.URL;
 import java.util.Locale;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,11 +51,13 @@ public final class RuyiImager extends Application {
     /// Core services shared by the GUI and CLI.
     private @Nullable AppServices services;
 
+    /// Whether this JavaFX application initialized logging without the normal process bootstrap.
+    private boolean ownsLogging;
+
     /// Creates the default service graph before the UI is shown.
     @Override
     public void init() {
-        services = AppServices.createDefault();
-        RuyiLogging.configure(services.directories());
+        services = createDefaultServices();
         LOGGER.info("JavaFX application initialized.");
     }
 
@@ -68,8 +72,7 @@ public final class RuyiImager extends Application {
 
         AppServices currentServices = services;
         if (currentServices == null) {
-            currentServices = AppServices.createDefault();
-            RuyiLogging.configure(currentServices.directories());
+            currentServices = createDefaultServices();
         }
 
         MainWindow window = new MainWindow(currentServices);
@@ -88,11 +91,30 @@ public final class RuyiImager extends Application {
         Platform.runLater(window::showStartupActions);
     }
 
-    /// Stops the JavaFX application and closes logging resources.
+    /// Creates GUI services and initializes logging when the normal process bootstrap was bypassed.
+    ///
+    /// @return default GUI service graph.
+    private AppServices createDefaultServices() {
+        AppDirectories directories = AppDirectories.defaults();
+        if (!RuyiLogging.isConfigured()) {
+            RuyiLogging.configure(directories);
+            ownsLogging = true;
+            LOGGER.info(
+                    "Resolved application directories. config={}, cache={}",
+                    directories.configDirectory(),
+                    directories.cacheDirectory());
+        }
+        return AppServices.createDefault(directories);
+    }
+
+    /// Stops the JavaFX application and closes logging resources initialized by this instance.
     @Override
     public void stop() {
         LOGGER.info("JavaFX application stopped.");
-        RuyiLogging.shutdown();
+        if (ownsLogging) {
+            RuyiLogging.shutdown();
+            ownsLogging = false;
+        }
     }
 
     /// Installs the MaterialFX theme before the scene graph is rendered.

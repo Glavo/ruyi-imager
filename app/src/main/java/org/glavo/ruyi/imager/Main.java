@@ -29,16 +29,28 @@ public final class Main {
     /// @param args command-line arguments.
     public static void main(String @Unmodifiable [] args) {
         NetworkDefaults.enableSystemProxiesByDefault();
-        RuyiLogging.configure(AppDirectories.defaults());
+        AppDirectories directories = AppDirectories.defaults();
+        RuyiLogging.configure(directories);
+        LOGGER.info(
+                "Resolved application directories. config={}, cache={}",
+                directories.configDirectory(),
+                directories.cacheDirectory());
         LOGGER.info("Starting Ruyi Imager.");
         if (shouldLaunchGui(args)) {
             LOGGER.info("Launching JavaFX GUI.");
-            JavaFxLauncher.launch(args);
+            try {
+                JavaFxLauncher.launch(args);
+            } catch (RuntimeException | Error failure) {
+                LOGGER.error("JavaFX GUI failed during startup.", failure);
+                throw failure;
+            } finally {
+                RuyiLogging.shutdown();
+            }
             return;
         }
 
         LOGGER.info("Launching CLI.");
-        int exitCode = CliApplication.run(AppServices.createDefault(), args);
+        int exitCode = CliApplication.run(AppServices.createDefault(directories), args);
         if (exitCode != 0) {
             System.exit(exitCode);
         }

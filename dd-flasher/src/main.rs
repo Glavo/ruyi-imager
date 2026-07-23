@@ -480,10 +480,12 @@ struct TargetVolumeLocks {
 #[cfg(windows)]
 mod platform {
     use super::*;
+    use serde::Deserialize;
     use std::ffi::c_void;
     use std::mem;
     use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
     use std::ptr;
+    use wmi::WMIConnection;
 
     /// Windows `BOOL`.
     type Bool = i32;
@@ -621,6 +623,30 @@ mod platform {
         serial_number: Option<String>,
     }
 
+    /// Safety properties returned by the Windows Storage Management API.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct WindowsStorageDisk {
+        /// Physical disk number.
+        number: u32,
+
+        /// Whether the disk contains the running Windows boot partition.
+        is_boot: bool,
+
+        /// Whether the disk contains the Windows system partition.
+        is_system: bool,
+
+        /// Whether firmware is configured to start from this disk, when reported.
+        boot_from_disk: Option<bool>,
+    }
+
+    impl WindowsStorageDisk {
+        /// Returns whether any Storage Management safety property protects this disk.
+        fn is_protected(&self) -> bool {
+            self.is_boot || self.is_system || self.boot_from_disk.unwrap_or(false)
+        }
+    }
+
     /// Volume handle kept open to preserve a successful `FSCTL_LOCK_VOLUME`.
     pub struct VolumeLock {
         /// Locked volume path, used only to retain useful debugger state.
@@ -662,7 +688,8 @@ mod platform {
             ));
         }
 
-        let system = windows_system_disk_numbers()?.contains(&disk_number);
+        let system = windows_system_disk_numbers()?.contains(&disk_number)
+            || windows_storage_reports_system_disk(disk_number)?;
         let bus_type = (descriptor.bus_type == STORAGE_BUS_TYPE_USB).then(|| "USB".to_string());
         let hardware_id = descriptor
             .serial_number
@@ -1020,6 +1047,45 @@ mod platform {
         volume_disk_numbers(&handle)
     }
 
+    /// Returns whether the supported Windows Storage Management API protects a physical disk.
+    fn windows_storage_reports_system_disk(disk_number: u32) -> io::Result<bool> {
+        let connection = WMIConnection::with_namespace_path(r"ROOT\Microsoft\Windows\Storage")
+            .map_err(|error| {
+                io::Error::other(format!(
+                    "failed to connect to the Windows Storage Management API: {error}"
+                ))
+            })?;
+        let query = format!(
+            "SELECT Number, IsBoot, IsSystem, BootFromDisk FROM MSFT_Disk WHERE Number = {disk_number}"
+        );
+        let mut disks: Vec<WindowsStorageDisk> = connection.raw_query(query).map_err(|error| {
+            io::Error::other(format!(
+                "failed to query the Windows Storage Management API: {error}"
+            ))
+        })?;
+        if disks.len() != 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Windows Storage Management returned {} records for disk {disk_number}",
+                    disks.len()
+                ),
+            ));
+        }
+
+        let disk = disks.pop().unwrap();
+        if disk.number != disk_number {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Windows Storage Management returned disk {} while inspecting disk {disk_number}",
+                    disk.number
+                ),
+            ));
+        }
+        Ok(disk.is_protected())
+    }
+
     /// Sends a no-buffer `DeviceIoControl` request.
     fn device_io_control(handle: &File, control_code: Dword) -> io::Result<()> {
         let mut bytes_returned = 0;
@@ -1099,6 +1165,48 @@ mod platform {
             unsafe {
                 FindVolumeClose(self.0);
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Verifies every Storage Management system flag independently protects a disk.
+        #[test]
+        fn classifies_windows_storage_system_flags() {
+            for disk in [
+                WindowsStorageDisk {
+                    number: 1,
+                    is_boot: true,
+                    is_system: false,
+                    boot_from_disk: Some(false),
+                },
+                WindowsStorageDisk {
+                    number: 1,
+                    is_boot: false,
+                    is_system: true,
+                    boot_from_disk: Some(false),
+                },
+                WindowsStorageDisk {
+                    number: 1,
+                    is_boot: false,
+                    is_system: false,
+                    boot_from_disk: Some(true),
+                },
+            ] {
+                assert!(disk.is_protected());
+            }
+
+            assert!(
+                !WindowsStorageDisk {
+                    number: 1,
+                    is_boot: false,
+                    is_system: false,
+                    boot_from_disk: None,
+                }
+                .is_protected()
+            );
         }
     }
 }

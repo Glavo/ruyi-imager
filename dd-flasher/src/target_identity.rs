@@ -4,6 +4,12 @@
 use std::fs;
 use std::path::Path;
 
+/// Returns whether a Linux mount point identifies the running system or a separate boot filesystem.
+#[cfg(any(target_os = "linux", test))]
+fn is_linux_system_mount_point(mount_point: &str) -> bool {
+    matches!(mount_point, "/" | "/boot" | "/boot/efi" | "/efi")
+}
+
 /// Caller-supplied target properties that must still match after elevation.
 pub(crate) struct TargetExpectation<'a> {
     /// Target path opened by the helper.
@@ -279,7 +285,7 @@ mod linux {
             size_bytes: integer_value(device, "size")
                 .ok_or_else(|| "lsblk did not report a target size".to_string())?,
             removable,
-            system: has_mount_point(device, "/"),
+            system: has_system_mount_point(device),
             read_only: bool_value(device, "ro"),
             model: text_value(device, "model"),
             bus_type,
@@ -322,8 +328,8 @@ mod linux {
         })
     }
 
-    /// Returns whether this node or one of its children has a mount point.
-    fn has_mount_point(node: &Value, expected: &str) -> bool {
+    /// Returns whether this node or one of its children hosts a protected system mount point.
+    fn has_system_mount_point(node: &Value) -> bool {
         let direct = node
             .get("mountpoints")
             .and_then(Value::as_array)
@@ -331,17 +337,13 @@ mod linux {
                 mounts
                     .iter()
                     .filter_map(Value::as_str)
-                    .any(|mount| mount == expected)
+                    .any(super::is_linux_system_mount_point)
             });
         direct
             || node
                 .get("children")
                 .and_then(Value::as_array)
-                .is_some_and(|children| {
-                    children
-                        .iter()
-                        .any(|child| has_mount_point(child, expected))
-                })
+                .is_some_and(|children| children.iter().any(has_system_mount_point))
     }
 
     /// Builds the same stable identity used by the Java Linux enumerator.
@@ -575,6 +577,17 @@ mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Verifies Linux system mount classification is exact and includes separate boot filesystems.
+    #[test]
+    fn identifies_linux_system_mount_points() {
+        assert!(is_linux_system_mount_point("/"));
+        assert!(is_linux_system_mount_point("/boot"));
+        assert!(is_linux_system_mount_point("/boot/efi"));
+        assert!(is_linux_system_mount_point("/efi"));
+        assert!(!is_linux_system_mount_point("/bootable"));
+        assert!(!is_linux_system_mount_point("/media/boot"));
+    }
 
     /// Verifies overlapping hardware identity fields are compared independently.
     #[test]

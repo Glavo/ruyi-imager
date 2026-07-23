@@ -70,6 +70,21 @@ function Test-SystemMountPoint {
     return $false
 }
 
+function Test-SystemDisk {
+    param(
+        [string[]]$MountPoints,
+        [object]$Storage
+    )
+
+    if (Test-SystemMountPoint $MountPoints) {
+        return $true
+    }
+    if ($null -eq $Storage) {
+        return $false
+    }
+    return [bool]$Storage.IsBoot -or [bool]$Storage.IsSystem -or [bool]$Storage.BootFromDisk
+}
+
 function Join-HardwareIdentity {
     param(
         [Microsoft.Management.Infrastructure.CimInstance]$Disk,
@@ -113,7 +128,7 @@ foreach ($disk in (Get-CimInstance -ClassName Win32_DiskDrive | Sort-Object Inde
     $mediaType = [string]$disk.MediaType
     $removable = ($busType -ieq 'USB') -or ($mediaType -match 'Removable')
     $mounted = $mountPoints.Count -gt 0
-    $system = Test-SystemMountPoint $mountPoints
+    $system = Test-SystemDisk $mountPoints $storage
     $hardwareId = Join-HardwareIdentity $disk $storage
 
     $items += [pscustomobject]@{

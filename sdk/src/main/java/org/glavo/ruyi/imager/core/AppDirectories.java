@@ -8,18 +8,13 @@ import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.Locale;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /// Filesystem locations used by Ruyi Imager.
 ///
 /// @param configDirectory directory for user configuration.
-/// @param cacheDirectory directory for downloaded metadata and images.
+/// @param cacheDirectory  directory for downloaded metadata and images.
 @NotNullByDefault
 public record AppDirectories(Path configDirectory, Path cacheDirectory) {
-    /// Logger for application directory resolution.
-    private static final Logger LOGGER = LoggerFactory.getLogger(AppDirectories.class);
-
     /// Creates default application directories for the current platform.
     ///
     /// @return default application directories.
@@ -27,21 +22,14 @@ public record AppDirectories(Path configDirectory, Path cacheDirectory) {
         Path home = Path.of(System.getProperty("user.home"));
         @Nullable String osName = System.getProperty("os.name");
         boolean windows = osName != null && isWindows(osName);
-        AppDirectories directories;
         if (windows) {
-            directories = new AppDirectories(
+            return new AppDirectories(
                     windowsBase("APPDATA", home.resolve("AppData").resolve("Roaming")).resolve("RuyiImager"),
                     windowsBase("LOCALAPPDATA", home.resolve("AppData").resolve("Local")).resolve("RuyiImager"));
-        } else {
-            directories = new AppDirectories(
-                    xdgBase("XDG_CONFIG_HOME", home.resolve(".config")).resolve("ruyi-imager"),
-                    xdgBase("XDG_CACHE_HOME", home.resolve(".cache")).resolve("ruyi-imager"));
         }
-        LOGGER.atInfo().log(() -> "Resolved application directories. config="
-                + directories.configDirectory()
-                + ", cache="
-                + directories.cacheDirectory());
-        return directories;
+        return new AppDirectories(
+                xdgBase("XDG_CONFIG_HOME", home.resolve(".config")).resolve("ruyi-imager"),
+                xdgBase("XDG_CACHE_HOME", home.resolve(".cache")).resolve("ruyi-imager"));
     }
 
     /// Returns whether an operating system name identifies Windows.

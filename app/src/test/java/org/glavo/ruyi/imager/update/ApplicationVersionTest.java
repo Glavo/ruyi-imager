@@ -7,78 +7,122 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/// Tests the Ruyi Imager application version ordering envelope.
+/// Tests WiX Burn-compatible application version parsing and ordering.
 @NotNullByDefault
 public final class ApplicationVersionTest {
-    /// Parses unsuffixed and opaque suffixed versions.
+    /// Parses one to four numeric components and optional version decorations.
     @Test
-    public void parsesSupportedEnvelope() {
-        ApplicationVersion stable = ApplicationVersion.parse("1.2.3");
-        ApplicationVersion development = ApplicationVersion.parse("1.2.3-dev");
-        ApplicationVersion nightly = ApplicationVersion.parse(
-                "1.2.3-nightly.20260716T143052Z.3921d84");
-        ApplicationVersion future = ApplicationVersion.parse("1.2.3-preview_2027+build.4");
-        ApplicationVersion releaseCandidate = ApplicationVersion.parse("1.2.3-rc.01");
+    public void parsesSupportedBurnVersions() {
+        ApplicationVersion abbreviated = ApplicationVersion.parse("1");
+        ApplicationVersion complete = ApplicationVersion.parse("v1.2.3.004-2.a.22+abcdef");
+        ApplicationVersion maximum = ApplicationVersion.parse(
+                "4294967295.4294967295.4294967295.4294967295");
 
-        assertNull(stable.suffix());
-        assertEquals("dev", development.suffix());
-        assertEquals("nightly.20260716T143052Z.3921d84", nightly.suffix());
-        assertEquals("preview_2027+build.4", future.suffix());
-        assertEquals("rc.01", releaseCandidate.suffix());
+        assertEquals(1L, abbreviated.major());
+        assertEquals(0L, abbreviated.minor());
+        assertEquals(0L, abbreviated.patch());
+        assertEquals(0L, abbreviated.revision());
+        assertNull(abbreviated.prerelease());
+        assertNull(abbreviated.buildMetadata());
+
+        assertEquals(1L, complete.major());
+        assertEquals(2L, complete.minor());
+        assertEquals(3L, complete.patch());
+        assertEquals(4L, complete.revision());
+        assertEquals("2.a.22", complete.prerelease());
+        assertEquals("abcdef", complete.buildMetadata());
+        assertEquals(0xffff_ffffL, maximum.revision());
     }
 
-    /// Orders numeric versions before considering suffixes.
+    /// Treats omitted components as zero and compares the optional revision component.
     @Test
-    public void ordersNumericVersions() {
+    public void ordersNumericComponents() {
+        assertEquals(0, ApplicationVersion.parse("1").compareTo(ApplicationVersion.parse("1.0.0.0")));
+        assertEquals(0, ApplicationVersion.parse("0.02.3").compareTo(ApplicationVersion.parse("0.2.3.0")));
+        assertTrue(ApplicationVersion.parse("1.2.3.4").compareTo(ApplicationVersion.parse("1.2.3")) > 0);
         assertTrue(ApplicationVersion.parse("1.2.3").compareTo(ApplicationVersion.parse("1.2.4-dev")) < 0);
-        assertTrue(ApplicationVersion.parse("1.2.9").compareTo(ApplicationVersion.parse("1.3.0-dev")) < 0);
-        assertTrue(ApplicationVersion.parse("1.9.9").compareTo(ApplicationVersion.parse("2.0.0-dev")) < 0);
+        assertTrue(ApplicationVersion.parse("1.9.9").compareTo(ApplicationVersion.parse("2-dev")) < 0);
     }
 
-    /// Orders opaque suffixes lexically and keeps unsuffixed versions last.
+    /// Applies Burn prerelease identifier precedence.
     @Test
-    public void ordersOpaqueSuffixes() {
-        ApplicationVersion development = ApplicationVersion.parse("1.2.3-dev");
-        ApplicationVersion earlierNightly = ApplicationVersion.parse(
-                "1.2.3-nightly.20260716T143051Z.fffffff");
-        ApplicationVersion laterNightly = ApplicationVersion.parse(
-                "1.2.3-nightly.20260716T143052Z.0000000");
-        ApplicationVersion stable = ApplicationVersion.parse("1.2.3");
-
-        assertTrue(development.compareTo(earlierNightly) < 0);
-        assertTrue(earlierNightly.compareTo(laterNightly) < 0);
-        assertTrue(laterNightly.compareTo(stable) < 0);
+    public void ordersPrereleaseIdentifiers() {
+        assertTrue(ApplicationVersion.parse("1.0-rc.2").compareTo(ApplicationVersion.parse("1.0-rc.10")) < 0);
+        assertTrue(ApplicationVersion.parse("1.0-2").compareTo(ApplicationVersion.parse("1.0-rc")) < 0);
+        assertTrue(ApplicationVersion.parse("1.0-rc").compareTo(ApplicationVersion.parse("1.0-rc.1")) < 0);
+        assertTrue(ApplicationVersion.parse("1.0-rc.10").compareTo(ApplicationVersion.parse("1.0")) < 0);
+        assertTrue(ApplicationVersion.parse("1.0-2.0").compareTo(ApplicationVersion.parse("1.0-1.19")) > 0);
+        assertTrue(ApplicationVersion.parse("1.0-2.0").compareTo(ApplicationVersion.parse("1.0-19")) < 0);
+        assertEquals(0, ApplicationVersion.parse("1.0-RC.2").compareTo(ApplicationVersion.parse("1.0-rc.2")));
+        assertEquals(0, ApplicationVersion.parse("1.0-rc.01").compareTo(ApplicationVersion.parse("1.0-rc.1")));
+        assertEquals(
+                0,
+                ApplicationVersion.parse("1.0-0000000000000000000000001")
+                        .compareTo(ApplicationVersion.parse("1.0-1")));
+        assertEquals(
+                0,
+                ApplicationVersion.parse("0.1-a.b.0").compareTo(ApplicationVersion.parse("0.1.0-a.b.000")));
     }
 
-    /// Rejects malformed numeric envelopes and unsafe suffix characters.
+    /// Treats digit-only prerelease identifiers above the unsigned 32-bit range as text like Burn.
     @Test
-    public void rejectsMalformedEnvelope() {
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("01.2.3"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse(" 1.2.3"));
+    public void ordersOverflowingPrereleaseIdentifiersAsText() {
+        assertTrue(
+                ApplicationVersion.parse("1-4294967295")
+                        .compareTo(ApplicationVersion.parse("1-4294967296")) < 0);
+        assertTrue(
+                ApplicationVersion.parse("1-10000000000")
+                        .compareTo(ApplicationVersion.parse("1-9999999999")) < 0);
+    }
+
+    /// Ignores build metadata when determining precedence.
+    @Test
+    public void ignoresBuildMetadataForOrdering() {
+        ApplicationVersion first = ApplicationVersion.parse("1.2.3-rc.1+build.1");
+        ApplicationVersion second = ApplicationVersion.parse("1.2.3-RC.01+build_2");
+
+        assertEquals(
+                0,
+                ApplicationVersion.parse("1.2.3+abc").compareTo(ApplicationVersion.parse("1.2.3+xyz")));
+        assertEquals(0, first.compareTo(second));
+        assertNotEquals(first, second);
+    }
+
+    /// Rejects syntax outside the strict, reliably comparable Burn subset.
+    @Test
+    public void rejectsUnsupportedBurnVersions() {
+        ApplicationVersion.parse("4294967295.4294967295.4294967295.4294967295");
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse(""));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1."));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3.4.5"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("4294967296"));
         assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-preview/4"));
-        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-preview 4"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-rc_1"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3-rc."));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3+"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse("1.2.3+build/1"));
+        assertThrows(IllegalArgumentException.class, () -> ApplicationVersion.parse(" 1.2.3"));
     }
 
-    /// Uses only the known nightly prefix when inferring a default channel.
+    /// Uses only the first prerelease identifier when inferring the default channel.
     @Test
     public void infersKnownChannelConvention() {
         assertEquals(UpdateChannel.STABLE, ApplicationVersion.parse("1.2.3").inferredChannel());
         assertEquals(UpdateChannel.STABLE, ApplicationVersion.parse("1.2.3-dev").inferredChannel());
-        assertEquals(UpdateChannel.STABLE, ApplicationVersion.parse("1.2.3-preview.4").inferredChannel());
+        assertEquals(UpdateChannel.STABLE, ApplicationVersion.parse("1.2.3+nightly").inferredChannel());
         assertEquals(
                 UpdateChannel.NIGHTLY,
-                ApplicationVersion.parse("1.2.3-nightly.future-format").inferredChannel());
+                ApplicationVersion.parse("1.2.3-NIGHTLY.20260716T143052Z.3921d84").inferredChannel());
     }
 
-    /// Keeps update channel metadata independent from version suffix conventions.
+    /// Keeps update channel metadata independent from prerelease conventions.
     @Test
-    public void acceptsChannelIndependentSuffixes() {
+    public void acceptsChannelIndependentPrereleases() {
         new UpdateRelease(UpdateChannel.STABLE, "1.2.3-preview.4", null, java.util.List.of());
         new UpdateRelease(UpdateChannel.NIGHTLY, "1.2.3-build.2027", null, java.util.List.of());
     }

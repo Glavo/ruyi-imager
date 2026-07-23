@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /// Tests local application update manifest checks.
 @NotNullByDefault
 public final class UpdateCheckerTest {
-    /// Detects a newer stable semantic version.
+    /// Detects a newer stable Burn-compatible version.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written or checked.
@@ -108,12 +108,12 @@ public final class UpdateCheckerTest {
                   "releases": [
                     {
                       "channel": "stable",
-                      "version": "1.1.0",
+                      "version": "1.1.0-rc.1+build.1",
                       "artifacts": []
                     },
                     {
                       "channel": "stable",
-                      "version": "1.1.0",
+                      "version": "1.1.0-RC.01+build.2",
                       "artifacts": []
                     }
                   ]
@@ -162,7 +162,40 @@ public final class UpdateCheckerTest {
         assertEquals(123L, artifact.size());
     }
 
-    /// Detects a newer nightly build from lexically ordered opaque suffixes.
+    /// Rejects a macOS tar archive because opening it does not hand off to an installer.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the manifest cannot be written.
+    @Test
+    public void rejectsMacOsTarArchiveArtifact(@TempDir Path temporaryDirectory) throws Exception {
+        Path manifest = temporaryDirectory.resolve("update.json");
+        Files.writeString(manifest, """
+                {
+                  "schemaVersion": 1,
+                  "releases": [
+                    {
+                      "channel": "stable",
+                      "version": "1.1.0",
+                      "artifacts": [
+                        {
+                          "platform": "macos-aarch64",
+                          "packageType": "tar-gz",
+                          "source": "packages/ruyi-imager.tar.gz",
+                          "size": 123,
+                          "sha256": "%s"
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """.formatted("0".repeat(64)));
+
+        assertThrows(
+                IOException.class,
+                () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
+    }
+
+    /// Detects a newer nightly build from ordered prerelease identifiers.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written or checked.
@@ -293,7 +326,7 @@ public final class UpdateCheckerTest {
                 () -> new UpdateChecker(new BuildInfo("1.0.0"), manifest).check());
     }
 
-    /// Rejects versions outside the stable ordering envelope.
+    /// Rejects versions outside the strict Burn-compatible ordering subset.
     ///
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when the manifest cannot be written.

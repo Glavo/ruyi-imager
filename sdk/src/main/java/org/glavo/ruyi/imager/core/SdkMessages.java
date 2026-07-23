@@ -136,7 +136,17 @@ public final class SdkMessages {
             Map.entry("core.materialize.archiveEscape", "{0} entry escapes artifact directory: {1}"),
             Map.entry("core.materialize.partitionEscape", "Partition path escapes artifact directory: {0}"),
             Map.entry("core.materialize.invalidDeb", "Invalid Debian package or missing data.tar member: {0}"),
-            Map.entry("core.materialize.invalidPrefix", "Invalid archive prefix for distfile {0}: {1}")
+            Map.entry("core.materialize.invalidPrefix", "Invalid archive prefix for distfile {0}: {1}"),
+            Map.entry("core.materialize.insufficientSpace", "Not enough usable space to preserve {0} bytes while preparing the image; currently available: {1} bytes."),
+            Map.entry("core.materialize.entryCountLimit", "Image archive exceeds the limit of {0} entries while reading: {1}"),
+            Map.entry("core.materialize.entryLimit", "Image entry {0} exceeds the materialized size limit of {1} bytes."),
+            Map.entry("core.materialize.totalLimit", "Image materialization exceeds the total output limit of {0} bytes while reading: {1}"),
+            Map.entry("core.materialize.invalidTarMetadata", "Invalid TAR metadata header while reading: {0}"),
+            Map.entry("core.materialize.invalidTarHeaderChecksum", "Invalid TAR header checksum while reading: {0}"),
+            Map.entry("core.materialize.tarMetadataEntryLimit", "TAR metadata entry {0} exceeds the size limit of {1} bytes."),
+            Map.entry("core.materialize.tarMetadataTotalLimit", "TAR metadata exceeds the total limit of {0} bytes while reading: {1}"),
+            Map.entry("core.materialize.tarMetadataChainLimit", "TAR metadata chain exceeds the nesting limit of {0} while reading: {1}"),
+            Map.entry("core.materialize.unsupportedSparseTar", "Sparse TAR entries are not supported while preparing: {0}")
     );
 
     /// Optional resolver supplied by an application layer with localized resources.
@@ -155,7 +165,7 @@ public final class SdkMessages {
 
     /// Formats an SDK diagnostic message.
     ///
-    /// @param key stable diagnostic key.
+    /// @param key       stable diagnostic key.
     /// @param arguments message arguments.
     /// @return formatted diagnostic message.
     public static String get(String key, Object @Unmodifiable ... arguments) {
@@ -176,7 +186,7 @@ public final class SdkMessages {
 
     /// Formats a message with the SDK English default table.
     ///
-    /// @param key stable diagnostic key.
+    /// @param key       stable diagnostic key.
     /// @param arguments message arguments.
     /// @return formatted default diagnostic message.
     private static String formatDefault(String key, Object @Unmodifiable ... arguments) {
@@ -190,7 +200,7 @@ public final class SdkMessages {
     public interface MessageResolver {
         /// Resolves an SDK diagnostic message.
         ///
-        /// @param key stable diagnostic key.
+        /// @param key       stable diagnostic key.
         /// @param arguments message arguments.
         /// @return formatted localized message, or null to use the SDK default.
         @Nullable String resolve(String key, Object @Unmodifiable ... arguments);

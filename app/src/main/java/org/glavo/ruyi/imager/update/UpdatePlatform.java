@@ -89,8 +89,7 @@ public enum UpdatePlatform {
             case WINDOWS_X86_64, WINDOWS_AARCH64 -> packageType == UpdatePackageType.SETUP_EXE;
             case LINUX_X86_64, LINUX_AARCH64 -> packageType == UpdatePackageType.DEB;
             case MACOS_X86_64, MACOS_AARCH64 -> packageType == UpdatePackageType.PKG
-                    || packageType == UpdatePackageType.DMG
-                    || packageType == UpdatePackageType.TAR_GZ;
+                    || packageType == UpdatePackageType.DMG;
         };
     }
 
