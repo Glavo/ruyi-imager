@@ -1,0 +1,376 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ruyiVersionQualifier:
+        description: Optional prerelease qualifier, for example alpha.1 or rc.1
+        required: false
+        type: string
+      ruyiVersionMetadata:
+        description: Optional build metadata, for example build.42
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.ruyiVersionQualifier }}-${{ inputs.ruyiVersionMetadata }}
+  cancel-in-progress: false
+
+env:
+  GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-user-home
+  GRADLE_OPTS: >-
+    --enable-native-access=ALL-UNNAMED
+    --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
+    --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
+  WIX_VERSION: 6.0.2
+
+jobs:
+  version:
+    name: Resolve release version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      qualifier: ${{ steps.version.outputs.qualifier }}
+      metadata: ${{ steps.version.outputs.metadata }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          QUALIFIER: ${{ inputs.ruyiVersionQualifier }}
+          METADATA: ${{ inputs.ruyiVersionMetadata }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            printf 'Releases must be dispatched from main, not %s\n' "${GITHUB_REF}" >&2
+            exit 1
+          fi
+
+          gradle_args=()
+          if [ -n "${QUALIFIER}" ]; then
+            gradle_args+=("-PruyiVersionQualifier=${QUALIFIER}")
+          fi
+          if [ -n "${METADATA}" ]; then
+            gradle_args+=("-PruyiVersionMetadata=${METADATA}")
+          fi
+
+          version_output="$(./gradlew -g .gradle-user-home -q "${gradle_args[@]}" properties)"
+          mapfile -t versions < <(printf '%s\n' "${version_output}" | sed -n 's/^version: //p')
+          if [ "${#versions[@]}" -ne 1 ] || [ -z "${versions[0]}" ]; then
+            printf 'Expected exactly one Gradle project version, found %s\n' "${#versions[@]}" >&2
+            exit 1
+          fi
+
+          version="${versions[0]}"
+          printf 'version=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+          printf 'tag=v%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+          printf 'qualifier=%s\n' "${QUALIFIER}" >> "${GITHUB_OUTPUT}"
+          printf 'metadata=%s\n' "${METADATA}" >> "${GITHUB_OUTPUT}"
+          if [ -n "${QUALIFIER}" ]; then
+            echo 'prerelease=true' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'prerelease=false' >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Ensure release tag is unused
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            printf 'Release tag already exists: %s\n' "${RELEASE_TAG}" >&2
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x86_64
+            runner: windows-2025
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - platform: macos-x86_64
+            runner: macos-15-intel
+          - platform: macos-aarch64
+            runner: macos-15
+
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Configure release version
+        shell: bash
+        env:
+          QUALIFIER: ${{ needs.version.outputs.qualifier }}
+          METADATA: ${{ needs.version.outputs.metadata }}
+        run: |
+          set -euo pipefail
+          if [ -n "${QUALIFIER}" ]; then
+            printf 'ORG_GRADLE_PROJECT_ruyiVersionQualifier=%s\n' "${QUALIFIER}" >> "${GITHUB_ENV}"
+          fi
+          if [ -n "${METADATA}" ]; then
+            printf 'ORG_GRADLE_PROJECT_ruyiVersionMetadata=%s\n' "${METADATA}" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Make Gradle wrapper executable
+        if: runner.os != 'Windows'
+        run: chmod +x ./gradlew
+
+      - name: Select Rust stable toolchain
+        run: |
+          rustup default stable
+          rustup component add clippy rustfmt
+
+      - name: Run Gradle verification
+        run: ./gradlew check
+
+      - name: Run Rust tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path dd-flasher/Cargo.toml --all-targets
+          cargo test --locked --manifest-path launcher/Cargo.toml --all-targets
+
+      - name: Check Rust formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path dd-flasher/Cargo.toml --all -- --check
+          cargo fmt --manifest-path launcher/Cargo.toml --all -- --check
+
+      - name: Run Rust static analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked --manifest-path dd-flasher/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --locked --manifest-path launcher/Cargo.toml --all-targets -- -D warnings
+
+      - name: Install WiX
+        if: startsWith(matrix.platform, 'windows-')
+        run: |
+          dotnet tool install --tool-path "$env:RUNNER_TEMP\wix" wix --version "$env:WIX_VERSION"
+          & "$env:RUNNER_TEMP\wix\wix.exe" extension add --global "WixToolset.UI.wixext/$env:WIX_VERSION"
+          & "$env:RUNNER_TEMP\wix\wix.exe" extension add --global "WixToolset.BootstrapperApplications.wixext/$env:WIX_VERSION"
+          "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build jlink archive
+        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkArchive
+
+      - name: Verify packaged fastboot layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="app/build/jlink/${{ matrix.platform }}/ruyi-imager"
+          tools="${image}/tools/fastboot/${{ matrix.platform }}"
+          case "${{ matrix.platform }}" in
+            windows-x86_64)
+              test -f "${tools}/fastboot.exe"
+              test -f "${tools}/AdbWinApi.dll"
+              test -f "${tools}/AdbWinUsbApi.dll"
+              ;;
+            linux-x86_64)
+              test -x "${tools}/fastboot"
+              ;;
+            linux-aarch64)
+              test ! -e "${image}/tools/fastboot"
+              ;;
+            macos-x86_64|macos-aarch64)
+              test -x "${tools}/fastboot"
+              lipo -verify_arch x86_64 arm64 "${tools}/fastboot"
+              ;;
+            *)
+              printf 'Missing packaged-fastboot assertion for %s\n' "${{ matrix.platform }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Build MSI package
+        if: startsWith(matrix.platform, 'windows-')
+        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkMsi
+
+      - name: Build setup executable
+        if: startsWith(matrix.platform, 'windows-')
+        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkSetupExe
+
+      - name: Build Debian package
+        if: startsWith(matrix.platform, 'linux-')
+        run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkDeb
+
+      - name: Collect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          shopt -s nullglob
+          assets=(
+            app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.zip
+            app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.tar.gz
+          )
+          if [ "${#assets[@]}" -ne 1 ]; then
+            printf 'Expected exactly one archive for %s, found %s\n' "${{ matrix.platform }}" "${#assets[@]}" >&2
+            exit 1
+          fi
+          cp "${assets[0]}" release-assets/
+          if [[ "${{ matrix.platform }}" == windows-* ]]; then
+            setups=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}-setup.exe)
+            if [ "${#setups[@]}" -ne 1 ]; then
+              printf 'Expected exactly one setup executable for %s, found %s\n' "${{ matrix.platform }}" "${#setups[@]}" >&2
+              exit 1
+            fi
+            cp "${setups[0]}" release-assets/
+          fi
+          if [[ "${{ matrix.platform }}" == linux-* ]]; then
+            debs=(app/build/distributions/ruyi-imager-*-${{ matrix.platform }}.deb)
+            if [ "${#debs[@]}" -ne 1 ]; then
+              printf 'Expected exactly one Debian package for %s, found %s\n' "${{ matrix.platform }}" "${#debs[@]}" >&2
+              exit 1
+            fi
+            cp "${debs[0]}" release-assets/
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Download workflow artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            "ruyi-imager-${RELEASE_VERSION}-windows-x86_64.zip"
+            "ruyi-imager-${RELEASE_VERSION}-windows-x86_64-setup.exe"
+            "ruyi-imager-${RELEASE_VERSION}-linux-x86_64.tar.gz"
+            "ruyi-imager-${RELEASE_VERSION}-linux-x86_64.deb"
+            "ruyi-imager-${RELEASE_VERSION}-linux-aarch64.tar.gz"
+            "ruyi-imager-${RELEASE_VERSION}-linux-aarch64.deb"
+            "ruyi-imager-${RELEASE_VERSION}-macos-x86_64.tar.gz"
+            "ruyi-imager-${RELEASE_VERSION}-macos-aarch64.tar.gz"
+          )
+          mapfile -t actual < <(find release-assets -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [ "${#actual[@]}" -ne "${#expected[@]}" ]; then
+            printf 'Expected %s release assets, found %s\n' "${#expected[@]}" "${#actual[@]}" >&2
+            printf 'Found: %s\n' "${actual[@]}" >&2
+            exit 1
+          fi
+          for asset in "${expected[@]}"; do
+            if [ ! -f "release-assets/${asset}" ]; then
+              printf 'Missing release asset: %s\n' "${asset}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag_created=false
+          release_created=false
+          cleanup_failed_release() {
+            exit_code=$?
+            if [ "${release_created}" = "true" ]; then
+              gh release delete "${RELEASE_TAG}" --cleanup-tag --yes || true
+            elif [ "${tag_created}" = "true" ]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" || true
+            fi
+            exit "${exit_code}"
+          }
+          trap cleanup_failed_release ERR
+
+          tag_args=(
+            --method POST
+            "repos/${GITHUB_REPOSITORY}/git/refs"
+            -f "ref=refs/tags/${RELEASE_TAG}"
+            -f "sha=${GITHUB_SHA}"
+          )
+          gh api "${tag_args[@]}" >/dev/null
+          tag_created=true
+
+          args=(
+            release create "${RELEASE_TAG}"
+            --verify-tag
+            --title "Ruyi Imager ${RELEASE_VERSION}"
+            --generate-notes
+            --draft
+          )
+          if [ "${PRERELEASE}" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"
+          release_created=true
+
+          gh release upload "${RELEASE_TAG}" release-assets/*
+          mapfile -t local_assets < <(find release-assets -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t remote_assets < <(
+            gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name' | sort
+          )
+          if [ "${local_assets[*]}" != "${remote_assets[*]}" ]; then
+            printf 'Published asset set does not match local release assets\n' >&2
+            printf 'Local: %s\n' "${local_assets[*]}" >&2
+            printf 'Remote: %s\n' "${remote_assets[*]}" >&2
+            exit 1
+          fi
+
+          gh release edit "${RELEASE_TAG}" --draft=false
+          trap - ERR
