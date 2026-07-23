@@ -28,6 +28,9 @@ public final class JlinkPackaging {
 
     /// Converts a Gradle project version into a Debian-compatible package version.
     ///
+    /// The prerelease separator is mapped to `~` so that Debian orders a prerelease before the
+    /// corresponding release. Unsupported characters are replaced with `+`.
+    ///
     /// @param version Gradle project version.
     /// @return Debian-compatible version string.
     public static String debianVersion(String version) {
@@ -35,8 +38,11 @@ public final class JlinkPackaging {
         if (text.isEmpty()) {
             text = "0";
         }
-        text = text.replace("-dev", "~dev");
-        text = text.replace("-nightly.", "~nightly.");
+        int prereleaseIndex = text.indexOf('-');
+        int metadataIndex = text.indexOf('+');
+        if (prereleaseIndex >= 0 && (metadataIndex < 0 || prereleaseIndex < metadataIndex)) {
+            text = text.substring(0, prereleaseIndex) + '~' + text.substring(prereleaseIndex + 1);
+        }
 
         StringBuilder builder = new StringBuilder(text.length() + 2);
         for (int i = 0; i < text.length(); i++) {
