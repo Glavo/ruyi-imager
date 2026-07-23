@@ -214,7 +214,7 @@ jobs:
               ;;
             macos-x86_64|macos-aarch64)
               test -x "${tools}/fastboot"
-              lipo -verify_arch x86_64 arm64 "${tools}/fastboot"
+              lipo "${tools}/fastboot" -verify_arch x86_64 arm64
               ;;
             *)
               printf 'Missing packaged-fastboot assertion for %s\n' "${{ matrix.platform }}" >&2
