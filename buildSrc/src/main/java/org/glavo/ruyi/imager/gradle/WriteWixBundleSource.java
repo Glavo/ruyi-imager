@@ -180,6 +180,7 @@ public abstract class WriteWixBundleSource extends DefaultTask {
         output.append("\" Compressed=\"yes\" Visible=\"no\"");
         output.append(">\n");
         output.append("        <MsiProperty Name=\"INSTALLFOLDER\" Value=\"[InstallFolder]\" />\n");
+        output.append("        <MsiProperty Name=\"BURNMSIINSTALL\" Value=\"1\" />\n");
         output.append("      </MsiPackage>\n");
         output.append("    </Chain>\n");
         output.append("  </Bundle>\n");
