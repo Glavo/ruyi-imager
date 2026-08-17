@@ -1,8 +1,6 @@
-![Ruyi Imager](resources/ruyi-logo-128.png)
-
 # Ruyi Imager
 
-Ruyi Imager is a desktop and command-line image writer for boards supported by the [RuyiSDK ecosystem](https://github.com/ruyisdk/ruyi).
+Ruyi Imager is a desktop image writer for RISC-V boards supported by the [RuyiSDK ecosystem](https://github.com/ruyisdk/ruyi).
 
 ## Highlights
 
@@ -16,11 +14,3 @@ Ruyi Imager is a desktop and command-line image writer for boards supported by t
 ## Download
 
 Builds are published on [GitHub Releases](https://github.com/Glavo/ruyi-imager/releases):
-
-- Windows x86-64: setup `.exe` or portable `.zip`
-- Linux x86-64 and AArch64: `.deb` or `.tar.gz`
-- macOS x86-64 and Apple silicon: `.tar.gz`
-
-## Safety
-
-Writing an image destroys data on the selected target. Ruyi Imager checks device identity and blocks known system, non-removable, or read-only disks where the operating system exposes that information. Always confirm the displayed device name and capacity before continuing.
