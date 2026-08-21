@@ -111,6 +111,7 @@
 - Nightly and formal release workflow YAML parse successfully with the Linux RISC-V 64 matrix entry, cross-toolchain setup, runtime assertions, and formal release asset checks.
 - Nightly release run `32432776964` showed that `--no-install-recommends` omitted the RISC-V glibc startup objects required by Cargo; both release workflows now install `libc6-dev-riscv64-cross` explicitly alongside the cross compiler.
 - Default jlink bundles now use Liberica JDK `25.0.4.1+1`; all seven archive names, sizes, and SHA-256 digests match the official BellSoft GitHub Release metadata.
+- Settings dialogs now resize their containing stage after asynchronous status text changes, preserving wrapped messages above the MaterialFX action pane without fixed-height placeholders.
 - `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.update.UpdatePackageManagerTest -x :app:downloadAlibabaPuhuitiFont`; Linux RISC-V 64 platform detection, manifest parsing, Debian package support, and installer handoff pass.
 - `./gradlew -g .gradle-user-home -q "-PruyiVersionQualifier=alpha.1" properties`; the workflow input resolves to `1.0.0-alpha.1`.
 - `./gradlew -g .gradle-user-home "-PruyiVersionQualifier=alpha.1" "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkArchive :app:jlinkMsi :app:jlinkSetupExe --dry-run`

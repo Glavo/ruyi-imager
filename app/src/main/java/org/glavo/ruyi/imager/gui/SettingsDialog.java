@@ -5,14 +5,17 @@ package org.glavo.ruyi.imager.gui;
 
 import io.github.palexdev.materialfx.controls.MFXButton;
 import io.github.palexdev.materialfx.controls.MFXComboBox;
+import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
 import javafx.util.StringConverter;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.update.BuildInfo;
@@ -260,6 +263,19 @@ final class SettingsDialog {
         status.getStyleClass().add(styleClass);
         status.setVisible(true);
         status.setManaged(true);
+        requestContainingStageResize(status);
+    }
+
+    /// Resizes the containing stage after dynamic content has changed its preferred size.
+    ///
+    /// @param node changed dialog content.
+    private static void requestContainingStageResize(Node node) {
+        Platform.runLater(() -> {
+            @Nullable Scene scene = node.getScene();
+            if (scene != null && scene.getWindow() instanceof Stage stage && stage.isShowing()) {
+                stage.sizeToScene();
+            }
+        });
     }
 
     /// Creates the language selector.
