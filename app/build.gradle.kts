@@ -110,7 +110,7 @@ val javafxModules = listOf("base", "controls", "graphics")
 val javafxModuleNames = javafxModules.map { "javafx.$it" }
 val javafxRuntimeAvailable = javafxRuntimePlatform() != null
 val applicationJvmArgs = listOf("--enable-native-access=ALL-UNNAMED,javafx.graphics")
-val jlinkJdkVersion = providers.gradleProperty("jlink.jdk.version").orElse("25.0.3+11").get()
+val jlinkJdkVersion = providers.gradleProperty("jlink.jdk.version").orElse("25.0.4.1+1").get()
 val jlinkJdkPlatform = providers.gradleProperty("jlink.jdk.platform")
     .orElse(currentJlinkPlatform() ?: error("Unsupported platform for jlink JDK bundle"))
     .get()
@@ -903,7 +903,7 @@ fun currentJlinkPlatform(): String? {
 /// @param version Liberica JDK version string.
 /// @return Liberica JDK bundle descriptor.
 fun libericaJdkBundle(platform: String, version: String): JlinkJdkBundle {
-    require(version == "25.0.3+11") {
+    require(version == "25.0.4.1+1") {
         "No bundled integrity metadata is available for Liberica JDK $version; " +
             "configure jlink.jdk.url, jlink.jdk.sha256, and jlink.jdk.sizeBytes"
     }
@@ -924,19 +924,19 @@ fun libericaJdkBundle(platform: String, version: String): JlinkJdkBundle {
     val executableName = if (platform.startsWith("windows-")) "jlink.exe" else "jlink"
     val (sha256, sizeBytes) = when (platform) {
         "windows-x86_64" ->
-            "95f4297f10f91e8cde9ae64d4c6bf8ead1d1aa29121ddfae4e48a1d389cc5413" to 346_883_258L
+            "656ccc6c963925070df048c2d185fcce2903d3c5700c768d178ace72bee4d223" to 347_044_876L
         "windows-aarch64" ->
-            "69031a8475b19d399d6dbc6a22f6e1c9746dc6cd045cf442de73e181c9fb027b" to 232_629_221L
+            "dc490a4a53f0d9b2ccc96d70a74456e32adec064a868a793a10fd7179f5369c7" to 232_764_551L
         "macos-x86_64" ->
-            "35acc63854594a66f064a95af774c05f62dbaf76a62863ae3ee9be97e65faa74" to 363_252_444L
+            "f9db61e635175bad9f3475d18f299d34d09f7fcc4c1a5d366da62e2dc5a68b4a" to 362_646_948L
         "macos-aarch64" ->
-            "bc44ece32d6b969374769e9159285d06aa78d5a78596918cad3587f14cc44fc6" to 357_365_399L
+            "18c273997a63db044401571bfeace4b3c57abaa76f12979f27f2af564a9682c0" to 356_764_964L
         "linux-x86_64" ->
-            "2d0e145c401d0e555e9b3aad977a3a700fbd666bc7d4524720267dd80eb3be42" to 407_455_906L
+            "74de69863cfa8d58dd49992a97249ad041169ad01daa14a545ef9c7ef173cbd0" to 407_472_475L
         "linux-aarch64" ->
-            "bfd46890bb5611ee673a3db4c676518c2989bd5cf729094a6193c1557a308fb9" to 401_889_520L
+            "47e93cea18997caea7a8f220bd147c4c2c41ee2862c434e4a9a6d8e75240eab8" to 401_947_012L
         "linux-riscv64" ->
-            "644d3cadd5d9dc4f71cf56dd3bffde0113c949b2bb9c802eca49a035b77ea033" to 205_027_987L
+            "4497fc7f30d1afefd23436fd6d0572bbe505f3ffcec6571a502f46bc866692f4" to 205_051_812L
         else -> error("Unsupported jlink target platform: $platform")
     }
     return JlinkJdkBundle(
