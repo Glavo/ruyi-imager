@@ -125,6 +125,12 @@ public final class UpdatePackageManagerTest {
                         UpdatePackageType.DEB,
                         linuxPackage));
         assertEquals(
+                List.of("xdg-open", linuxPackage.toAbsolutePath().toString()),
+                UpdateInstaller.commandFor(
+                        UpdatePlatform.LINUX_RISCV64,
+                        UpdatePackageType.DEB,
+                        linuxPackage));
+        assertEquals(
                 List.of("open", macPackage.toAbsolutePath().toString()),
                 UpdateInstaller.commandFor(
                         UpdatePlatform.MACOS_AARCH64,
@@ -152,7 +158,17 @@ public final class UpdatePackageManagerTest {
     public void detectsUpdatePlatforms() {
         assertEquals(UpdatePlatform.WINDOWS_X86_64, UpdatePlatform.detect("Windows 11", "amd64"));
         assertEquals(UpdatePlatform.LINUX_AARCH64, UpdatePlatform.detect("Linux", "aarch64"));
+        assertEquals(UpdatePlatform.LINUX_RISCV64, UpdatePlatform.detect("Linux", "riscv64"));
+        assertEquals(UpdatePlatform.LINUX_RISCV64, UpdatePlatform.detect("Linux", "risc-v64"));
+        assertEquals(UpdatePlatform.LINUX_RISCV64, UpdatePlatform.detect("Linux", "riscv64gc"));
         assertEquals(UpdatePlatform.MACOS_AARCH64, UpdatePlatform.detect("Mac OS X", "arm64"));
+    }
+
+    /// Parses the Linux RISC-V 64 manifest id and accepts Debian installers.
+    @Test
+    public void supportsRiscv64UpdatePackages() {
+        assertEquals(UpdatePlatform.LINUX_RISCV64, UpdatePlatform.parse("linux-riscv64"));
+        assertTrue(UpdatePlatform.LINUX_RISCV64.supports(UpdatePackageType.DEB));
     }
 
     /// Creates one Windows artifact for package bytes.

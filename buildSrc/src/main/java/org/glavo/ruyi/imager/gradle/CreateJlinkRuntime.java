@@ -4,6 +4,7 @@
 package org.glavo.ruyi.imager.gradle;
 
 import org.gradle.api.DefaultTask;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.ListProperty;
@@ -12,6 +13,7 @@ import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
@@ -20,6 +22,7 @@ import org.gradle.process.ExecOperations;
 import org.jetbrains.annotations.NotNullByDefault;
 
 import javax.inject.Inject;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,6 +58,13 @@ public abstract class CreateJlinkRuntime extends DefaultTask {
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getJmodsDirectory();
 
+    /// Returns additional directories containing target-platform jmods.
+    ///
+    /// @return additional jmods directories.
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getAdditionalJmodsDirectories();
+
     /// Returns the comma-separated module list passed to `jlink --add-modules`.
     ///
     /// @return module list.
@@ -81,39 +91,59 @@ public abstract class CreateJlinkRuntime extends DefaultTask {
         Path executable = getExecutable().get().getAsFile().toPath();
         Path jmodsDirectory = getJmodsDirectory().get().getAsFile().toPath();
         Path outputDirectory = getOutputDirectory().get().getAsFile().toPath();
+        List<Path> jmodsDirectories = new ArrayList<>();
+        jmodsDirectories.add(jmodsDirectory);
+        jmodsDirectories.addAll(getAdditionalJmodsDirectories().getFiles().stream()
+                .map(File::toPath)
+                .sorted()
+                .toList());
 
         requireFile(executable, "Missing host jlink executable: ");
         requireFile(jmodsDirectory.resolve("java.base.jmod"), "Missing java.base.jmod in downloaded JDK: ");
         for (String moduleName : getRequiredJavafxModules().get()) {
-            requireFile(
-                    jmodsDirectory.resolve(moduleName + ".jmod"),
-                    "Missing " + moduleName + ".jmod in downloaded Liberica Full JDK: ");
+            requireModuleFile(jmodsDirectories, moduleName);
         }
 
         GeneratedDirectories.deleteExisting(outputDirectory);
         execOperations.exec(spec -> {
             spec.setExecutable(executable.toFile());
-            spec.args(jlinkArguments(jmodsDirectory, outputDirectory));
+            spec.args(jlinkArguments(jmodsDirectories, outputDirectory));
         });
     }
 
     /// Creates the `jlink` command arguments.
     ///
-    /// @param jmodsDirectory directory containing target JDK jmods.
+    /// @param jmodsDirectories directories containing target-platform jmods.
     /// @param outputDirectory generated runtime image output directory.
     /// @return `jlink` arguments.
-    private List<String> jlinkArguments(Path jmodsDirectory, Path outputDirectory) {
+    private List<String> jlinkArguments(List<Path> jmodsDirectories, Path outputDirectory) {
         List<String> arguments = new ArrayList<>();
         arguments.add("--strip-debug");
         arguments.add("--no-header-files");
         arguments.add("--no-man-pages");
         arguments.add("--module-path");
-        arguments.add(jmodsDirectory.toString());
+        arguments.add(String.join(File.pathSeparator, jmodsDirectories.stream().map(Path::toString).toList()));
         arguments.add("--add-modules");
         arguments.add(getModules().get());
         arguments.add("--output");
         arguments.add(outputDirectory.toString());
         return arguments;
+    }
+
+    /// Requires a module jmod in one of the configured module-path directories.
+    ///
+    /// @param jmodsDirectories directories containing target-platform jmods.
+    /// @param moduleName module name.
+    private static void requireModuleFile(List<Path> jmodsDirectories, String moduleName) {
+        String fileName = moduleName + ".jmod";
+        for (Path directory : jmodsDirectories) {
+            if (Files.isRegularFile(directory.resolve(fileName))) {
+                return;
+            }
+        }
+        throw new IllegalStateException(
+                "Missing " + fileName + " in jlink module path: "
+                        + String.join(File.pathSeparator, jmodsDirectories.stream().map(Path::toString).toList()));
     }
 
     /// Requires an existing regular file.

@@ -66,7 +66,7 @@ public final class UpdateInstaller {
         String path = packageFile.toAbsolutePath().normalize().toString();
         return switch (platform) {
             case WINDOWS_X86_64, WINDOWS_AARCH64 -> List.of(path);
-            case LINUX_X86_64, LINUX_AARCH64 -> List.of("xdg-open", path);
+            case LINUX_X86_64, LINUX_AARCH64, LINUX_RISCV64 -> List.of("xdg-open", path);
             case MACOS_X86_64, MACOS_AARCH64 -> List.of("open", path);
         };
     }

@@ -114,6 +114,14 @@ val jlinkJdkVersion = providers.gradleProperty("jlink.jdk.version").orElse("25.0
 val jlinkJdkPlatform = providers.gradleProperty("jlink.jdk.platform")
     .orElse(currentJlinkPlatform() ?: error("Unsupported platform for jlink JDK bundle"))
     .get()
+val linuxRiscv64JavafxVersion = "25.0.4"
+val linuxRiscv64JavafxArchiveFileName = "openjfx-$linuxRiscv64JavafxVersion-linux-riscv64-jmods.zip"
+val linuxRiscv64JavafxArchiveDirectory = "javafx-jmods-$linuxRiscv64JavafxVersion-linux-riscv64"
+val linuxRiscv64JavafxUrl =
+    "https://github.com/Glavo/jfx-build/releases/download/$linuxRiscv64JavafxVersion-linux-riscv64/" +
+        linuxRiscv64JavafxArchiveFileName
+val linuxRiscv64JavafxSha256 = "519aa533f9b2aa98465757cf7604e6d053bfcb13675f5effc426eba0191baa3d"
+val linuxRiscv64JavafxSizeBytes = 10_245_446L
 val jlinkDDFlasherPlatformDirectory =
     project(":dd-flasher").layout.buildDirectory.dir("bundled-dd-flasher/$jlinkJdkPlatform")
 val prepareJlinkBundledDDFlasherTask =
@@ -168,7 +176,7 @@ val jlinkSetupOutputFile = layout.buildDirectory.file(
     "distributions/ruyi-imager-${project.version}-$jlinkJdkPlatform-setup.exe",
 )
 val jlinkSetupLocalizationDirectory = rootProject.layout.projectDirectory.dir("resources/wix/setup")
-val jlinkJavafxModuleNames = if (jlinkJdkPlatform == "linux-riscv64") emptyList() else javafxModuleNames
+val jlinkJavafxModuleNames = javafxModuleNames
 val jlinkDefaultModules = defaultJlinkModules() + jlinkJavafxModuleNames
 val jlinkModules = providers.gradleProperty("jlink.modules").orElse(jlinkDefaultModules.joinToString(","))
 val jlinkRuntimeIncludesJavafx = providers.provider {
@@ -217,6 +225,9 @@ val jlinkJdkBundle = if (customJlinkJdkUrl == null) {
 val jlinkJdkArchive = layout.buildDirectory.file("downloads/jdks/${jlinkJdkBundle.fileName}")
 val jlinkJdkDirectory = layout.buildDirectory.dir("jdks/${jlinkJdkBundle.platform}")
 val jlinkJmodsDirectory = jlinkJdkDirectory.map { it.dir("jmods") }
+val linuxRiscv64JavafxArchive =
+    layout.buildDirectory.file("downloads/javafx/$linuxRiscv64JavafxArchiveFileName")
+val linuxRiscv64JavafxJmodsDirectory = layout.buildDirectory.dir("jmods/javafx/linux-riscv64")
 val targetJlinkExecutable = jlinkJdkDirectory.map { it.file("bin/${jlinkJdkBundle.executableName}") }
 val java25Launcher = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(25)
@@ -376,6 +387,45 @@ tasks.register<Copy>("extractJlinkJdk") {
     }
 }
 
+val extractJlinkJavafxJmods = if (jlinkJdkPlatform == "linux-riscv64") {
+    val downloadJlinkJavafxJmods = tasks.register<Download>("downloadJlinkJavafxJmods") {
+        group = "distribution"
+        description = "Downloads OpenJFX JMODs for Linux RISC-V 64 jlink packaging."
+        src(linuxRiscv64JavafxUrl)
+        dest(linuxRiscv64JavafxArchive.get().asFile)
+        overwrite(false)
+        onlyIfModified(true)
+        tempAndMove(true)
+        retries(downloadRetries.get())
+        header("User-Agent", "Ruyi-Imager-Gradle/1.0")
+        connectTimeout(30_000)
+        readTimeout(120_000)
+        outputs.file(linuxRiscv64JavafxArchive)
+    }
+
+    val verifyJlinkJavafxJmods = tasks.register<VerifyFile>("verifyJlinkJavafxJmods") {
+        group = "distribution"
+        description = "Verifies OpenJFX JMODs for Linux RISC-V 64 jlink packaging."
+        dependsOn(downloadJlinkJavafxJmods)
+        inputFile.set(linuxRiscv64JavafxArchive)
+        expectedSha256.set(linuxRiscv64JavafxSha256)
+        expectedSizeBytes.set(linuxRiscv64JavafxSizeBytes)
+    }
+
+    tasks.register<ExtractZipEntries>("extractJlinkJavafxJmods") {
+        group = "distribution"
+        description = "Extracts OpenJFX JMODs for Linux RISC-V 64 jlink packaging."
+        dependsOn(verifyJlinkJavafxJmods)
+        archiveFile.set(linuxRiscv64JavafxArchive)
+        entries.set(jlinkJavafxModuleNames.associate { moduleName ->
+            "$linuxRiscv64JavafxArchiveDirectory/$moduleName.jmod" to "$moduleName.jmod"
+        })
+        outputDirectory.set(linuxRiscv64JavafxJmodsDirectory)
+    }
+} else {
+    null
+}
+
 dependencies {
     implementation(project(":sdk"))
 
@@ -508,6 +558,10 @@ tasks.register<CreateJlinkRuntime>("jlinkRuntime") {
             if (jlinkRuntimeIncludesJavafx.get()) jlinkJavafxModuleNames else emptyList()
         },
     )
+    extractJlinkJavafxJmods?.let {
+        dependsOn(it)
+        getAdditionalJmodsDirectories().from(linuxRiscv64JavafxJmodsDirectory)
+    }
     outputDirectory.set(jlinkRuntimeDirectory)
 }
 

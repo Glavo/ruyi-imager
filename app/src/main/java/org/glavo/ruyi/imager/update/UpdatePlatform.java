@@ -22,6 +22,9 @@ public enum UpdatePlatform {
     /// 64-bit Arm Linux.
     LINUX_AARCH64("linux-aarch64"),
 
+    /// 64-bit RISC-V Linux.
+    LINUX_RISCV64("linux-riscv64"),
+
     /// 64-bit x86 macOS.
     MACOS_X86_64("macos-x86_64"),
 
@@ -64,15 +67,24 @@ public enum UpdatePlatform {
         boolean x86_64 = normalizedArch.equals("amd64")
                 || normalizedArch.equals("x86_64")
                 || normalizedArch.equals("x64");
-        if (!aarch64 && !x86_64) {
+        boolean riscv64 = normalizedArch.equals("riscv64")
+                || normalizedArch.equals("risc-v64")
+                || normalizedArch.equals("riscv64gc");
+        if (!aarch64 && !x86_64 && !riscv64) {
             throw new IllegalStateException("Unsupported update architecture: " + osArch);
         }
 
+        if (normalizedOs.startsWith("linux")) {
+            if (riscv64) {
+                return LINUX_RISCV64;
+            }
+            return aarch64 ? LINUX_AARCH64 : LINUX_X86_64;
+        }
+        if (riscv64) {
+            throw new IllegalStateException("RISC-V application updates are supported only on Linux: " + osName);
+        }
         if (normalizedOs.startsWith("windows")) {
             return aarch64 ? WINDOWS_AARCH64 : WINDOWS_X86_64;
-        }
-        if (normalizedOs.startsWith("linux")) {
-            return aarch64 ? LINUX_AARCH64 : LINUX_X86_64;
         }
         if (normalizedOs.startsWith("mac") || normalizedOs.startsWith("darwin")) {
             return aarch64 ? MACOS_AARCH64 : MACOS_X86_64;
@@ -87,7 +99,7 @@ public enum UpdatePlatform {
     public boolean supports(UpdatePackageType packageType) {
         return switch (this) {
             case WINDOWS_X86_64, WINDOWS_AARCH64 -> packageType == UpdatePackageType.SETUP_EXE;
-            case LINUX_X86_64, LINUX_AARCH64 -> packageType == UpdatePackageType.DEB;
+            case LINUX_X86_64, LINUX_AARCH64, LINUX_RISCV64 -> packageType == UpdatePackageType.DEB;
             case MACOS_X86_64, MACOS_AARCH64 -> packageType == UpdatePackageType.PKG
                     || packageType == UpdatePackageType.DMG;
         };

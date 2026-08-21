@@ -58,6 +58,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       ORG_GRADLE_PROJECT_ruyiVersionQualifier: ${{ needs.version.outputs.version_qualifier }}
+      CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.rustLinker || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -68,6 +69,9 @@ jobs:
             runner: ubuntu-24.04
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
+          - platform: linux-riscv64
+            runner: ubuntu-24.04
+            rustLinker: riscv64-linux-gnu-gcc
           - platform: macos-x86_64
             runner: macos-15-intel
           - platform: macos-aarch64
@@ -93,6 +97,13 @@ jobs:
         run: |
           rustup default stable
           rustup component add clippy rustfmt
+
+      - name: Install RISC-V cross toolchain
+        if: matrix.platform == 'linux-riscv64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gcc-riscv64-linux-gnu
+          rustup target add riscv64gc-unknown-linux-gnu
 
       - name: Run Gradle verification
         run: ./gradlew check
@@ -129,6 +140,18 @@ jobs:
       - name: Build jlink archive
         run: ./gradlew "-Pjlink.jdk.platform=${{ matrix.platform }}" :app:jlinkArchive
 
+      - name: Verify RISC-V runtime
+        if: matrix.platform == 'linux-riscv64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime="app/build/jlink/${{ matrix.platform }}/runtime"
+          readelf --file-header "${runtime}/bin/java" | grep -Eq 'Machine:.*RISC-V'
+          jimage list "${runtime}/lib/modules" > "${RUNNER_TEMP}/jlink-modules.txt"
+          grep -Fxq 'Module: javafx.base' "${RUNNER_TEMP}/jlink-modules.txt"
+          grep -Fxq 'Module: javafx.controls' "${RUNNER_TEMP}/jlink-modules.txt"
+          grep -Fxq 'Module: javafx.graphics' "${RUNNER_TEMP}/jlink-modules.txt"
+
       - name: Verify packaged fastboot layout
         shell: bash
         run: |
@@ -144,7 +167,7 @@ jobs:
             linux-x86_64)
               test -x "${tools}/fastboot"
               ;;
-            linux-aarch64)
+            linux-aarch64|linux-riscv64)
               test ! -e "${image}/tools/fastboot"
               ;;
             macos-x86_64|macos-aarch64)

@@ -9,7 +9,7 @@ Ruyi Imager is a desktop image writer for RISC-V boards supported by the [RuyiSD
 - Handle raw-device and Fastboot workflows, including LPi4A U-Boot handoff and SpacemiT K1 eMMC provisioning.
 - Re-identify the selected device before destructive writes, reject known unsafe targets, and verify written data by default.
 - Use the same flashing engine from an English or Simplified Chinese GUI and a scriptable CLI with NDJSON progress events.
-- Run on Windows, Linux, and macOS with a bundled Java runtime and platform tools where available.
+- Run on Windows, Linux, and macOS with a bundled Java runtime and platform tools where available, including native Linux RISC-V 64 builds.
 
 ## Download
 
