@@ -4,18 +4,18 @@
 package org.glavo.ruyi.imager.gui;
 
 import io.github.palexdev.materialfx.controls.MFXComboBox;
-import javafx.scene.control.TextField;
+import io.github.palexdev.materialfx.enums.FloatMode;
 import javafx.application.Platform;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.ScrollBar;
+import javafx.scene.control.TextField;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
-import javafx.scene.text.Font;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
@@ -186,19 +186,15 @@ public final class MainWindowJavaFxSmokeTest {
         });
     }
 
-    /// Verifies that MaterialFX selectors override their built-in font with the application font.
+    /// Verifies that MaterialFX selectors center their editor when no floating label is used.
     ///
     /// @throws Exception when JavaFX execution fails.
     @Test
-    public void usesApplicationFontInMaterialFxSelectors() throws Exception {
+    public void centersMaterialFxSelectorText() throws Exception {
         runOnJavaFxThread(() -> {
-            @Nullable URL fontResource = MainWindow.class.getResource(
-                    "/org/glavo/ruyi/imager/fonts/AlibabaPuHuiTi-3-65-Medium.ttf");
-            assertNotNull(fontResource);
-            @Nullable Font applicationFont = Font.loadFont(fontResource.toExternalForm(), 13.0);
-            assertNotNull(applicationFont);
-
             MFXComboBox<String> selector = new MFXComboBox<>();
+            selector.setPrefWidth(220.0);
+            selector.setText("Simplified Chinese");
             VBox parent = new VBox(selector);
             Scene scene = new Scene(parent);
             @Nullable String stylesheet = applicationStylesheet();
@@ -206,11 +202,17 @@ public final class MainWindowJavaFxSmokeTest {
             scene.getStylesheets().add(stylesheet);
 
             parent.applyCss();
+            parent.autosize();
             parent.layout();
+            selector.applyCss();
+            selector.layout();
 
             TextField editor = assertInstanceOf(TextField.class, selector.lookup(".text-field"));
-            assertEquals(applicationFont.getName(), selector.getFont().getName());
-            assertEquals(applicationFont.getName(), editor.getFont().getName());
+            assertEquals(FloatMode.DISABLED, selector.getFloatMode());
+            assertEquals(
+                    selector.localToScene(selector.getBoundsInLocal()).getCenterY(),
+                    editor.localToScene(editor.getBoundsInLocal()).getCenterY(),
+                    0.5);
             return null;
         });
     }
