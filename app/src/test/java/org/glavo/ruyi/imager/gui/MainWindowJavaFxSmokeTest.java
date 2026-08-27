@@ -15,6 +15,7 @@ import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.scene.text.Font;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
@@ -181,6 +182,35 @@ public final class MainWindowJavaFxSmokeTest {
             assertNotNull(verticalScrollBar);
             assertTrue(verticalScrollBar.prefWidth(-1.0) > 0.0);
             assertTrue(verticalScrollBar.isVisible());
+            return null;
+        });
+    }
+
+    /// Verifies that MaterialFX selectors override their built-in font with the application font.
+    ///
+    /// @throws Exception when JavaFX execution fails.
+    @Test
+    public void usesApplicationFontInMaterialFxSelectors() throws Exception {
+        runOnJavaFxThread(() -> {
+            @Nullable URL fontResource = MainWindow.class.getResource(
+                    "/org/glavo/ruyi/imager/fonts/AlibabaPuHuiTi-3-65-Medium.ttf");
+            assertNotNull(fontResource);
+            @Nullable Font applicationFont = Font.loadFont(fontResource.toExternalForm(), 13.0);
+            assertNotNull(applicationFont);
+
+            MFXComboBox<String> selector = new MFXComboBox<>();
+            VBox parent = new VBox(selector);
+            Scene scene = new Scene(parent);
+            @Nullable String stylesheet = applicationStylesheet();
+            assertNotNull(stylesheet);
+            scene.getStylesheets().add(stylesheet);
+
+            parent.applyCss();
+            parent.layout();
+
+            TextField editor = assertInstanceOf(TextField.class, selector.lookup(".text-field"));
+            assertEquals(applicationFont.getName(), selector.getFont().getName());
+            assertEquals(applicationFont.getName(), editor.getFont().getName());
             return null;
         });
     }
