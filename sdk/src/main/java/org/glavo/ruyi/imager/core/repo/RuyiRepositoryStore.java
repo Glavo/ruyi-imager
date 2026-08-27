@@ -5,6 +5,10 @@ package org.glavo.ruyi.imager.core.repo;
 
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.api.errors.InvalidRemoteException;
+import org.eclipse.jgit.api.errors.RefNotAdvertisedException;
+import org.eclipse.jgit.api.errors.RefNotFoundException;
+import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.lib.StoredConfig;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.NetworkDefaults;
@@ -23,8 +27,13 @@ import org.tomlj.TomlParseResult;
 import org.tomlj.TomlTable;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -33,6 +42,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -209,46 +219,46 @@ public final class RuyiRepositoryStore {
         }
 
         return defaultEntry(
-                repo.getString("remote"),
+                readConfiguredRemotes(repo),
                 repo.getString("branch"),
                 readAbsolutePath(repo.getString("local")));
     }
 
     /// Creates the default repository entry.
     ///
-    /// @param remote configured remote URL.
+    /// @param remotes configured remote URLs, or null to use the system defaults.
     /// @param branch configured branch.
     /// @param local configured local path.
     /// @return default repository entry.
     private static RuyiRepositoryEntry defaultEntry(
-            @Nullable String remote,
+            @Nullable List<String> remotes,
             @Nullable String branch,
             @Nullable Path local) {
         return new RuyiRepositoryEntry(
                 DEFAULT_REPO_ID,
                 DEFAULT_REPO_NAME,
-                remote == null || remote.isBlank() ? defaultRepoRemote() : remote,
+                remotes == null ? defaultRepoRemotes() : remotes,
                 branch == null || branch.isBlank() ? DEFAULT_REPO_BRANCH : branch,
                 local,
                 0,
                 true);
     }
 
-    /// Returns the default repository remote for the current system time zone.
+    /// Returns the default repository remotes for the current system time zone.
     ///
-    /// @return default repository remote.
-    static String defaultRepoRemote() {
-        return defaultRepoRemote(ZoneId.systemDefault());
+    /// @return ordered default repository remotes.
+    static @Unmodifiable List<String> defaultRepoRemotes() {
+        return defaultRepoRemotes(ZoneId.systemDefault());
     }
 
-    /// Returns the default repository remote for one time zone.
+    /// Returns the default repository remotes for one time zone.
     ///
     /// @param zoneId system time zone identifier.
-    /// @return default repository remote.
-    static String defaultRepoRemote(ZoneId zoneId) {
+    /// @return ordered default repository remotes.
+    static @Unmodifiable List<String> defaultRepoRemotes(ZoneId zoneId) {
         return CHINA_MAINLAND_TIME_ZONE.equals(zoneId.getId())
-                ? CHINA_MAINLAND_REPO_REMOTE
-                : DEFAULT_REPO_REMOTE;
+                ? List.of(CHINA_MAINLAND_REPO_REMOTE, DEFAULT_REPO_REMOTE)
+                : List.of(DEFAULT_REPO_REMOTE);
     }
 
     /// Reads one overlay repository entry.
@@ -262,9 +272,9 @@ public final class RuyiRepositoryStore {
             return null;
         }
 
-        @Nullable String remote = table.getString("remote");
+        @Nullable List<String> remotes = readConfiguredRemotes(table);
         @Nullable Path local = readAbsolutePath(table.getString("local"));
-        if ((remote == null || remote.isBlank()) && local == null) {
+        if ((remotes == null || remotes.isEmpty()) && local == null) {
             return null;
         }
 
@@ -275,7 +285,7 @@ public final class RuyiRepositoryStore {
         return new RuyiRepositoryEntry(
                 id,
                 name == null || name.isBlank() ? id : name,
-                remote == null || remote.isBlank() ? null : remote,
+                remotes == null ? List.of() : remotes,
                 branch == null || branch.isBlank() ? DEFAULT_REPO_BRANCH : branch,
                 local,
                 priority == null ? 0 : Math.toIntExact(priority),
@@ -289,14 +299,14 @@ public final class RuyiRepositoryStore {
     /// @throws IOException when local files or Git metadata cannot be updated.
     private void sync(RuyiRepositoryEntry entry, ProgressReporter reporter) throws IOException {
         Path root = resolveRoot(entry);
-        @Nullable String remote = entry.remote();
+        List<String> remotes = entry.remotes();
         LOGGER.atInfo().log(() -> "Synchronizing repository. id="
                 + entry.id()
                 + ", root="
                 + root
-                + ", remote="
-                + (remote == null ? "<local>" : LogRedactor.redactText(remote)));
-        if (remote == null || remote.isBlank()) {
+                + ", remotes="
+                + (remotes.isEmpty() ? "<local>" : LogRedactor.redactText(remotes.toString())));
+        if (remotes.isEmpty()) {
             reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.usingLocal", entry.id())));
             if (!Files.isRegularFile(root.resolve("config.toml"))) {
                 throw new IOException(SdkMessages.get("core.repo.localMissingConfig", root));
@@ -305,9 +315,9 @@ public final class RuyiRepositoryStore {
         }
 
         if (Files.notExists(root)) {
-            cloneRepository(entry, root, remote, reporter);
+            cloneRepository(entry, root, reporter);
         } else if (Files.isDirectory(root.resolve(".git"))) {
-            pullRepository(entry, root, remote, reporter);
+            pullRepository(entry, root, reporter);
         } else if (Files.isRegularFile(root.resolve("config.toml"))) {
             reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.usingUnmanagedLocal", entry.id())));
         } else {
@@ -321,77 +331,227 @@ public final class RuyiRepositoryStore {
     ///
     /// @param entry repository entry.
     /// @param root local checkout root.
-    /// @param remote remote Git URL.
     /// @param reporter progress reporter.
-    /// @throws IOException when Git clone fails.
+    /// @throws IOException when every configured Git source fails or local publication fails.
     private static void cloneRepository(
             RuyiRepositoryEntry entry,
             Path root,
-            String remote,
             ProgressReporter reporter) throws IOException {
         reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.cloning", entry.id())));
-        LOGGER.atInfo().log(() -> "Cloning repository. id="
-                + entry.id()
-                + ", remote="
-                + LogRedactor.redactText(remote)
-                + ", branch="
-                + entry.branch()
-                + ", root="
-                + root);
         @Nullable Path parent = root.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        try (Git ignored = Git.cloneRepository()
-                .setURI(remote)
-                .setDirectory(root.toFile())
-                .setBranch(entry.branch())
-                .call()) {
-            reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.cloned", entry.id())));
-        } catch (GitAPIException e) {
-            LOGGER.warn("Repository clone failed. id=" + entry.id(), e);
-            throw new IOException(SdkMessages.get("core.repo.cloneFailed", entry.id(), e.getMessage()), e);
+
+        ArrayList<IOException> failures = new ArrayList<>();
+        List<String> remotes = entry.remotes();
+        for (int index = 0; index < remotes.size(); index++) {
+            String remote = remotes.get(index);
+            if (index > 0) {
+                reporter.report(ProgressEvent.indeterminate(
+                        "repo",
+                        SdkMessages.get("core.repo.tryingFallback", entry.id())));
+            }
+            LOGGER.atInfo().log(() -> "Cloning repository. id="
+                    + entry.id()
+                    + ", remote="
+                    + LogRedactor.redactText(remote)
+                    + ", branch="
+                    + entry.branch()
+                    + ", root="
+                    + root);
+            try {
+                cloneRepositoryFromRemote(entry, root, remote);
+                reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.cloned", entry.id())));
+                return;
+            } catch (GitAPIException e) {
+                IOException failure = new IOException(
+                        SdkMessages.get(
+                                "core.repo.cloneFailed",
+                                entry.id(),
+                                LogRedactor.redactText(String.valueOf(e.getMessage()))),
+                        e);
+                failures.add(failure);
+                LOGGER.warn("Repository clone source failed. id="
+                        + entry.id()
+                        + ", remote="
+                        + LogRedactor.redactText(remote)
+                        + ", error="
+                        + LogRedactor.redactText(String.valueOf(e.getMessage())));
+            }
+        }
+
+        throw sourcesFailed("core.repo.cloneSourcesFailed", entry, failures);
+    }
+
+    /// Clones one source into a staging directory and publishes the completed checkout.
+    ///
+    /// @param entry repository entry.
+    /// @param root final checkout root.
+    /// @param remote remote Git URL.
+    /// @throws IOException when staging cleanup or publication fails.
+    /// @throws GitAPIException when Git clone fails.
+    private static void cloneRepositoryFromRemote(
+            RuyiRepositoryEntry entry,
+            Path root,
+            String remote) throws IOException, GitAPIException {
+        @Nullable Path parent = root.getParent();
+        @Nullable Path fileName = root.getFileName();
+        if (parent == null || fileName == null) {
+            throw new IOException("Repository root has no parent directory: " + root);
+        }
+
+        Path staging = parent.resolve("." + fileName + ".clone-" + UUID.randomUUID());
+        try {
+            try (Git ignored = Git.cloneRepository()
+                    .setURI(remote)
+                    .setDirectory(staging.toFile())
+                    .setBranch(entry.branch())
+                    .call()) {
+                // Closing the repository releases files before the directory is moved.
+            }
+            moveDirectory(staging, root);
+        } catch (IOException | GitAPIException | RuntimeException e) {
+            try {
+                deleteRecursively(staging);
+            } catch (IOException cleanupException) {
+                e.addSuppressed(cleanupException);
+            }
+            throw e;
         }
     }
 
-    /// Pulls one existing repository.
+    /// Pulls one existing repository, retrying source-related failures.
     ///
     /// @param entry repository entry.
     /// @param root local checkout root.
-    /// @param remote remote Git URL.
     /// @param reporter progress reporter.
-    /// @throws IOException when Git pull fails.
+    /// @throws IOException when the repository cannot be opened, configured, or updated.
     private static void pullRepository(
             RuyiRepositoryEntry entry,
             Path root,
-            String remote,
             ProgressReporter reporter) throws IOException {
         reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.updating", entry.id())));
-        LOGGER.atInfo().log(() -> "Pulling repository. id="
-                + entry.id()
-                + ", remote="
-                + LogRedactor.redactText(remote)
-                + ", branch="
-                + entry.branch()
-                + ", root="
-                + root);
+        ArrayList<IOException> failures = new ArrayList<>();
         try (Git git = Git.open(root.toFile())) {
             StoredConfig config = git.getRepository().getConfig();
-            config.setString("remote", "origin", "url", remote);
-            config.save();
+            List<String> remotes = entry.remotes();
+            for (int index = 0; index < remotes.size(); index++) {
+                String remote = remotes.get(index);
+                if (index > 0) {
+                    reporter.report(ProgressEvent.indeterminate(
+                            "repo",
+                            SdkMessages.get("core.repo.tryingFallback", entry.id())));
+                }
+                LOGGER.atInfo().log(() -> "Pulling repository. id="
+                        + entry.id()
+                        + ", remote="
+                        + LogRedactor.redactText(remote)
+                        + ", branch="
+                        + entry.branch()
+                        + ", root="
+                        + root);
+                config.setString("remote", "origin", "url", remote);
+                config.save();
 
-            if (!git.pull()
-                    .setRemote("origin")
-                    .setRemoteBranchName(entry.branch())
-                    .call()
-                    .isSuccessful()) {
-                throw new IOException(SdkMessages.get("core.repo.pullFailed", entry.id()));
+                try {
+                    if (!git.pull()
+                            .setRemote("origin")
+                            .setRemoteBranchName(entry.branch())
+                            .call()
+                            .isSuccessful()) {
+                        throw new IOException(SdkMessages.get("core.repo.pullFailed", entry.id()));
+                    }
+                    reporter.report(ProgressEvent.indeterminate(
+                            "repo",
+                            SdkMessages.get("core.repo.updatedOne", entry.id())));
+                    return;
+                } catch (GitAPIException e) {
+                    IOException failure = new IOException(
+                            SdkMessages.get(
+                                    "core.repo.updateFailed",
+                                    entry.id(),
+                                    LogRedactor.redactText(String.valueOf(e.getMessage()))),
+                            e);
+                    if (!isRetryableRemoteFailure(e)) {
+                        throw failure;
+                    }
+                    failures.add(failure);
+                    LOGGER.warn("Repository update source failed. id="
+                            + entry.id()
+                            + ", remote="
+                            + LogRedactor.redactText(remote)
+                            + ", error="
+                            + LogRedactor.redactText(String.valueOf(e.getMessage())));
+                }
             }
-            reporter.report(ProgressEvent.indeterminate("repo", SdkMessages.get("core.repo.updatedOne", entry.id())));
-        } catch (GitAPIException e) {
-            LOGGER.warn("Repository update failed. id=" + entry.id(), e);
-            throw new IOException(SdkMessages.get("core.repo.updateFailed", entry.id(), e.getMessage()), e);
         }
+
+        throw sourcesFailed("core.repo.updateSourcesFailed", entry, failures);
+    }
+
+    /// Returns whether a pull failure can depend on the selected remote source.
+    ///
+    /// @param exception pull failure.
+    /// @return true when trying the next configured source may succeed safely.
+    private static boolean isRetryableRemoteFailure(GitAPIException exception) {
+        return exception instanceof TransportException
+                || exception instanceof InvalidRemoteException
+                || exception instanceof RefNotAdvertisedException
+                || exception instanceof RefNotFoundException;
+    }
+
+    /// Combines failures from an exhausted source list.
+    ///
+    /// @param messageKey localized aggregate message key.
+    /// @param entry repository entry.
+    /// @param failures source failures in attempt order.
+    /// @return combined failure.
+    private static IOException sourcesFailed(
+            String messageKey,
+            RuyiRepositoryEntry entry,
+            List<IOException> failures) {
+        if (failures.size() == 1) {
+            return failures.getFirst();
+        }
+
+        IOException lastFailure = failures.getLast();
+        IOException result = new IOException(
+                SdkMessages.get(messageKey, entry.id(), failures.size(), lastFailure.getMessage()),
+                lastFailure);
+        for (int index = 0; index < failures.size() - 1; index++) {
+            result.addSuppressed(failures.get(index));
+        }
+        return result;
+    }
+
+    /// Reads an ordered source list from `remotes`, or the legacy `remote` value.
+    ///
+    /// @param table repository configuration table.
+    /// @return configured remotes, or null when neither setting is present.
+    private static @Nullable @Unmodifiable List<String> readConfiguredRemotes(TomlTable table) {
+        @Nullable TomlArray remotes = table.getArray("remotes");
+        if (remotes != null) {
+            return readRemoteArray(remotes);
+        }
+
+        @Nullable String remote = table.getString("remote");
+        return remote == null || remote.isBlank() ? null : List.of(remote);
+    }
+
+    /// Reads non-blank, distinct Git sources while preserving their configured order.
+    ///
+    /// @param array TOML array.
+    /// @return immutable remote list.
+    private static @Unmodifiable List<String> readRemoteArray(TomlArray array) {
+        ArrayList<String> values = new ArrayList<>();
+        for (int index = 0; index < array.size(); index++) {
+            Object value = array.get(index);
+            if (value instanceof String text && !text.isBlank() && !values.contains(text)) {
+                values.add(text);
+            }
+        }
+        return List.copyOf(values);
     }
 
     /// Reads mirror declarations from an array.
@@ -444,6 +604,61 @@ public final class RuyiRepositoryStore {
 
         Path path = Path.of(value);
         return path.isAbsolute() ? path.normalize() : null;
+    }
+
+    /// Moves one completed directory into its final location.
+    ///
+    /// @param source source path.
+    /// @param target target path.
+    /// @throws IOException when the directory cannot be moved.
+    private static void moveDirectory(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException atomicException) {
+            try {
+                Files.move(source, target);
+            } catch (IOException fallbackException) {
+                fallbackException.addSuppressed(atomicException);
+                throw fallbackException;
+            }
+        }
+    }
+
+    /// Deletes one directory tree without following symbolic links.
+    ///
+    /// @param directory directory to delete.
+    /// @throws IOException when deletion fails.
+    private static void deleteRecursively(Path directory) throws IOException {
+        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+
+        Files.walkFileTree(directory, new SimpleFileVisitor<>() {
+            /// Deletes one file in the tree.
+            ///
+            /// @param file file path.
+            /// @param attrs file attributes.
+            /// @return traversal continuation.
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            /// Deletes a directory after its children have been deleted.
+            ///
+            /// @param dir directory path.
+            /// @param exception traversal failure, or null.
+            /// @return traversal continuation.
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, @Nullable IOException exception) throws IOException {
+                if (exception != null) {
+                    throw exception;
+                }
+                Files.delete(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     /// Parses a TOML file and reports syntax errors.

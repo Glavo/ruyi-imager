@@ -3,18 +3,23 @@
 
 package org.glavo.ruyi.imager.core.repo;
 
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for Ruyi repository configuration parsing.
@@ -24,16 +29,18 @@ public final class RuyiRepositoryStoreTest {
     @Test
     public void usesChinaMirrorForShanghaiTimeZone() {
         assertEquals(
-                RuyiRepositoryStore.CHINA_MAINLAND_REPO_REMOTE,
-                RuyiRepositoryStore.defaultRepoRemote(ZoneId.of("Asia/Shanghai")));
+                List.of(
+                        RuyiRepositoryStore.CHINA_MAINLAND_REPO_REMOTE,
+                        RuyiRepositoryStore.DEFAULT_REPO_REMOTE),
+                RuyiRepositoryStore.defaultRepoRemotes(ZoneId.of("Asia/Shanghai")));
     }
 
     /// Verifies the built-in repository keeps the official remote outside the Shanghai time zone.
     @Test
     public void usesOfficialRemoteOutsideShanghaiTimeZone() {
         assertEquals(
-                RuyiRepositoryStore.DEFAULT_REPO_REMOTE,
-                RuyiRepositoryStore.defaultRepoRemote(ZoneId.of("UTC")));
+                List.of(RuyiRepositoryStore.DEFAULT_REPO_REMOTE),
+                RuyiRepositoryStore.defaultRepoRemotes(ZoneId.of("UTC")));
     }
 
     /// Verifies default and overlay repository entries are parsed and sorted.
@@ -93,7 +100,104 @@ public final class RuyiRepositoryStoreTest {
         List<RuyiRepositoryEntry> entries = store.readEntries();
 
         assertEquals(1, entries.size());
-        assertEquals("https://example.invalid/packages-index.git", entries.getFirst().remote());
+        assertEquals(List.of("https://example.invalid/packages-index.git"), entries.getFirst().remotes());
+    }
+
+    /// Verifies ordered repository source lists are parsed, deduplicated, and cleaned.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be created or read.
+    @Test
+    public void readsConfiguredRemoteList(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Files.createDirectories(configDirectory);
+
+        Files.writeString(configDirectory.resolve("config.toml"), """
+                [repo]
+                remote = "https://legacy.example.invalid/packages-index.git"
+                remotes = [
+                    "https://mirror.example.invalid/packages-index.git",
+                    " ",
+                    "https://github.example.invalid/packages-index.git",
+                    "https://mirror.example.invalid/packages-index.git",
+                ]
+                """);
+
+        RuyiRepositoryStore store = new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory));
+
+        assertEquals(
+                List.of(
+                        "https://mirror.example.invalid/packages-index.git",
+                        "https://github.example.invalid/packages-index.git"),
+                store.readEntries().getFirst().remotes());
+    }
+
+    /// Verifies clone and pull operations retry the next source after a remote failure.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture repositories cannot be created or synchronized.
+    @Test
+    public void retriesCloneAndPullWithFallbackSource(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Path remoteDirectory = temporaryDirectory.resolve("remote");
+        Path missingRemote = temporaryDirectory.resolve("missing-remote");
+        Files.createDirectories(configDirectory);
+
+        try (Git remote = Git.init()
+                .setDirectory(remoteDirectory.toFile())
+                .setInitialBranch(RuyiRepositoryStore.DEFAULT_REPO_BRANCH)
+                .call()) {
+            commitRepositoryVersion(remote, "v1");
+            writeRemoteConfig(configDirectory, missingRemote, remoteDirectory);
+
+            RuyiRepositoryStore store = new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory));
+            ArrayList<String> statuses = new ArrayList<>();
+            store.update(event -> statuses.add(event.message()));
+
+            Path checkout = cacheDirectory.resolve("repos").resolve(RuyiRepositoryStore.DEFAULT_REPO_ID);
+            assertEquals("ruyi-repo = \"v1\"\n", Files.readString(checkout.resolve("config.toml")));
+            assertTrue(statuses.stream().anyMatch(message -> message.contains("fallback source")));
+
+            commitRepositoryVersion(remote, "v2");
+            statuses.clear();
+            store.update(event -> statuses.add(event.message()));
+
+            assertEquals("ruyi-repo = \"v2\"\n", Files.readString(checkout.resolve("config.toml")));
+            assertTrue(statuses.stream().anyMatch(message -> message.contains("fallback source")));
+            try (Git checkoutRepository = Git.open(checkout.toFile())) {
+                assertEquals(
+                        remoteDirectory.toUri().toString(),
+                        checkoutRepository.getRepository().getConfig().getString("remote", "origin", "url"));
+            }
+        }
+    }
+
+    /// Verifies failed clone attempts do not expose or retain partial checkout directories.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when fixture files cannot be created or inspected.
+    @Test
+    public void cleansStagingDirectoriesWhenAllCloneSourcesFail(@TempDir Path temporaryDirectory) throws Exception {
+        Path configDirectory = temporaryDirectory.resolve("config");
+        Path cacheDirectory = temporaryDirectory.resolve("cache");
+        Files.createDirectories(configDirectory);
+
+        Path firstMissingRemote = temporaryDirectory.resolve("missing-remote-1");
+        Path secondMissingRemote = temporaryDirectory.resolve("missing-remote-2");
+        writeRemoteConfig(configDirectory, firstMissingRemote, secondMissingRemote);
+
+        RuyiRepositoryStore store = new RuyiRepositoryStore(new AppDirectories(configDirectory, cacheDirectory));
+        IOException exception = assertThrows(IOException.class, () -> store.update(_ -> {
+        }));
+
+        assertTrue(exception.getMessage().contains("all 2 configured sources"), exception.getMessage());
+        Path repositoriesDirectory = cacheDirectory.resolve("repos");
+        assertFalse(Files.exists(repositoriesDirectory.resolve(RuyiRepositoryStore.DEFAULT_REPO_ID)));
+        try (var paths = Files.list(repositoriesDirectory)) {
+            assertTrue(paths.findAny().isEmpty());
+        }
     }
 
     /// Verifies missing default repository metadata is reported as unavailable.
@@ -141,5 +245,38 @@ public final class RuyiRepositoryStoreTest {
     /// @return path string.
     private static String pathString(Path path) {
         return path.toString().replace('\\', '/');
+    }
+
+    /// Writes an ordered two-source default repository configuration.
+    ///
+    /// @param configDirectory application configuration directory.
+    /// @param firstRemote first source path.
+    /// @param secondRemote fallback source path.
+    /// @throws IOException when the configuration cannot be written.
+    private static void writeRemoteConfig(
+            Path configDirectory,
+            Path firstRemote,
+            Path secondRemote) throws IOException {
+        Files.writeString(configDirectory.resolve("config.toml"), """
+                [repo]
+                remotes = ["%s", "%s"]
+                """.formatted(firstRemote.toUri(), secondRemote.toUri()));
+    }
+
+    /// Commits one metadata version to a fixture repository.
+    ///
+    /// @param git fixture repository.
+    /// @param version metadata version text.
+    /// @throws IOException when the metadata file cannot be written.
+    /// @throws GitAPIException when the metadata cannot be committed.
+    private static void commitRepositoryVersion(Git git, String version) throws IOException, GitAPIException {
+        Path configFile = git.getRepository().getWorkTree().toPath().resolve("config.toml");
+        Files.writeString(configFile, "ruyi-repo = \"" + version + "\"\n");
+        git.add().addFilepattern("config.toml").call();
+        git.commit()
+                .setMessage("Set repository version to " + version)
+                .setAuthor("Ruyi Imager Tests", "tests@example.invalid")
+                .setCommitter("Ruyi Imager Tests", "tests@example.invalid")
+                .call();
     }
 }
