@@ -262,6 +262,9 @@ public final class MainWindow {
     /// Whether cancellation has already been requested for the current flash operation.
     private boolean cancellationRequested;
 
+    /// Action that closes the stage after an active flash worker has stopped, or null when no close is pending.
+    private @Nullable Runnable pendingCloseAction;
+
     /// Creates the main window.
     ///
     /// @param services shared application services.
@@ -1860,7 +1863,9 @@ public final class MainWindow {
 
         task.setOnSucceeded(_ -> {
             @Nullable T result = task.getValue();
-            finishBackgroundTask();
+            if (finishBackgroundTask()) {
+                return;
+            }
             if (result != null) {
                 LOGGER.debug("GUI background task succeeded.");
                 onSuccess.accept(result);
@@ -1872,7 +1877,9 @@ public final class MainWindow {
         task.setOnFailed(_ -> {
             boolean cancelledFlash = flashInProgress && cancellationRequested;
             @Nullable Throwable failure = task.getException();
-            finishBackgroundTask();
+            if (finishBackgroundTask()) {
+                return;
+            }
             if (cancelledFlash && isInterruptionFailure(failure)) {
                 LOGGER.info("GUI background task stopped after cancellation request.", failure);
                 showFlashCancelled();
@@ -1887,9 +1894,58 @@ public final class MainWindow {
         });
 
         Thread thread = new Thread(task, "ruyi-imager-background");
-        thread.setDaemon(true);
+        thread.setDaemon(!flashInProgress);
         currentBackgroundThread = thread;
         thread.start();
+    }
+
+    /// Coordinates a main-window close request with an active flash operation.
+    ///
+    /// This method must be called on the JavaFX application thread. When flashing is active, it stores the close
+    /// action, requests cancellation, and returns `false`; the action runs after the flash worker and any elevated
+    /// helper cleanup have completed.
+    ///
+    /// @param closeAction action that retries closing the stage.
+    /// @return whether the stage may close immediately.
+    public boolean requestClose(Runnable closeAction) {
+        @Nullable Thread thread = currentBackgroundThread;
+        if (!flashInProgress || thread == null || !thread.isAlive()) {
+            return true;
+        }
+
+        if (pendingCloseAction == null) {
+            LOGGER.info("Deferring main window close until the flash operation stops.");
+            pendingCloseAction = closeAction;
+        }
+        requestFlashCancellation();
+        return false;
+    }
+
+    /// Stops an active flash worker before the JavaFX application exits.
+    ///
+    /// This method blocks until the worker has completed its helper cancellation and termination path. Background
+    /// operations that do not write devices remain daemon tasks and are not awaited.
+    public void shutdown() {
+        @Nullable Thread thread = currentBackgroundThread;
+        if (!flashInProgress || thread == null || !thread.isAlive()) {
+            return;
+        }
+
+        LOGGER.info("Waiting for the active flash operation to stop during application shutdown.");
+        thread.interrupt();
+        boolean interrupted = false;
+        while (thread.isAlive()) {
+            try {
+                thread.join();
+            } catch (InterruptedException exception) {
+                interrupted = true;
+                thread.interrupt();
+                LOGGER.debug("Interrupted while waiting for the flash worker to stop.", exception);
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /// Requests cancellation for the active flash operation.
@@ -1938,8 +1994,12 @@ public final class MainWindow {
         return false;
     }
 
-    /// Clears background task UI bindings.
-    private void finishBackgroundTask() {
+    /// Clears background task UI bindings and completes a deferred window close.
+    ///
+    /// @return whether a deferred close action was run.
+    private boolean finishBackgroundTask() {
+        @Nullable Runnable closeAction = pendingCloseAction;
+        pendingCloseAction = null;
         statusLabel.textProperty().unbind();
         progressBar.progressProperty().unbind();
         statusLabel.setText(Messages.get("gui.status.ready"));
@@ -1951,6 +2011,12 @@ public final class MainWindow {
         currentBackgroundThread = null;
         busy = false;
         refreshState();
+        if (closeAction != null) {
+            LOGGER.info("Closing main window after the flash operation stopped.");
+            closeAction.run();
+            return true;
+        }
+        return false;
     }
 
     /// Starts a fresh visible phase-progress generation for one flash task.

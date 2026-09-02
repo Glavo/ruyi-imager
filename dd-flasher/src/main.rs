@@ -326,17 +326,35 @@ fn validate_request(request: &Request) -> Result<(), String> {
     if same_path(&request.source, &request.target) {
         return Err("source and target refer to the same path".to_string());
     }
-    target_identity::validate(TargetExpectation {
-        path: &request.target,
-        display_name: &request.target_display_name,
-        size_bytes: request.target_size_bytes,
-        removable: request.removable,
-        file_backed: request.file_backed,
-        model: request.target_model.as_deref(),
-        bus_type: request.target_bus_type.as_deref(),
-        hardware_id: request.target_hardware_id.as_deref(),
-    })?;
+    if !request.removable {
+        return Err(format!(
+            "target is not removable: {}",
+            request.target_display_name
+        ));
+    }
+    if request.target_size_bytes == 0 {
+        return Err(format!(
+            "target size is unknown: {}",
+            request.target_display_name
+        ));
+    }
     Ok(())
+}
+
+/// Validates the target identity through the handle used by the operation.
+fn validate_open_target(request: &Request, target: &File) -> Result<(), String> {
+    target_identity::validate(
+        TargetExpectation {
+            path: &request.target,
+            display_name: &request.target_display_name,
+            size_bytes: request.target_size_bytes,
+            file_backed: request.file_backed,
+            model: request.target_model.as_deref(),
+            bus_type: request.target_bus_type.as_deref(),
+            hardware_id: request.target_hardware_id.as_deref(),
+        },
+        target,
+    )
 }
 
 /// Returns whether two paths resolve to the same filesystem object.
@@ -363,6 +381,7 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
             request.target_display_name
         )
     })?;
+    validate_open_target(request, &target)?;
 
     write_image_stream(request, &mut source, &mut target, sink)
 }
@@ -383,6 +402,7 @@ fn write_and_verify_image(request: &Request, sink: &mut EventSink) -> Result<boo
             request.target_display_name
         )
     })?;
+    validate_open_target(request, &target)?;
 
     write_image_stream(request, &mut source, &mut target, sink)?;
     source
@@ -466,6 +486,7 @@ fn verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String>
             request.target_display_name
         )
     })?;
+    validate_open_target(request, &target)?;
 
     verify_image_stream(request, &mut source, &mut target, sink)
 }
@@ -657,28 +678,19 @@ mod platform {
     }
 
     /// Inspects a raw physical drive after elevation and before destructive access.
-    pub(crate) fn inspect_target(target: &Path) -> io::Result<TargetObservation> {
-        let target_text = target.to_string_lossy();
+    pub(crate) fn inspect_target(
+        target_path: &Path,
+        target: &File,
+    ) -> io::Result<TargetObservation> {
+        let target_text = target_path.to_string_lossy();
         let disk_number = raw_physical_drive_number(target_text.as_ref()).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "target is not a raw physical drive",
             )
         })?;
-        let raw_target = normalized_raw_physical_drive_path(target).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "target is not a raw physical drive",
-            )
-        })?;
-        let handle = open_existing(
-            &raw_target,
-            GENERIC_READ,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            0,
-        )?;
-        let size_bytes = disk_length(&handle)?;
-        let descriptor = storage_device_descriptor(&handle)?;
+        let size_bytes = disk_length(target)?;
+        let descriptor = storage_device_descriptor(target)?;
         if descriptor.bus_type == STORAGE_BUS_TYPE_VIRTUAL
             || descriptor.bus_type == STORAGE_BUS_TYPE_FILE_BACKED_VIRTUAL
         {
@@ -1722,7 +1734,7 @@ mod tests {
         );
     }
 
-    /// Verifies a changed file-backed target size is rejected before writing.
+    /// Verifies a file-backed target replaced after request validation is rejected before writing.
     #[test]
     fn rejects_changed_file_backed_target_size() {
         let temp = TempDirectory::new("rejects_changed_file_backed_target_size");
@@ -1734,10 +1746,10 @@ mod tests {
         let request = Request {
             operation: Operation::Write,
             source,
-            target,
+            target: target.clone(),
             target_display_name: "Test Target".to_string(),
             total_bytes: 4,
-            target_size_bytes: 7,
+            target_size_bytes: 8,
             removable: true,
             file_backed: true,
             target_model: None,
@@ -1748,11 +1760,16 @@ mod tests {
             stdout: true,
         };
 
+        validate_request(&request).unwrap();
+        fs::write(&target, [9u8; 7]).unwrap();
+
+        let mut sink = EventSink::new(None, true).unwrap();
         assert!(
-            validate_request(&request)
+            write_image(&request, &mut sink)
                 .unwrap_err()
                 .contains("target size changed")
         );
+        assert_eq!(fs::read(target).unwrap(), [9u8; 7]);
     }
 
     /// Verifies source growth after validation does not write extra bytes to the target.

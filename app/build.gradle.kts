@@ -238,9 +238,9 @@ val hostJlinkExecutable = java25Launcher.map {
 }
 
 val alibabaPuhuitiFontUrl =
-    "https://registry.npmmirror.com/@fontpkg/alibaba-puhuiti-3-0/-/alibaba-puhuiti-3-0-0.0.0.tgz"
-val alibabaPuhuitiFontArchive =
-    rootProject.layout.buildDirectory.file("downloads/fonts/alibaba-puhuiti-3-0-0.0.0.tgz")
+    "https://fonts.alibabadesign.com/AlibabaPuHuiTi-3/AlibabaPuHuiTi-3-65-Medium/AlibabaPuHuiTi-3-65-Medium.ttf"
+val alibabaPuhuitiFontSize = 8_429_388L
+val alibabaPuhuitiFontSha256 = "d92b378a2d08ac1e5c2b87d03b9939fdfae93d3c336b6a13ac4e00ce44f6db9e"
 val generatedResourcesDirectory = layout.buildDirectory.dir("generated/resources/main")
 val generatedBuildInfo =
     generatedResourcesDirectory.map { it.file("org/glavo/ruyi/imager/update/build-info.properties") }
@@ -249,29 +249,25 @@ val alibabaPuhuitiMediumFont =
 
 tasks.register<Download>("downloadAlibabaPuhuitiFont") {
     group = "assets"
-    description = "Downloads the Alibaba PuHuiTi 3.0 font package."
+    description = "Downloads the Alibaba PuHuiTi 3.0 Medium font from the official font host."
     src(alibabaPuhuitiFontUrl)
-    dest(alibabaPuhuitiFontArchive.get().asFile)
+    dest(alibabaPuhuitiMediumFont.get().asFile)
     overwrite(false)
     onlyIfModified(true)
     tempAndMove(true)
     retries(downloadRetries.get())
-    outputs.file(alibabaPuhuitiFontArchive)
+    header("Referer", "https://www.alibabafonts.com/")
+    header("User-Agent", "Ruyi-Imager-Gradle/1.0")
+    outputs.file(alibabaPuhuitiMediumFont)
 }
 
-val extractAlibabaPuhuitiMediumFont = tasks.register<Copy>("extractAlibabaPuhuitiMediumFont") {
+val verifyAlibabaPuhuitiFont = tasks.register<VerifyFile>("verifyAlibabaPuhuitiFont") {
     group = "assets"
-    description = "Extracts the Alibaba PuHuiTi 3.0 Medium TTF font for application resources."
+    description = "Verifies the Alibaba PuHuiTi 3.0 Medium font."
     dependsOn("downloadAlibabaPuhuitiFont")
-    from({ tarTree(resources.gzip(alibabaPuhuitiFontArchive)) }) {
-        include("package/AlibabaPuHuiTi-3-65-Medium.ttf")
-        eachFile {
-            relativePath = RelativePath(true, "org", "glavo", "ruyi", "imager", "fonts", name)
-        }
-        includeEmptyDirs = false
-    }
-    into(generatedResourcesDirectory)
-    outputs.file(alibabaPuhuitiMediumFont)
+    inputFile.set(alibabaPuhuitiMediumFont)
+    expectedSizeBytes.set(alibabaPuhuitiFontSize)
+    expectedSha256.set(alibabaPuhuitiFontSha256)
 }
 
 val generateBuildInfo = tasks.register<WriteProperties>("generateBuildInfo") {
@@ -542,7 +538,7 @@ tasks.test {
 }
 
 tasks.processResources {
-    dependsOn(extractAlibabaPuhuitiMediumFont)
+    dependsOn(verifyAlibabaPuhuitiFont)
     dependsOn(generateBuildInfo)
 }
 

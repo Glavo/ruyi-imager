@@ -19,6 +19,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
@@ -49,14 +50,16 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// Maximum diagnostic output captured from helper stderr or launcher streams.
     private static final int MAX_CAPTURED_DIAGNOSTIC_BYTES = 64 * 1024;
 
-    /// POSIX permissions for temporary event logs shared with elevated helper contexts.
-    private static final Set<PosixFilePermission> ELEVATED_EVENT_LOG_PERMISSIONS = Set.of(
+    /// Maximum unconsumed event-log data accepted from an elevated helper.
+    private static final int MAX_PENDING_EVENT_LOG_BYTES = 1024 * 1024;
+
+    /// Maximum length accepted for one event-log line.
+    private static final int MAX_EVENT_LOG_LINE_BYTES = 64 * 1024;
+
+    /// POSIX permissions for temporary event logs shared with a root helper.
+    private static final Set<PosixFilePermission> PRIVATE_EVENT_LOG_PERMISSIONS = Set.of(
             PosixFilePermission.OWNER_READ,
-            PosixFilePermission.OWNER_WRITE,
-            PosixFilePermission.GROUP_READ,
-            PosixFilePermission.GROUP_WRITE,
-            PosixFilePermission.OTHERS_READ,
-            PosixFilePermission.OTHERS_WRITE);
+            PosixFilePermission.OWNER_WRITE);
 
     /// Helper executable path or command name.
     private final String executable;
@@ -445,7 +448,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             while (!process.waitFor(100L)) {
                 if (Thread.currentThread().isInterrupted()) {
                     Thread.currentThread().interrupt();
-                    throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)));
+                    throw new InterruptedIOException(SdkMessages.get("core.dd.interrupted", commandText(command)));
                 }
                 offset = readEventLog(eventLog, offset, state);
             }
@@ -737,30 +740,65 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         }
 
         try (SeekableByteChannel channel = Files.newByteChannel(eventLog, StandardOpenOption.READ)) {
-            if (offset >= channel.size()) {
+            long size = channel.size();
+            if (offset >= size) {
                 return offset;
+            }
+            long pendingBytes = size - offset;
+            if (pendingBytes > MAX_PENDING_EVENT_LOG_BYTES) {
+                throw new IOException(SdkMessages.get(
+                        "core.dd.eventLogLimit",
+                        MAX_PENDING_EVENT_LOG_BYTES));
             }
             channel.position(offset);
 
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ByteArrayOutputStream output = new ByteArrayOutputStream(Math.toIntExact(pendingBytes));
             ByteBuffer buffer = ByteBuffer.allocate(8192);
-            while (channel.read(buffer) > 0) {
+            int capturedBytes = 0;
+            int read;
+            while ((read = channel.read(buffer)) > 0) {
+                if (read > MAX_PENDING_EVENT_LOG_BYTES - capturedBytes) {
+                    throw new IOException(SdkMessages.get(
+                            "core.dd.eventLogLimit",
+                            MAX_PENDING_EVENT_LOG_BYTES));
+                }
                 buffer.flip();
-                output.write(buffer.array(), 0, buffer.limit());
+                output.write(buffer.array(), 0, read);
+                capturedBytes += read;
                 buffer.clear();
             }
 
             byte[] bytes = output.toByteArray();
             int end = lastLineBreak(bytes);
             if (end < 0) {
+                validateEventLogLineLength(bytes.length);
                 return offset;
             }
 
-            String text = new String(bytes, 0, end + 1, StandardCharsets.UTF_8);
-            for (String line : text.split("\\R")) {
-                state.accept(line);
+            int lineStart = 0;
+            for (int index = 0; index <= end; index++) {
+                if (bytes[index] != '\n') {
+                    continue;
+                }
+                int lineEnd = index > lineStart && bytes[index - 1] == '\r' ? index - 1 : index;
+                validateEventLogLineLength(lineEnd - lineStart);
+                state.accept(new String(bytes, lineStart, lineEnd - lineStart, StandardCharsets.UTF_8));
+                lineStart = index + 1;
             }
+            validateEventLogLineLength(bytes.length - lineStart);
             return offset + end + 1L;
+        }
+    }
+
+    /// Rejects an event-log line that exceeds the parser allocation limit.
+    ///
+    /// @param length line length in bytes.
+    /// @throws IOException when the line is too long.
+    private static void validateEventLogLineLength(int length) throws IOException {
+        if (length > MAX_EVENT_LOG_LINE_BYTES) {
+            throw new IOException(SdkMessages.get(
+                    "core.dd.eventLineLimit",
+                    MAX_EVENT_LOG_LINE_BYTES));
         }
     }
 
@@ -794,9 +832,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @return temporary event log path.
     /// @throws IOException when the event log cannot be created.
     static Path temporaryEventLog(String osName) throws IOException {
-        Path path = createElevatedTemporaryFile(osName, "ruyi-imager-dd-flasher-", ".ndjson", true);
-        allowElevatedHelperAccess(path);
-        return path;
+        return createElevatedTemporaryFile(osName, "ruyi-imager-dd-flasher-", ".ndjson", true);
     }
 
     /// Returns whether elevated helper events must be transferred through a temporary event log.
@@ -868,7 +904,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     private static FileAttribute<?> @Unmodifiable [] elevatedEventLogAttributes() {
         try {
             return new FileAttribute<?>[]{
-                    PosixFilePermissions.asFileAttribute(ELEVATED_EVENT_LOG_PERMISSIONS)
+                    PosixFilePermissions.asFileAttribute(PRIVATE_EVENT_LOG_PERMISSIONS)
             };
         } catch (UnsupportedOperationException exception) {
             LOGGER.debug("POSIX file permissions are not available for dd-flasher event logs.", exception);
@@ -890,23 +926,6 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             return sharedTemporaryDirectory;
         }
         return null;
-    }
-
-    /// Allows an elevated helper running under another user context to append to the event log.
-    ///
-    /// The event log is placed in a random temporary file and deleted after the helper exits. Its permissions are
-    /// intentionally relaxed to `rw-rw-rw-` on POSIX filesystems because Linux `pkexec`, macOS administrator
-    /// execution, and sandboxed launchers may not preserve the caller's UID or group. This exposes transient progress
-    /// and error metadata, including target display/path text, to local users who can discover the random path; using
-    /// only group write would be narrower but would not cover helpers that run outside the caller's primary group.
-    ///
-    /// @param eventLog event log path.
-    private static void allowElevatedHelperAccess(Path eventLog) {
-        try {
-            Files.setPosixFilePermissions(eventLog, ELEVATED_EVENT_LOG_PERMISSIONS);
-        } catch (IOException | UnsupportedOperationException | SecurityException exception) {
-            LOGGER.debug("Failed to relax dd-flasher event log permissions.", exception);
-        }
     }
 
     /// Creates a helper cancellation signal file.

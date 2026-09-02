@@ -30,6 +30,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -125,6 +126,38 @@ public final class RuyiDistfileDownloaderTest {
 
             assertArrayEquals(content, Files.readAllBytes(result));
             assertEquals(List.of(), server.rangeRequests());
+        }
+    }
+
+    /// Verifies response data beyond the declared size is rejected before it is written.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws Exception when the fixture server or filesystem fails.
+    @Test
+    public void rejectsResponseLargerThanDeclaredSize(@TempDir Path temporaryDirectory) throws Exception {
+        byte[] content = new byte[1024];
+        byte[] expected = Arrays.copyOf(content, 8);
+        try (TinyHttpServer server = new TinyHttpServer(content)) {
+            RuyiDistfile distfile = new RuyiDistfile(
+                    "image.raw",
+                    List.of(server.uri("/image.raw")),
+                    (long) expected.length,
+                    Map.of("sha256", sha256(expected)),
+                    false,
+                    true,
+                    null,
+                    0,
+                    List.of(),
+                    "raw");
+
+            IOException exception = assertThrows(IOException.class, () ->
+                    new RuyiDistfileDownloader().download(distfile, temporaryDirectory, NO_PROGRESS));
+
+            @Nullable Throwable cause = exception.getCause();
+            assertNotNull(cause);
+            assertTrue(cause.getMessage().contains("declared size"), exception.toString());
+            Path partial = temporaryDirectory.resolve("image.raw.part");
+            assertTrue(!Files.exists(partial) || Files.size(partial) <= expected.length);
         }
     }
 

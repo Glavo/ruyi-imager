@@ -269,6 +269,7 @@ public final class RuyiDistfileDownloader {
              OutputStream output = Files.newOutputStream(partial, StandardOpenOption.CREATE, StandardOpenOption.WRITE, writeMode)) {
             byte[] buffer = new byte[256 * 1024];
             long currentBytes = initialBytes;
+            @Nullable Long expectedSize = distfile.sizeBytes();
             while (true) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new InterruptedException();
@@ -276,6 +277,13 @@ public final class RuyiDistfileDownloader {
                 int read = input.read(buffer);
                 if (read < 0) {
                     break;
+                }
+                if (expectedSize != null
+                        && (currentBytes > expectedSize || read > expectedSize - currentBytes)) {
+                    throw new IOException(SdkMessages.get(
+                            "core.download.sizeExceeded",
+                            distfile.name(),
+                            expectedSize));
                 }
                 output.write(buffer, 0, read);
                 currentBytes += read;

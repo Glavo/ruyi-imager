@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Glavo
 // SPDX-License-Identifier: MPL-2.0
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::fs;
+use std::fs::File;
 use std::path::Path;
 
 /// Returns whether a Linux mount point identifies the running system or a separate boot filesystem.
@@ -20,9 +22,6 @@ pub(crate) struct TargetExpectation<'a> {
 
     /// Expected target capacity in bytes.
     pub(crate) size_bytes: u64,
-
-    /// Whether the caller identified the target as removable.
-    pub(crate) removable: bool,
 
     /// Whether the target is an explicitly supported regular-file fixture.
     pub(crate) file_backed: bool,
@@ -61,26 +60,13 @@ pub(crate) struct TargetObservation {
     pub(crate) hardware_id: Option<String>,
 }
 
-/// Validates that the target still matches the caller's selected device.
-pub(crate) fn validate(expectation: TargetExpectation<'_>) -> Result<(), String> {
-    if !expectation.removable {
-        return Err(format!(
-            "target is not removable: {}",
-            expectation.display_name
-        ));
-    }
-    if expectation.size_bytes == 0 {
-        return Err(format!(
-            "target size is unknown: {}",
-            expectation.display_name
-        ));
-    }
-
+/// Validates that the opened target still matches the caller's selected device.
+pub(crate) fn validate(expectation: TargetExpectation<'_>, target: &File) -> Result<(), String> {
     if expectation.file_backed {
-        return validate_file_backed(expectation);
+        return validate_file_backed(expectation, target);
     }
 
-    let observation = inspect_target(expectation.path).map_err(|error| {
+    let observation = inspect_target(expectation.path, target).map_err(|error| {
         format!(
             "failed to inspect target ({}): {error}",
             expectation.display_name
@@ -130,9 +116,9 @@ pub(crate) fn validate(expectation: TargetExpectation<'_>) -> Result<(), String>
     Ok(())
 }
 
-/// Validates an explicitly declared regular-file target.
-fn validate_file_backed(expectation: TargetExpectation<'_>) -> Result<(), String> {
-    let metadata = fs::metadata(expectation.path).map_err(|error| {
+/// Validates an explicitly declared regular-file target through its final handle.
+fn validate_file_backed(expectation: TargetExpectation<'_>, target: &File) -> Result<(), String> {
+    let metadata = target.metadata().map_err(|error| {
         format!(
             "failed to inspect file-backed target ({}): {error}",
             expectation.display_name
@@ -205,25 +191,47 @@ fn identity_parts(value: &str) -> Vec<(String, String)> {
 
 /// Inspects a real target on Windows through native storage APIs.
 #[cfg(windows)]
-fn inspect_target(path: &Path) -> Result<TargetObservation, String> {
-    crate::platform::inspect_target(path).map_err(|error| error.to_string())
+fn inspect_target(path: &Path, target: &File) -> Result<TargetObservation, String> {
+    crate::platform::inspect_target(path, target).map_err(|error| error.to_string())
 }
 
 /// Inspects a real target on Linux through fixed-path lsblk JSON output.
 #[cfg(target_os = "linux")]
-fn inspect_target(path: &Path) -> Result<TargetObservation, String> {
-    linux::inspect_target(path)
+fn inspect_target(path: &Path, target: &File) -> Result<TargetObservation, String> {
+    validate_open_unix_target(path, target)?;
+    let observation = linux::inspect_target(path)?;
+    validate_open_unix_target(path, target)?;
+    Ok(observation)
 }
 
 /// Inspects a real target on macOS through fixed-path diskutil plist output.
 #[cfg(target_os = "macos")]
-fn inspect_target(path: &Path) -> Result<TargetObservation, String> {
-    macos::inspect_target(path)
+fn inspect_target(path: &Path, target: &File) -> Result<TargetObservation, String> {
+    validate_open_unix_target(path, target)?;
+    let observation = macos::inspect_target(path)?;
+    validate_open_unix_target(path, target)?;
+    Ok(observation)
+}
+
+/// Verifies that a Unix target path still names the object held by the final handle.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn validate_open_unix_target(path: &Path, target: &File) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let open_metadata = target
+        .metadata()
+        .map_err(|error| format!("failed to inspect opened target: {error}"))?;
+    let path_metadata =
+        fs::metadata(path).map_err(|error| format!("failed to inspect target path: {error}"))?;
+    if open_metadata.dev() != path_metadata.dev() || open_metadata.ino() != path_metadata.ino() {
+        return Err("target path changed after it was opened".to_string());
+    }
+    Ok(())
 }
 
 /// Rejects real-device writes on unsupported operating systems.
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
-fn inspect_target(_path: &Path) -> Result<TargetObservation, String> {
+fn inspect_target(_path: &Path, _target: &File) -> Result<TargetObservation, String> {
     Err("target identity validation is not supported on this operating system".to_string())
 }
 

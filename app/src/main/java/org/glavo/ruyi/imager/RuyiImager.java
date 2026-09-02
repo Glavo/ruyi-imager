@@ -51,6 +51,9 @@ public final class RuyiImager extends Application {
     /// Core services shared by the GUI and CLI.
     private @Nullable AppServices services;
 
+    /// Main window lifecycle coordinator, or null before the UI is created.
+    private @Nullable MainWindow mainWindow;
+
     /// Whether this JavaFX application initialized logging without the normal process bootstrap.
     private boolean ownsLogging;
 
@@ -76,6 +79,7 @@ public final class RuyiImager extends Application {
         }
 
         MainWindow window = new MainWindow(currentServices);
+        mainWindow = window;
         Scene scene = new Scene(window.root(), 1180, 700);
         URL stylesheet = RuyiImager.class.getResource("/org/glavo/ruyi/imager/gui/application.css");
         if (stylesheet != null) {
@@ -87,6 +91,11 @@ public final class RuyiImager extends Application {
         primaryStage.setMinWidth(840);
         primaryStage.setMinHeight(560);
         primaryStage.setScene(scene);
+        primaryStage.setOnCloseRequest(event -> {
+            if (!window.requestClose(primaryStage::close)) {
+                event.consume();
+            }
+        });
         primaryStage.show();
         Platform.runLater(window::showStartupActions);
     }
@@ -110,6 +119,11 @@ public final class RuyiImager extends Application {
     /// Stops the JavaFX application and closes logging resources initialized by this instance.
     @Override
     public void stop() {
+        @Nullable MainWindow window = mainWindow;
+        mainWindow = null;
+        if (window != null) {
+            window.shutdown();
+        }
         LOGGER.info("JavaFX application stopped.");
         if (ownsLogging) {
             RuyiLogging.shutdown();

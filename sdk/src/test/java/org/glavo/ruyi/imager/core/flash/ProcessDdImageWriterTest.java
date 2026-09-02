@@ -143,19 +143,20 @@ public final class ProcessDdImageWriterTest {
         assertEquals(List.of(4L, 0L, 4L), events.stream().map(ProgressEvent::currentBytes).toList());
     }
 
-    /// Verifies POSIX elevated event logs can be appended by helper processes running under another user.
+    /// Verifies POSIX elevated event logs are private to the invoking user and the root helper.
     ///
     /// @throws Exception when the temporary event log cannot be created or inspected.
     @Test
-    public void createsPosixElevatedEventLogForCrossUserAppend() throws Exception {
+    public void createsPrivatePosixElevatedEventLog() throws Exception {
         assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
 
         Path eventLog = ProcessDdImageWriter.temporaryEventLog("Linux");
         try {
             assertEquals(Path.of("/tmp").toRealPath(), eventLog.getParent().toRealPath());
             Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(eventLog);
-            assertTrue(permissions.contains(PosixFilePermission.OTHERS_READ));
-            assertTrue(permissions.contains(PosixFilePermission.OTHERS_WRITE));
+            assertEquals(Set.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE), permissions);
         } finally {
             Files.deleteIfExists(eventLog);
         }
