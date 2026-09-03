@@ -9,6 +9,7 @@ import org.glavo.ruyi.imager.core.AppDirectories;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.tomlj.Toml;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -157,14 +158,14 @@ public final class RuyiRepositoryStoreTest {
             store.update(event -> statuses.add(event.message()));
 
             Path checkout = cacheDirectory.resolve("repos").resolve(RuyiRepositoryStore.DEFAULT_REPO_ID);
-            assertEquals("ruyi-repo = \"v1\"\n", Files.readString(checkout.resolve("config.toml")));
+            assertEquals("v1", Toml.parse(checkout.resolve("config.toml")).getString("ruyi-repo"));
             assertTrue(statuses.stream().anyMatch(message -> message.contains("fallback source")));
 
             commitRepositoryVersion(remote, "v2");
             statuses.clear();
             store.update(event -> statuses.add(event.message()));
 
-            assertEquals("ruyi-repo = \"v2\"\n", Files.readString(checkout.resolve("config.toml")));
+            assertEquals("v2", Toml.parse(checkout.resolve("config.toml")).getString("ruyi-repo"));
             assertTrue(statuses.stream().anyMatch(message -> message.contains("fallback source")));
             try (Git checkoutRepository = Git.open(checkout.toFile())) {
                 assertEquals(

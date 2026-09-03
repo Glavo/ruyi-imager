@@ -126,6 +126,7 @@
 - `cargo clippy --locked --manifest-path dd-flasher/Cargo.toml --all-targets -- -D warnings`
 - `cargo check --locked --manifest-path dd-flasher/Cargo.toml --target x86_64-unknown-linux-gnu`
 - `cargo check --locked --manifest-path dd-flasher/Cargo.toml --target x86_64-apple-darwin`
+- `./gradlew -g .gradle-user-home check`; repository fallback tests compare parsed TOML values instead of platform-dependent checkout line endings.
 
 ### Known Limits
 
