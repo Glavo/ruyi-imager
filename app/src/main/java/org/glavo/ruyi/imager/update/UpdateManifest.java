@@ -28,9 +28,6 @@ public record UpdateManifest(
             throw new IllegalArgumentException("Unsupported update manifest schema version: " + schemaVersion);
         }
         releases = List.copyOf(releases);
-        if (releases.isEmpty()) {
-            throw new IllegalArgumentException("Update manifest must contain at least one release.");
-        }
         Set<ReleaseIdentity> identities = new TreeSet<>(
                 Comparator.comparing(ReleaseIdentity::channel)
                         .thenComparing(ReleaseIdentity::version));

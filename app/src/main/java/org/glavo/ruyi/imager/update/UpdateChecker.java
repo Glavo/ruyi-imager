@@ -14,324 +14,265 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
-/// Checks a local JSON manifest for a newer Ruyi Imager build.
+/// Reads an update feed and selects the newest installable release in a channel.
 ///
-/// @param current running application build.
-/// @param source  local update manifest path.
+/// @param current installed application build.
+/// @param source local or HTTPS update manifest.
+/// @param target local installation capabilities.
 @NotNullByDefault
-public record UpdateChecker(BuildInfo current, Path source) {
-    /// JVM property that overrides the local update manifest path.
+public record UpdateChecker(BuildInfo current, UpdateSource source, UpdateTarget target) {
+    /// JVM property overriding the default local manifest with a path or HTTPS URL.
     public static final String SOURCE_PROPERTY = "ruyi.imager.update.source";
 
-    /// Default update manifest file name under the application configuration directory.
-    private static final String DEFAULT_SOURCE_FILE_NAME = "update-manifest.json";
-
-    /// Maximum accepted manifest size.
-    private static final long MAX_MANIFEST_SIZE = 1024L * 1024L;
-
-    /// Strict JSON reader for update manifests.
+    /// Strict JSON parser that rejects duplicate keys and trailing documents.
     private static final ObjectMapper MAPPER = new ObjectMapper(
             JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build())
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
-    /// Fields accepted by the manifest root object.
-    private static final @Unmodifiable Set<String> MANIFEST_FIELDS = Set.of("schemaVersion", "releases");
+    /// Requirement names whose semantics are implemented by this client.
+    private static final @Unmodifiable Set<String> REQUIREMENT_FIELDS = Set.of(
+            "minimumAppVersion", "minimumSystemVersion");
 
-    /// Fields accepted by one release object.
-    private static final @Unmodifiable Set<String> RELEASE_FIELDS = Set.of(
-            "channel",
-            "version",
-            "releaseNotes",
-            "artifacts");
-
-    /// Fields accepted by one artifact object.
-    private static final @Unmodifiable Set<String> ARTIFACT_FIELDS = Set.of(
-            "platform",
-            "packageType",
-            "source",
-            "size",
-            "sha256");
-
-    /// Normalizes the local update manifest path.
-    public UpdateChecker {
-        source = source.toAbsolutePath().normalize();
+    /// Creates a local-file checker using detected platform capabilities.
+    ///
+    /// @param current installed build.
+    /// @param source local manifest file.
+    public UpdateChecker(BuildInfo current, Path source) {
+        this(current, UpdateSource.of(source), UpdateTarget.current());
     }
 
-    /// Creates a checker using the configured local manifest path.
+    /// Creates a checker using application directories and an optional source override.
     ///
     /// @param directories application directories.
-    /// @return configured update checker.
+    /// @return configured checker.
     public static UpdateChecker createDefault(AppDirectories directories) {
         return createConfigured(configuredSource(directories));
     }
 
-    /// Creates a checker using an explicit local manifest.
+    /// Creates a checker for the running application and an explicit source.
     ///
-    /// @param source explicit local manifest path.
-    /// @return configured update checker.
-    public static UpdateChecker createConfigured(Path source) {
-        return new UpdateChecker(BuildInfo.current(), source);
+    /// @param source manifest location.
+    /// @return configured checker.
+    public static UpdateChecker createConfigured(UpdateSource source) {
+        return new UpdateChecker(BuildInfo.current(), source, UpdateTarget.current());
     }
 
-    /// Resolves the configured local update manifest path.
+    /// Resolves the configured update source, defaulting to a local test manifest.
     ///
     /// @param directories application directories.
-    /// @return local update manifest path.
-    public static Path configuredSource(AppDirectories directories) {
+    /// @return manifest source.
+    public static UpdateSource configuredSource(AppDirectories directories) {
         @Nullable String configured = System.getProperty(SOURCE_PROPERTY);
-        if (configured == null || configured.isBlank()) {
-            return directories.configDirectory().resolve(DEFAULT_SOURCE_FILE_NAME).toAbsolutePath().normalize();
-        }
-        return Path.of(configured).toAbsolutePath().normalize();
+        return configured == null || configured.isBlank()
+                ? UpdateSource.of(directories.configDirectory().resolve("update-manifest.json"))
+                : UpdateSource.parse(configured);
     }
 
-    /// Reads the stable channel and compares it with the running build.
+    /// Checks the stable channel.
     ///
-    /// @return update check result.
-    /// @throws IOException when the manifest cannot be read or parsed.
+    /// @return comparison and installation eligibility result.
+    /// @throws IOException when the source cannot be read or parsed.
     public UpdateCheckResult check() throws IOException {
         return check(UpdateChannel.STABLE);
     }
 
-    /// Reads one update channel and compares its newest release with the running build.
+    /// Selects the newest compatible release newer than the installed build.
+    /// When newer releases exist but none is installable, the newest is returned only
+    /// for informational display. An empty or absent channel is considered up to date.
     ///
-    /// @param channel selected update channel.
-    /// @return update check result.
-    /// @throws IOException when the manifest cannot be read or parsed.
+    /// @param channel requested channel.
+    /// @return selected release and artifact, or a non-installable status.
+    /// @throws IOException when the source cannot be read or violates the manifest contract.
     public UpdateCheckResult check(UpdateChannel channel) throws IOException {
-        byte[] manifestBytes = readBoundedFile(source, MAX_MANIFEST_SIZE, "Update manifest");
-
         UpdateManifest manifest;
         try {
-            manifest = readManifest(manifestBytes);
-        } catch (IOException | IllegalArgumentException exception) {
+            manifest = readManifest(source.read());
+        } catch (IllegalArgumentException exception) {
             throw new IOException("Invalid update manifest: " + source, exception);
         }
-
-        UpdateRelease available = newestRelease(manifest, channel);
-        ApplicationVersion currentVersion;
-        try {
-            currentVersion = ApplicationVersion.parse(current.version());
-        } catch (IllegalArgumentException exception) {
-            throw new IOException("Invalid running application version: " + current.version(), exception);
-        }
-        int versionComparison = ApplicationVersion.parse(available.version()).compareTo(currentVersion);
-        return new UpdateCheckResult(
-                versionComparison > 0
-                        ? UpdateCheckResult.Status.UPDATE_AVAILABLE
-                        : UpdateCheckResult.Status.UP_TO_DATE,
-                current,
-                available);
-    }
-
-    /// Selects the newest release in one channel.
-    ///
-    /// @param manifest parsed update manifest.
-    /// @param channel  selected update channel.
-    /// @return newest matching release.
-    /// @throws IOException when the manifest has no release for the channel.
-    private static UpdateRelease newestRelease(UpdateManifest manifest, UpdateChannel channel) throws IOException {
+        ApplicationVersion installedVersion = ApplicationVersion.parse(current.version());
         @Nullable UpdateRelease newest = null;
+        @Nullable UpdateRelease compatible = null;
+        @Nullable UpdateArtifact selected = null;
         for (UpdateRelease release : manifest.releases()) {
-            if (release.channel() != channel) {
+            if (release.channel() != channel
+                    || ApplicationVersion.parse(release.version()).compareTo(installedVersion) <= 0) {
                 continue;
             }
-            if (newest == null || compareReleases(release, newest) > 0) {
+            if (newest == null || compare(release, newest) > 0) {
                 newest = release;
             }
+            @Nullable UpdateArtifact artifact = target.select(release, current);
+            if (artifact != null && (compatible == null || compare(release, compatible) > 0)) {
+                compatible = release;
+                selected = artifact;
+            }
         }
-        if (newest == null) {
-            throw new IOException("Update manifest contains no releases for channel: " + channel.token());
+        if (compatible != null) {
+            return new UpdateCheckResult(UpdateCheckResult.Status.UPDATE_AVAILABLE, current, compatible, selected);
         }
-        return newest;
+        return new UpdateCheckResult(newest == null ? UpdateCheckResult.Status.UP_TO_DATE
+                : UpdateCheckResult.Status.NO_COMPATIBLE_UPDATE, current, newest, null);
     }
 
-    /// Compares two releases by application version precedence.
+    /// Compares release precedence without considering build metadata.
     ///
-    /// @param left  left release.
-    /// @param right right release.
-    /// @return comparison result.
-    private static int compareReleases(UpdateRelease left, UpdateRelease right) {
+    /// @param left first release.
+    /// @param right second release.
+    /// @return version comparison result.
+    private static int compare(UpdateRelease left, UpdateRelease right) {
         return ApplicationVersion.parse(left.version()).compareTo(ApplicationVersion.parse(right.version()));
     }
 
-    /// Reads a bounded regular file.
+    /// Parses a manifest, ignoring non-critical extension fields and unknown candidate types.
+    /// Unknown installation requirements make their containing candidate ineligible.
     ///
-    /// @param path        file path.
-    /// @param maximumSize maximum accepted byte count.
-    /// @param description file description used in failures.
-    /// @return file bytes.
-    /// @throws IOException when the file is missing, oversized, or unreadable.
-    private static byte[] readBoundedFile(Path path, long maximumSize, String description) throws IOException {
-        if (!Files.isRegularFile(path)) {
-            throw new IOException(description + " does not exist or is not a regular file: " + path);
-        }
-        if (Files.size(path) > maximumSize) {
-            throw new IOException(description + " exceeds the maximum size of " + maximumSize + " bytes: " + path);
-        }
-        try (InputStream input = Files.newInputStream(path)) {
-            byte[] bytes = input.readNBytes(Math.toIntExact(maximumSize + 1L));
-            if (bytes.length > maximumSize) {
-                throw new IOException(
-                        description + " exceeds the maximum size of " + maximumSize + " bytes: " + path);
-            }
-            return bytes;
-        }
-    }
-
-    /// Reads and validates one update manifest object.
-    ///
-    /// @param manifestBytes manifest bytes.
-    /// @return validated manifest.
-    /// @throws IOException when JSON cannot be read.
-    private static UpdateManifest readManifest(byte[] manifestBytes) throws IOException {
-        JsonNode root = MAPPER.readTree(manifestBytes);
+    /// @param bytes bounded JSON document.
+    /// @return validated manifest containing recognized channels and installer types.
+    /// @throws IOException when JSON syntax is invalid.
+    /// @throws IllegalArgumentException when required fields or known values are invalid.
+    static UpdateManifest readManifest(byte[] bytes) throws IOException {
+        @Nullable JsonNode root = MAPPER.readTree(bytes);
         requireObject(root, "Update manifest");
-        rejectUnknownFields(root, MANIFEST_FIELDS, "update manifest");
-        int schemaVersion = requiredInt(root, "schemaVersion", "Update manifest");
-        JsonNode releasesNode = requiredArray(root, "releases", "Update manifest");
+        long schemaVersion = requiredLong(root, "schemaVersion");
+        if (schemaVersion != UpdateManifest.CURRENT_SCHEMA_VERSION) {
+            throw new IllegalArgumentException("Unsupported update manifest schema version: " + schemaVersion);
+        }
         List<UpdateRelease> releases = new ArrayList<>();
-        for (JsonNode releaseNode : releasesNode) {
-            releases.add(readRelease(releaseNode));
+        for (JsonNode node : requiredArray(root, "releases")) {
+            requireObject(node, "Update release");
+            UpdateChannel channel;
+            String channelName = requiredText(node, "channel");
+            try {
+                channel = UpdateChannel.parse(channelName);
+            } catch (IllegalArgumentException ignored) {
+                continue;
+            }
+            List<UpdateArtifact> artifacts = new ArrayList<>();
+            for (JsonNode artifactNode : requiredArray(node, "artifacts")) {
+                @Nullable UpdateArtifact artifact = readArtifact(artifactNode);
+                if (artifact != null) {
+                    artifacts.add(artifact);
+                }
+            }
+            releases.add(new UpdateRelease(channel, requiredText(node, "version"),
+                    optionalText(node, "releaseNotes"), artifacts, readRequirements(node)));
         }
-        return new UpdateManifest(schemaVersion, releases);
+        return new UpdateManifest(UpdateManifest.CURRENT_SCHEMA_VERSION, releases);
     }
 
-    /// Reads one release object.
+    /// Parses an installer, skipping platform or package types this client cannot use.
     ///
-    /// @param node release JSON node.
-    /// @return validated release.
-    private static UpdateRelease readRelease(JsonNode node) {
-        requireObject(node, "Update release");
-        rejectUnknownFields(node, RELEASE_FIELDS, "update release");
-        UpdateChannel channel = UpdateChannel.parse(requiredText(node, "channel", "Update release"));
-        String version = requiredText(node, "version", "Update release");
-        @Nullable String releaseNotes = optionalText(node, "releaseNotes", "Update release");
-        JsonNode artifactsNode = requiredArray(node, "artifacts", "Update release");
-        List<UpdateArtifact> artifacts = new ArrayList<>();
-        for (JsonNode artifactNode : artifactsNode) {
-            artifacts.add(readArtifact(artifactNode));
-        }
-        return new UpdateRelease(channel, version, releaseNotes, artifacts);
-    }
-
-    /// Reads one installer artifact object.
-    ///
-    /// @param node artifact JSON node.
-    /// @return validated artifact.
-    private static UpdateArtifact readArtifact(JsonNode node) {
+    /// @param node artifact JSON object.
+    /// @return artifact, or null for unsupported variants.
+    private static @Nullable UpdateArtifact readArtifact(JsonNode node) {
         requireObject(node, "Update artifact");
-        rejectUnknownFields(node, ARTIFACT_FIELDS, "update artifact");
-        return new UpdateArtifact(
-                UpdatePlatform.parse(requiredText(node, "platform", "Update artifact")),
-                UpdatePackageType.parse(requiredText(node, "packageType", "Update artifact")),
-                requiredText(node, "source", "Update artifact"),
-                requiredLong(node, "size", "Update artifact"),
-                requiredText(node, "sha256", "Update artifact"));
+        String platformName = requiredText(node, "platform");
+        String typeName = requiredText(node, "packageType");
+        UpdatePlatform platform;
+        UpdatePackageType type;
+        try {
+            platform = UpdatePlatform.parse(platformName);
+            type = UpdatePackageType.parse(typeName);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+        if (!platform.supports(type)) {
+            return null;
+        }
+        return new UpdateArtifact(platform, type, requiredText(node, "source"), requiredLong(node, "size"),
+                requiredText(node, "sha256"), readRequirements(node));
     }
 
-    /// Requires an object node.
+    /// Parses fail-closed installation conditions from a release or artifact.
     ///
-    /// @param node        JSON node.
-    /// @param description value description.
+    /// @param node containing JSON object.
+    /// @return understood conditions, or an ineligible set containing unknown keys.
+    private static UpdateRequirements readRequirements(JsonNode node) {
+        @Nullable JsonNode requirements = node.get("requirements");
+        if (requirements == null) {
+            return UpdateRequirements.NONE;
+        }
+        requireObject(requirements, "Update requirements");
+        boolean understood = true;
+        var names = requirements.fieldNames();
+        while (names.hasNext()) {
+            if (!REQUIREMENT_FIELDS.contains(names.next())) {
+                understood = false;
+            }
+        }
+        return new UpdateRequirements(
+                requirements.has("minimumAppVersion") ? requiredText(requirements, "minimumAppVersion") : null,
+                requirements.has("minimumSystemVersion") ? requiredText(requirements, "minimumSystemVersion") : null,
+                understood);
+    }
+
+    /// Requires a non-null JSON object.
+    ///
+    /// @param node candidate value.
+    /// @param description diagnostic context.
     private static void requireObject(@Nullable JsonNode node, String description) {
         if (node == null || !node.isObject()) {
             throw new IllegalArgumentException(description + " must be a JSON object.");
         }
     }
 
-    /// Rejects fields outside an explicitly supported schema.
+    /// Returns a required JSON array.
     ///
-    /// @param node          object node.
-    /// @param accepted      accepted field names.
-    /// @param objectContext object description.
-    private static void rejectUnknownFields(JsonNode node, Set<String> accepted, String objectContext) {
-        Iterator<String> fieldNames = node.fieldNames();
-        while (fieldNames.hasNext()) {
-            String fieldName = fieldNames.next();
-            if (!accepted.contains(fieldName)) {
-                throw new IllegalArgumentException("Unknown " + objectContext + " field: " + fieldName);
-            }
-        }
-    }
-
-    /// Returns a required array field.
-    ///
-    /// @param node        object node.
-    /// @param fieldName   field name.
-    /// @param description object description.
-    /// @return array node.
-    private static JsonNode requiredArray(JsonNode node, String fieldName, String description) {
-        @Nullable JsonNode value = node.get(fieldName);
+    /// @param node containing object.
+    /// @param name field name.
+    /// @return validated array.
+    private static JsonNode requiredArray(JsonNode node, String name) {
+        @Nullable JsonNode value = node.get(name);
         if (value == null || !value.isArray()) {
-            throw new IllegalArgumentException(description + ' ' + fieldName + " must be an array.");
+            throw new IllegalArgumentException(name + " must be an array.");
         }
         return value;
     }
 
-    /// Returns a required non-blank text field.
+    /// Returns a required non-blank JSON string.
     ///
-    /// @param node        object node.
-    /// @param fieldName   field name.
-    /// @param description object description.
-    /// @return text value.
-    private static String requiredText(JsonNode node, String fieldName, String description) {
-        @Nullable JsonNode value = node.get(fieldName);
-        if (value == null || !value.isTextual() || value.textValue().isBlank()) {
-            throw new IllegalArgumentException(description + ' ' + fieldName + " must be a non-blank string.");
+    /// @param node containing object.
+    /// @param name field name.
+    /// @return validated text.
+    private static String requiredText(JsonNode node, String name) {
+        @Nullable String value = optionalText(node, name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " must be a non-blank string.");
         }
-        return value.textValue();
+        return value;
     }
 
-    /// Returns an optional text field.
+    /// Returns an optional JSON string, permitting an explicit null value.
     ///
-    /// @param node        object node.
-    /// @param fieldName   field name.
-    /// @param description object description.
-    /// @return text value, or null.
-    private static @Nullable String optionalText(JsonNode node, String fieldName, String description) {
-        @Nullable JsonNode value = node.get(fieldName);
+    /// @param node containing object.
+    /// @param name field name.
+    /// @return text, or null if absent.
+    private static @Nullable String optionalText(JsonNode node, String name) {
+        @Nullable JsonNode value = node.get(name);
         if (value == null || value.isNull()) {
             return null;
         }
         if (!value.isTextual()) {
-            throw new IllegalArgumentException(description + ' ' + fieldName + " must be a string.");
+            throw new IllegalArgumentException(name + " must be a string.");
         }
         return value.textValue();
     }
 
-    /// Returns a required integer field that fits in an int.
+    /// Returns a required signed 64-bit JSON integer.
     ///
-    /// @param node        object node.
-    /// @param fieldName   field name.
-    /// @param description object description.
+    /// @param node containing object.
+    /// @param name field name.
     /// @return integer value.
-    private static int requiredInt(JsonNode node, String fieldName, String description) {
-        @Nullable JsonNode value = node.get(fieldName);
-        if (value == null || !value.isIntegralNumber() || !value.canConvertToInt()) {
-            throw new IllegalArgumentException(description + ' ' + fieldName + " must be an integer.");
-        }
-        return value.intValue();
-    }
-
-    /// Returns a required integer field that fits in a long.
-    ///
-    /// @param node        object node.
-    /// @param fieldName   field name.
-    /// @param description object description.
-    /// @return integer value.
-    private static long requiredLong(JsonNode node, String fieldName, String description) {
-        @Nullable JsonNode value = node.get(fieldName);
+    private static long requiredLong(JsonNode node, String name) {
+        @Nullable JsonNode value = node.get(name);
         if (value == null || !value.isIntegralNumber() || !value.canConvertToLong()) {
-            throw new IllegalArgumentException(description + ' ' + fieldName + " must be an integer.");
+            throw new IllegalArgumentException(name + " must be an integer.");
         }
         return value.longValue();
     }

@@ -14,3 +14,5 @@ Ruyi Imager is a desktop image writer for RISC-V boards supported by the [RuyiSD
 ## Download
 
 Builds are published on [GitHub Releases](https://github.com/Glavo/ruyi-imager/releases).
+
+See [application updates](docs/updates.md) for update-source configuration and the manifest format.

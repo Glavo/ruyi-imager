@@ -17,12 +17,25 @@ import java.util.Set;
 /// @param version      application version and update identity.
 /// @param releaseNotes optional short release notes.
 /// @param artifacts    platform installer artifacts.
+/// @param requirements conditions shared by every artifact in the release.
 @NotNullByDefault
 public record UpdateRelease(
         UpdateChannel channel,
         String version,
         @Nullable String releaseNotes,
-        @Unmodifiable List<UpdateArtifact> artifacts) {
+        @Unmodifiable List<UpdateArtifact> artifacts,
+        UpdateRequirements requirements) {
+    /// Creates a release without additional installation requirements.
+    ///
+    /// @param channel update channel.
+    /// @param version application version.
+    /// @param releaseNotes optional release notes.
+    /// @param artifacts platform installers.
+    public UpdateRelease(UpdateChannel channel, String version, @Nullable String releaseNotes,
+                         @Unmodifiable List<UpdateArtifact> artifacts) {
+        this(channel, version, releaseNotes, artifacts, UpdateRequirements.NONE);
+    }
+
     /// Validates and freezes release metadata.
     public UpdateRelease {
         if (version.isEmpty()) {
@@ -30,25 +43,13 @@ public record UpdateRelease(
         }
         ApplicationVersion.parse(version);
         artifacts = List.copyOf(artifacts);
-        Set<UpdatePlatform> platforms = new HashSet<>();
+        Set<String> variants = new HashSet<>();
         for (UpdateArtifact artifact : artifacts) {
-            if (!platforms.add(artifact.platform())) {
+            if (!variants.add(artifact.platform().id() + ":" + artifact.packageType().token())) {
                 throw new IllegalArgumentException(
-                        "Update release contains multiple artifacts for platform: " + artifact.platform().id());
+                        "Update release contains duplicate installer variants for platform: " + artifact.platform().id());
             }
         }
     }
 
-    /// Returns the installer artifact for a platform, or null when none is published.
-    ///
-    /// @param platform target runtime platform.
-    /// @return matching installer artifact, or null.
-    public @Nullable UpdateArtifact artifactFor(UpdatePlatform platform) {
-        for (UpdateArtifact artifact : artifacts) {
-            if (artifact.platform() == platform) {
-                return artifact;
-            }
-        }
-        return null;
-    }
 }

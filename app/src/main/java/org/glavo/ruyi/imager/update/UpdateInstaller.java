@@ -31,7 +31,10 @@ public final class UpdateInstaller {
 
         UpdatePlatform platform = UpdatePlatform.current();
         UpdateArtifact artifact = prepared.artifact();
-        if (artifact.platform() != platform || !platform.supports(artifact.packageType())) {
+        UpdateTarget target = UpdateTarget.current();
+        if (artifact.platform() != platform || !target.packageTypes().contains(artifact.packageType())
+                || !prepared.release().requirements().matches(BuildInfo.current(), target)
+                || !artifact.requirements().matches(BuildInfo.current(), target)) {
             throw new IOException("Prepared update package does not match the current platform: " + platform.id());
         }
         if (!artifact.packageType().matchesFileName(packageFile.getFileName().toString())) {

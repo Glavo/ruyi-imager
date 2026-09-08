@@ -4,13 +4,13 @@
     {
       "channel": "stable",
       "version": "1.1.0",
-      "releaseNotes": "Local update-check test manifest",
+      "releaseNotes": "Local feed example without installers; reports no compatible update",
       "artifacts": []
     },
     {
       "channel": "nightly",
       "version": "1.1.0-nightly.20260716T143052Z.3921d84",
-      "releaseNotes": "Local nightly update-check test manifest",
+      "releaseNotes": "Local nightly feed example without installers; reports no compatible update",
       "artifacts": []
     }
   ]

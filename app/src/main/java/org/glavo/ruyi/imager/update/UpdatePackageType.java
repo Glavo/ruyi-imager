@@ -44,6 +44,11 @@ public enum UpdatePackageType {
         return token;
     }
 
+    /// Returns the fixed suffix used for a cached installer of this type.
+    String fileSuffix() {
+        return fileSuffix;
+    }
+
     /// Returns whether a file name has the required package suffix.
     ///
     /// @param fileName package file name.

@@ -5,9 +5,9 @@ package org.glavo.ruyi.imager.update;
 
 import org.jetbrains.annotations.NotNullByDefault;
 
-/// Reports progress while an update package is copied into the verified cache.
+/// Reports bytes transferred while preparing an update package for verification.
 ///
-/// @param currentBytes copied byte count.
+/// @param currentBytes transferred byte count.
 /// @param totalBytes   expected package size.
 @NotNullByDefault
 public record UpdateProgress(long currentBytes, long totalBytes) {

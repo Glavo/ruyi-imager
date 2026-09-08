@@ -26,6 +26,7 @@ import org.glavo.ruyi.imager.update.UpdateCheckResult;
 import org.glavo.ruyi.imager.update.UpdateChecker;
 import org.glavo.ruyi.imager.update.UpdateInstaller;
 import org.glavo.ruyi.imager.update.UpdatePackageManager;
+import org.glavo.ruyi.imager.update.UpdateSource;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -48,6 +49,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 
 import org.slf4j.Logger;
@@ -187,10 +189,10 @@ public final class CliApplication implements Runnable {
         }
     }
 
-    /// Checks a local update manifest for a newer application build.
+    /// Checks a local or HTTPS update manifest for a newer compatible application build.
     @Command(
             name = "check-update",
-            description = "Check, verify, and launch a local application update.")
+            description = "Check, verify, and launch an application update.")
     @NotNullByDefault
     private static final class CheckUpdateCommand implements Callable<Integer> {
         /// Shared application services.
@@ -204,13 +206,13 @@ public final class CliApplication implements Runnable {
                 descriptionKey = "cli.option.help")
         private boolean usageHelp;
 
-        /// Optional local update manifest override.
+        /// Optional local path or HTTPS update manifest URL.
         @Option(
                 names = "--source",
-                paramLabel = "PATH",
-                description = "Read the update manifest from this local JSON file.",
+                paramLabel = "SOURCE",
+                description = "Read the update manifest from a local JSON file or HTTPS URL.",
                 descriptionKey = "cli.option.updateSource")
-        private @Nullable Path source;
+        private @Nullable String source;
 
         /// Selected update channel.
         @Option(
@@ -221,17 +223,17 @@ public final class CliApplication implements Runnable {
                 descriptionKey = "cli.option.updateChannel")
         private @Nullable UpdateChannel channel;
 
-        /// Whether the installer package should be copied and verified.
+        /// Whether the installer package should be retrieved and verified.
         @Option(
                 names = "--prepare",
-                description = "Copy and verify the installer package.",
+                description = "Download and verify the installer package.",
                 descriptionKey = "cli.option.updatePrepare")
         private boolean prepare;
 
         /// Whether the verified installer should be launched.
         @Option(
                 names = "--install",
-                description = "Copy, verify, and launch the installer package.",
+                description = "Download, verify, and launch the installer package.",
                 descriptionKey = "cli.option.updateInstall")
         private boolean install;
 
@@ -247,19 +249,24 @@ public final class CliApplication implements Runnable {
         /// @return process exit code.
         @Override
         public Integer call() {
-            Path updateSource = source == null
-                    ? UpdateChecker.configuredSource(services.directories())
-                    : source;
-            UpdateChecker checker = UpdateChecker.createConfigured(updateSource);
             try {
+                UpdateSource updateSource = source == null
+                        ? UpdateChecker.configuredSource(services.directories())
+                        : UpdateSource.parse(source);
+                UpdateChecker checker = UpdateChecker.createConfigured(updateSource);
                 UpdateChannel selectedChannel = channel == null
                         ? BuildInfo.current().inferredChannel()
                         : channel;
                 UpdateCheckResult result = checker.check(selectedChannel);
+                if (result.status() == UpdateCheckResult.Status.NO_COMPATIBLE_UPDATE) {
+                    System.out.println(Messages.get("cli.update.noCompatibleUpdate",
+                            Objects.requireNonNull(result.available()).version()));
+                    return prepare || install ? 1 : 0;
+                }
                 if (result.status() == UpdateCheckResult.Status.UPDATE_AVAILABLE) {
                     System.out.println(Messages.get(
                             "cli.update.available",
-                            result.available().version(),
+                            Objects.requireNonNull(result.available()).version(),
                             result.current().version()));
                 } else {
                     System.out.println(Messages.get("cli.update.upToDate", result.current().version()));
@@ -271,7 +278,7 @@ public final class CliApplication implements Runnable {
 
                 UpdatePackageManager packageManager =
                         UpdatePackageManager.createDefault(services.directories(), checker);
-                PreparedUpdate prepared = packageManager.prepare(result.available(), _ -> {
+                PreparedUpdate prepared = packageManager.prepare(Objects.requireNonNull(result.available()), _ -> {
                 });
                 System.out.println(Messages.get("cli.update.prepared", prepared.packageFile()));
                 if (install) {
@@ -279,7 +286,7 @@ public final class CliApplication implements Runnable {
                     System.out.println(Messages.get("cli.update.installerStarted", prepared.packageFile()));
                 }
                 return 0;
-            } catch (IOException | IllegalStateException exception) {
+            } catch (IOException | IllegalStateException | IllegalArgumentException exception) {
                 return failException(exception, false);
             }
         }

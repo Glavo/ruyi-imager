@@ -11,6 +11,7 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -66,6 +67,57 @@ public final class UpdatePackageManagerTest {
         assertArrayEquals(packageBytes, Files.readAllBytes(prepared.packageFile()));
         assertEquals(packageBytes.length, Objects.requireNonNull(lastProgress.get()).currentBytes());
         assertEquals(artifact.sha256(), prepared.packageFile().getParent().getFileName().toString());
+    }
+
+    /// Reuses a verified cached installer after both local source files have disappeared.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws IOException when fixture files or the cache cannot be accessed.
+    @Test
+    public void reusesCacheWithoutSource(@TempDir Path temporaryDirectory) throws IOException {
+        byte[] bytes = "cached installer".getBytes();
+        Path source = Files.write(temporaryDirectory.resolve("setup.exe"), bytes);
+        Path manifest = Files.writeString(temporaryDirectory.resolve("update.json"), "{}");
+        var manager = new UpdatePackageManager(manifest, temporaryDirectory.resolve("cache"),
+                UpdatePlatform.WINDOWS_X86_64);
+        UpdateRelease release = release(artifact("setup.exe", bytes));
+        PreparedUpdate first = manager.prepare(release, _ -> {});
+        Files.delete(source);
+        Files.delete(manifest);
+        PreparedUpdate second = manager.prepare(release, _ -> {});
+        assertEquals(first.packageFile(), second.packageFile());
+        assertArrayEquals(bytes, Files.readAllBytes(second.packageFile()));
+    }
+
+    /// Deletes partial packages on interruption, callback failure, size mismatch, or digest mismatch.
+    ///
+    /// @param temporaryDirectory temporary test directory.
+    /// @throws IOException when fixture files or the cache cannot be accessed.
+    @Test
+    public void cleansFailedPreparations(@TempDir Path temporaryDirectory) throws IOException {
+        byte[] bytes = "installer payload".getBytes();
+        Files.write(temporaryDirectory.resolve("setup.exe"), bytes);
+        Path manifest = Files.writeString(temporaryDirectory.resolve("update.json"), "{}");
+        Path cache = temporaryDirectory.resolve("cache");
+        var manager = new UpdatePackageManager(manifest, cache, UpdatePlatform.WINDOWS_X86_64);
+        UpdateArtifact valid = artifact("setup.exe", bytes);
+        var callbackFailure = new IllegalStateException("Callback failed");
+        assertEquals(callbackFailure, assertThrows(IllegalStateException.class,
+                () -> manager.prepare(release(valid), _ -> { throw callbackFailure; })));
+        try {
+            assertThrows(InterruptedIOException.class, () -> manager.prepare(release(valid),
+                    _ -> Thread.currentThread().interrupt()));
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
+        for (long size : new long[] {bytes.length - 1L, bytes.length + 1L, bytes.length}) {
+            var invalid = new UpdateArtifact(valid.platform(), valid.packageType(), valid.source(), size, "0".repeat(64));
+            assertThrows(IOException.class, () -> manager.prepare(release(invalid), _ -> {}));
+        }
+        try (var files = Files.walk(cache)) {
+            assertFalse(files.anyMatch(Files::isRegularFile));
+        }
     }
 
     /// Rejects a package whose digest differs from the manifest.

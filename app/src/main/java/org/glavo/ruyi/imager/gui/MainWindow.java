@@ -83,6 +83,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -343,7 +344,7 @@ public final class MainWindow {
 
     /// Starts a silent startup update check when the configured interval is due.
     private void checkApplicationUpdateOnStartup() {
-        if (!Files.isRegularFile(updateChecker.source())) {
+        if (!updateChecker.source().isAvailable()) {
             LOGGER.debug("Skipping automatic application update check because the local manifest is absent.");
             return;
         }
@@ -377,8 +378,8 @@ public final class MainWindow {
         startBackgroundTask(task, result -> {
             recordApplicationUpdateCheckSuccess(channel);
             if (result.status() == UpdateCheckResult.Status.UPDATE_AVAILABLE
-                    && !isUpdateSkipped(result.available())) {
-                handleAvailableUpdate(result.available());
+                    && !isUpdateSkipped(Objects.requireNonNull(result.available()))) {
+                handleAvailableUpdate(Objects.requireNonNull(result.available()));
             }
         }, failure -> {
             if (failure == null) {
@@ -1064,12 +1065,15 @@ public final class MainWindow {
             String message = updateAvailable
                     ? Messages.get(
                             "gui.settings.updateAvailable",
-                            result.available().version(),
+                            Objects.requireNonNull(result.available()).version(),
                             result.current().version())
-                    : Messages.get("gui.settings.upToDate", result.current().version());
+                    : result.status() == UpdateCheckResult.Status.NO_COMPATIBLE_UPDATE
+                            ? Messages.get("gui.settings.noCompatibleUpdate",
+                                    Objects.requireNonNull(result.available()).version())
+                            : Messages.get("gui.settings.upToDate", result.current().version());
             settings.applicationUpdateFinished(updateAvailable, message);
             if (updateAvailable) {
-                handleAvailableUpdate(result.available());
+                handleAvailableUpdate(Objects.requireNonNull(result.available()));
             }
         }, failure -> settings.applicationUpdateFailed(
                 failure == null || failure.getMessage() == null
@@ -1130,7 +1134,7 @@ public final class MainWindow {
         }
     }
 
-    /// Copies, verifies, and starts the installer for one release.
+    /// Retrieves, verifies, and starts the installer for one release.
     ///
     /// @param packageManager update package preparation service.
     /// @param release        selected release.
@@ -3472,7 +3476,7 @@ public final class MainWindow {
 
     /// Actions available from the application update prompt.
     private enum UpdateDecision {
-        /// Copy, verify, and start the installer.
+        /// Download, verify, and start the installer.
         INSTALL,
 
         /// Suppress this exact release during automatic checks.

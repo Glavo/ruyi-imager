@@ -20,11 +20,11 @@ import javafx.util.StringConverter;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.update.BuildInfo;
 import org.glavo.ruyi.imager.update.UpdateChannel;
+import org.glavo.ruyi.imager.update.UpdateSource;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 
@@ -64,13 +64,13 @@ final class SettingsDialog {
     ///
     /// @param locale       selected GUI locale.
     /// @param buildInfo    running application build.
-    /// @param updateSource local update manifest path.
+    /// @param updateSource local or HTTPS update manifest location.
     /// @param automaticUpdateChecks whether startup update checks are enabled.
     /// @param updateChannel         selected update channel.
     SettingsDialog(
             Locale locale,
             BuildInfo buildInfo,
-            Path updateSource,
+            UpdateSource updateSource,
             boolean automaticUpdateChecks,
             UpdateChannel updateChannel) {
         this.languageSelector = createLanguageSelector(locale);

@@ -11,16 +11,29 @@ import java.util.Locale;
 ///
 /// @param platform    target runtime platform.
 /// @param packageType installer package type.
-/// @param source      relative local source path resolved from the manifest directory.
+/// @param source      HTTPS URL or reference resolved relative to the manifest location.
 /// @param size        expected package size in bytes.
 /// @param sha256      expected hexadecimal SHA-256 digest.
+/// @param requirements conditions required to install this artifact.
 @NotNullByDefault
 public record UpdateArtifact(
         UpdatePlatform platform,
         UpdatePackageType packageType,
         String source,
         long size,
-        String sha256) {
+        String sha256,
+        UpdateRequirements requirements) {
+    /// Creates an artifact without additional installation requirements.
+    ///
+    /// @param platform target platform.
+    /// @param packageType installer type.
+    /// @param source artifact location.
+    /// @param size expected byte length.
+    /// @param sha256 expected hexadecimal SHA-256 digest.
+    public UpdateArtifact(UpdatePlatform platform, UpdatePackageType packageType, String source, long size, String sha256) {
+        this(platform, packageType, source, size, sha256, UpdateRequirements.NONE);
+    }
+
     /// Validates and normalizes an update artifact.
     public UpdateArtifact {
         source = source.strip();
