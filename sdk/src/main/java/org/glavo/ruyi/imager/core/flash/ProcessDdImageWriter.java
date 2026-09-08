@@ -444,23 +444,30 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", executable), exception);
         }
 
-        try {
-            while (!process.waitFor(100L)) {
-                if (Thread.currentThread().isInterrupted()) {
-                    Thread.currentThread().interrupt();
-                    throw new InterruptedIOException(SdkMessages.get("core.dd.interrupted", commandText(command)));
+        boolean exited = false;
+        try (process) {
+            try {
+                while (!process.waitFor(100L)) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new InterruptedIOException(SdkMessages.get("core.dd.interrupted", commandText(command)));
+                    }
+                    offset = readEventLog(eventLog, offset, state);
                 }
-                offset = readEventLog(eventLog, offset, state);
+                exited = true;
+                exitCode = process.exitValue();
+                readEventLog(eventLog, offset, state);
+            } catch (IOException | RuntimeException exception) {
+                exited = cleanupWindowsElevatedProcess(process, cancelFile, exception);
+                throw exception;
             }
-            exitCode = process.exitValue();
-            readEventLog(eventLog, offset, state);
-        } catch (IOException | RuntimeException exception) {
-            cleanupWindowsElevatedProcess(process, cancelFile, exception);
-            throw exception;
         } finally {
-            process.close();
-            deleteEventLog(eventLog);
-            deleteCancelFile(cancelFile);
+            if (exited) {
+                deleteEventLog(eventLog);
+                deleteCancelFile(cancelFile);
+            } else {
+                LOGGER.warn("Elevated dd-flasher exit could not be confirmed; retaining cancellation signal at {}.",
+                        cancelFile);
+            }
         }
 
         return finish(operation, state, exitCode, SdkMessages.get("core.dd.noOutput"));
@@ -471,19 +478,29 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param process elevated process.
     /// @param cancelFile helper cancellation signal path.
     /// @param failure failure that triggered cleanup.
-    private static void cleanupWindowsElevatedProcess(
+    /// @return whether process exit was confirmed; cleanup failures are suppressed on `failure`.
+    private static boolean cleanupWindowsElevatedProcess(
             DDFlasherElevation.WindowsElevatedProcess process,
             Path cancelFile,
             Throwable failure) {
         signalCancelFile(cancelFile);
         try {
-            if (!process.waitFor(10_000L)) {
-                process.destroyForcibly();
+            if (process.waitFor(10_000L)) {
+                return true;
             }
         } catch (IOException cleanupException) {
             failure.addSuppressed(cleanupException);
-            process.destroyForcibly();
         }
+        try {
+            process.destroyForcibly();
+            if (process.waitFor(10_000L)) {
+                return true;
+            }
+            failure.addSuppressed(new IOException("Elevated dd-flasher did not exit after termination was requested."));
+        } catch (IOException cleanupException) {
+            failure.addSuppressed(cleanupException);
+        }
+        return false;
     }
 
     /// Signals and terminates an elevated helper process after SDK-side failure.

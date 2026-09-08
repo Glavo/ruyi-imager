@@ -492,10 +492,10 @@ final class DDFlasherElevation {
         /// Whether the handle has been closed.
         private boolean closed;
 
-        /// Creates a Windows elevated process wrapper.
+        /// Creates a wrapper that takes ownership of an open Windows process handle.
         ///
         /// @param handle native process handle.
-        private WindowsElevatedProcess(MemorySegment handle) {
+        WindowsElevatedProcess(MemorySegment handle) {
             this.handle = handle;
         }
 
@@ -503,8 +503,9 @@ final class DDFlasherElevation {
         ///
         /// @param timeoutMillis timeout in milliseconds.
         /// @return whether the process exited.
-        /// @throws IOException when the native wait fails.
+        /// @throws IOException when the handle is closed or the native wait fails.
         boolean waitFor(long timeoutMillis) throws IOException {
+            ensureOpen();
             int timeout = timeoutMillis <= 0L
                     ? 0
                     : timeoutMillis >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) timeoutMillis;
@@ -524,8 +525,9 @@ final class DDFlasherElevation {
         /// Returns the process exit value.
         ///
         /// @return process exit value.
-        /// @throws IOException when the exit code cannot be read.
+        /// @throws IOException when the handle is closed or the exit code cannot be read.
         int exitValue() throws IOException {
+            ensureOpen();
             try (Arena arena = Arena.ofConfined()) {
                 MemorySegment exitCode = arena.allocate(ValueLayout.JAVA_INT);
                 int success = (int) Kernel32.GET_EXIT_CODE_PROCESS.invokeExact(handle, exitCode);
@@ -540,24 +542,51 @@ final class DDFlasherElevation {
             }
         }
 
-        /// Terminates the process.
-        void destroyForcibly() {
+        /// Requests process termination without waiting for exit.
+        ///
+        /// @throws IOException when the handle is closed or termination cannot be requested.
+        void destroyForcibly() throws IOException {
+            ensureOpen();
             try {
-                Kernel32.TERMINATE_PROCESS.invokeExact(handle, 1);
-            } catch (Throwable _) {
+                int success = (int) Kernel32.TERMINATE_PROCESS.invokeExact(handle, 1);
+                if (success == 0) {
+                    throw new IOException("TerminateProcess failed.");
+                }
+            } catch (IOException exception) {
+                throw exception;
+            } catch (Throwable exception) {
+                throw new IOException("TerminateProcess failed.", exception);
             }
         }
 
-        /// Closes the native process handle.
+        /// Closes the native process handle without terminating the process.
+        /// Repeated calls after a successful close have no effect.
+        ///
+        /// @throws IOException when the native handle cannot be closed.
         @Override
-        public void close() {
+        public void close() throws IOException {
             if (closed) {
                 return;
             }
-            closed = true;
             try {
-                Kernel32.CLOSE_HANDLE.invokeExact(handle);
-            } catch (Throwable _) {
+                int success = (int) Kernel32.CLOSE_HANDLE.invokeExact(handle);
+                if (success == 0) {
+                    throw new IOException("CloseHandle failed.");
+                }
+                closed = true;
+            } catch (IOException exception) {
+                throw exception;
+            } catch (Throwable exception) {
+                throw new IOException("CloseHandle failed.", exception);
+            }
+        }
+
+        /// Rejects operations after the native handle has been closed.
+        ///
+        /// @throws IOException when the handle is closed.
+        private void ensureOpen() throws IOException {
+            if (closed) {
+                throw new IOException("Windows process handle is closed.");
             }
         }
     }

@@ -5,17 +5,89 @@ package org.glavo.ruyi.imager.core.flash;
 
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
+import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
+import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for dd-flasher privilege elevation decisions and launch commands.
 @NotNullByDefault
 public final class DDFlasherElevationTest {
+    /// Verifies native termination and handle closure using an unprivileged child process.
+    ///
+    /// @throws Throwable when process creation or native calls fail.
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    public void terminatesProcessAndClosesNativeHandle() throws Throwable {
+        Process child = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java.exe").toString(),
+                "-cp", System.getProperty("java.class.path"),
+                SleepingHelper.class.getName()).start();
+        try (Arena arena = Arena.ofConfined()) {
+            SymbolLookup kernel32 = SymbolLookup.libraryLookup("kernel32", arena);
+            var openProcess = Linker.nativeLinker().downcallHandle(
+                    kernel32.find("OpenProcess").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS,
+                            ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+            // Request synchronization, limited query, and termination access to this test's child only.
+            MemorySegment handle = (MemorySegment) openProcess.invokeExact(0x00101001, 0, (int) child.pid());
+            assertFalse(handle.equals(MemorySegment.NULL));
+            var process = new DDFlasherElevation.WindowsElevatedProcess(handle);
+            try (process) {
+                assertFalse(process.waitFor(100L));
+                process.destroyForcibly();
+                assertTrue(process.waitFor(5_000L));
+                assertEquals(1, process.exitValue());
+            }
+            process.close();
+            assertThrows(IOException.class, () -> process.waitFor(0L));
+            assertThrows(IOException.class, process::exitValue);
+            assertThrows(IOException.class, process::destroyForcibly);
+        } finally {
+            child.destroyForcibly();
+            assertTrue(child.waitFor(5L, TimeUnit.SECONDS));
+        }
+    }
+
+    /// Verifies that native API failures are propagated instead of swallowed.
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    public void reportsInvalidNativeHandle() {
+        var process = new DDFlasherElevation.WindowsElevatedProcess(MemorySegment.NULL);
+        assertThrows(IOException.class, process::destroyForcibly);
+        assertThrows(IOException.class, process::close);
+    }
+
+    /// Child process that remains alive until the native termination test stops it.
+    @NotNullByDefault
+    public static final class SleepingHelper {
+        /// Prevents construction.
+        private SleepingHelper() {
+        }
+
+        /// Waits long enough for the parent to exercise native process termination.
+        ///
+        /// @param arguments unused arguments.
+        /// @throws InterruptedException when sleep is interrupted.
+        public static void main(String[] arguments) throws InterruptedException {
+            Thread.sleep(60_000L);
+        }
+    }
+
     /// Verifies automatic Windows UAC decisions for raw device paths.
     @Test
     public void elevatesWindowsRawDevices() {

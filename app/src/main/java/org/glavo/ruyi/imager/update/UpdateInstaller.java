@@ -43,10 +43,10 @@ public final class UpdateInstaller {
 
         ProcessBuilder builder = new ProcessBuilder(commandFor(platform, artifact.packageType(), packageFile));
         builder.directory(packageFile.getParent().toFile());
-        builder.redirectInput(ProcessBuilder.Redirect.DISCARD);
         builder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
         builder.redirectError(ProcessBuilder.Redirect.DISCARD);
-        builder.start();
+        Process process = builder.start();
+        process.getOutputStream().close();
     }
 
     /// Builds the fixed installer handoff command for one platform.

@@ -6,6 +6,8 @@ package org.glavo.ruyi.imager.update;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -26,6 +28,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /// Tests verified local update package preparation and platform handoff commands.
 @NotNullByDefault
 public final class UpdatePackageManagerTest {
+    /// Exercises verified installer launch with the harmless, argument-free Java launcher.
+    ///
+    /// @throws IOException when the Java executable cannot be read or launched.
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    public void launchesVerifiedExecutable() throws IOException {
+        Path executable = Path.of(System.getProperty("java.home"), "bin", "java.exe");
+        byte[] bytes = Files.readAllBytes(executable);
+        UpdateArtifact artifact = new UpdateArtifact(
+                UpdatePlatform.current(), UpdatePackageType.SETUP_EXE,
+                "java.exe", bytes.length, sha256(bytes));
+        UpdateInstaller.launch(new PreparedUpdate(release(artifact), artifact, executable));
+    }
+
     /// Copies a matching installer into the content-addressed update cache.
     ///
     /// @param temporaryDirectory temporary test directory.

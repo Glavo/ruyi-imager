@@ -369,12 +369,6 @@ fn same_path(left: &Path, right: &Path) -> bool {
 fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let _target_locks = platform::lock_target_for_write(&request.target).map_err(|error| {
-        format!(
-            "failed to lock target volumes ({}): {error}",
-            request.target_display_name
-        )
-    })?;
     let mut target = platform::open_target_for_write(&request.target).map_err(|error| {
         format!(
             "failed to open target for writing ({}): {error}",
@@ -382,6 +376,12 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
         )
     })?;
     validate_open_target(request, &target)?;
+    let _target_locks = platform::lock_target_for_write(&request.target).map_err(|error| {
+        format!(
+            "failed to lock target volumes ({}): {error}",
+            request.target_display_name
+        )
+    })?;
 
     write_image_stream(request, &mut source, &mut target, sink)
 }
@@ -390,12 +390,6 @@ fn write_image(request: &Request, sink: &mut EventSink) -> Result<(), String> {
 fn write_and_verify_image(request: &Request, sink: &mut EventSink) -> Result<bool, String> {
     let mut source =
         File::open(&request.source).map_err(|error| format!("failed to open source: {error}"))?;
-    let _target_locks = platform::lock_target_for_write(&request.target).map_err(|error| {
-        format!(
-            "failed to lock target volumes ({}): {error}",
-            request.target_display_name
-        )
-    })?;
     let mut target = platform::open_target_for_write_verify(&request.target).map_err(|error| {
         format!(
             "failed to open target for writing ({}): {error}",
@@ -403,6 +397,12 @@ fn write_and_verify_image(request: &Request, sink: &mut EventSink) -> Result<boo
         )
     })?;
     validate_open_target(request, &target)?;
+    let _target_locks = platform::lock_target_for_write(&request.target).map_err(|error| {
+        format!(
+            "failed to lock target volumes ({}): {error}",
+            request.target_display_name
+        )
+    })?;
 
     write_image_stream(request, &mut source, &mut target, sink)?;
     source

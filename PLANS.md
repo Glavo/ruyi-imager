@@ -15,7 +15,7 @@
 - Distfile and artifact extraction paths are hardened against unsafe names, cache corruption, path escape, conflicting declarations, missing single-partition ZIP artifacts, excessive archive entry counts, oversized entries, aggregate expansion, filesystem exhaustion, unbounded TAR parser metadata, invalid TAR checksums, and unsupported sparse TAR extensions. Distfile responses are also rejected before any bytes beyond their declared size are written.
 - `dd-flasher` handles destructive raw writes, declared byte limits, same-helper write/verify, target display-name validation, NDJSON progress reporting, and post-elevation inspection of the final target handle.
 - Before destructive `dd-v1` writes, the SDK refreshes and validates target id, path, hardware identity, size, model, bus, and removable status. Windows Storage Management boot/system flags and Linux `/`, `/boot`, `/boot/efi`, and `/efi` mounts protect system disks. The elevated helper opens the final target once, validates whole-device type, capacity, removable/system state, available read-only/model/bus fields, and overlapping hardware identity against that handle, and uses the same handle for the operation. Linux and macOS additionally verify the opened device identity around path-based platform metadata inspection.
-- Windows raw physical-drive writes lock/dismount related volumes inside `dd-flasher`; Windows UAC uses Java FFM `ShellExecuteExW` instead of a PowerShell launcher.
+- Windows raw physical-drive writes validate the final target handle before locking/dismounting related volumes inside `dd-flasher`; Windows UAC uses Java FFM `ShellExecuteExW` instead of a PowerShell launcher. Native termination and handle closure check their return values. Exceptional cleanup waits after termination, preserves the original failure with suppressed cleanup errors, and retains cancellation files unless process exit is confirmed.
 - Linux `pkexec` elevated `dd-flasher` reads NDJSON progress directly from stdout; Windows UAC and macOS administrator script paths use private temporary event logs with bounded pending data and line lengths.
 - Windows/Linux/macOS block-device and fastboot enumeration are implemented with concurrent stdout/stderr draining.
 - Linux and macOS mounted removable targets are automatically unmounted before writing, then re-enumerated before destructive access.
@@ -127,6 +127,7 @@
 - `cargo check --locked --manifest-path dd-flasher/Cargo.toml --target x86_64-unknown-linux-gnu`
 - `cargo check --locked --manifest-path dd-flasher/Cargo.toml --target x86_64-apple-darwin`
 - `./gradlew -g .gradle-user-home check`; repository fallback tests compare parsed TOML values instead of platform-dependent checkout line endings.
+- Windows native process regression tests terminate an unprivileged Java child, confirm its exit, exercise idempotent handle closure and rejection of operations after closure, and verify that invalid-handle failures propagate. The verified update installer launch test uses the harmless argument-free Java executable and covers standard-input pipe closure.
 
 ### Known Limits
 
