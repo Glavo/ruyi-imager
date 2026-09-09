@@ -88,7 +88,7 @@ final class GuiPreferences {
     /// Writes the user-editable general and application update settings together.
     ///
     /// @param locale                GUI locale.
-    /// @param automaticUpdateChecks whether startup update checks are enabled.
+    /// @param automaticUpdateChecks whether startup and periodic update checks are enabled.
     /// @param updateChannel         selected update channel.
     /// @throws IOException when preferences cannot be written.
     public void writeSettings(
@@ -102,7 +102,7 @@ final class GuiPreferences {
         writeProperties(properties);
     }
 
-    /// Reads whether startup application update checks are enabled.
+    /// Reads whether startup and periodic application update checks are enabled.
     ///
     /// @return whether automatic checks are enabled; defaults to true.
     /// @throws IOException when preferences cannot be read.

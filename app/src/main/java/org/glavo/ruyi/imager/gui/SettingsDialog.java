@@ -65,7 +65,7 @@ final class SettingsDialog {
     /// @param locale       selected GUI locale.
     /// @param buildInfo    running application build.
     /// @param updateSource local or HTTPS update manifest location.
-    /// @param automaticUpdateChecks whether startup update checks are enabled.
+    /// @param automaticUpdateChecks whether startup and periodic update checks are enabled.
     /// @param updateChannel         selected update channel.
     SettingsDialog(
             Locale locale,

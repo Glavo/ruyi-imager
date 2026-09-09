@@ -3,6 +3,9 @@
 
 package org.glavo.ruyi.imager.gui;
 
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.transformation.FilteredList;
@@ -29,6 +32,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
+import javafx.stage.Stage;
 import javafx.stage.Window;
 import javafx.util.StringConverter;
 import io.github.palexdev.materialfx.controls.MFXButton;
@@ -109,8 +113,11 @@ public final class MainWindow {
     /// Minimum interval between successful automatic metadata updates.
     private static final Duration METADATA_AUTO_UPDATE_INTERVAL = Duration.ofHours(24);
 
-    /// Minimum interval between successful automatic application update checks.
-    private static final Duration APPLICATION_UPDATE_CHECK_INTERVAL = Duration.ofHours(24);
+    /// Minimum age of the last successful check before checking again at startup.
+    private static final Duration APPLICATION_UPDATE_CHECK_INTERVAL = Duration.ofHours(1);
+
+    /// Period between automatic update attempts while the application remains open.
+    private static final javafx.util.Duration APPLICATION_UPDATE_TIMER_INTERVAL = javafx.util.Duration.hours(4);
 
     /// Binary size units used by storage device summaries.
     private static final @Unmodifiable List<String> SIZE_UNITS = List.of("B", "KiB", "MiB", "GiB", "TiB");
@@ -166,6 +173,16 @@ public final class MainWindow {
 
     /// Application update package preparation service.
     private final @Nullable UpdatePackageManager updatePackageManager;
+
+    /// JavaFX timer whose ticks attempt checks only when no workflow or owned dialog is active.
+    private final Timeline applicationUpdateTimer = new Timeline(new KeyFrame(
+            APPLICATION_UPDATE_TIMER_INTERVAL, _ -> checkApplicationUpdateAutomatically(false)));
+
+    /// Whether update scheduling has started, preventing duplicate startup attempts.
+    private boolean applicationUpdateSchedulingStarted;
+
+    /// Whether the main window is closing, preventing new automatic checks.
+    private boolean closing;
 
     /// Root node for the window.
     private final BorderPane root;
@@ -336,14 +353,36 @@ public final class MainWindow {
         }
     }
 
-    /// Shows first-run notices and schedules an automatic application update check.
+    /// Shows first-run notices and starts startup and four-hour automatic update checks once.
+    /// This method must be called on the JavaFX application thread.
     public void showStartupActions() {
+        if (closing || applicationUpdateSchedulingStarted) {
+            return;
+        }
+        applicationUpdateSchedulingStarted = true;
         showStartupSafetyWarningIfNeeded();
-        checkApplicationUpdateOnStartup();
+        if (!closing) {
+            applicationUpdateTimer.setCycleCount(Animation.INDEFINITE);
+            applicationUpdateTimer.play();
+            checkApplicationUpdateAutomatically(true);
+        }
     }
 
-    /// Starts a silent startup update check when the configured interval is due.
-    private void checkApplicationUpdateOnStartup() {
+    /// Attempts an automatic check without overlapping another workflow or owned dialog.
+    /// Busy ticks and failures are not retried before the next timer tick. Preferences are
+    /// reread for each attempt, and only startup attempts use the persisted success interval.
+    ///
+    /// @param startup whether the one-hour startup interval must be applied.
+    private void checkApplicationUpdateAutomatically(boolean startup) {
+        if (closing || busy || root.getScene() == null) {
+            return;
+        }
+        @Nullable Window owner = root.getScene().getWindow();
+        if (owner == null || !owner.isShowing()
+                || Window.getWindows().stream().anyMatch(window -> window instanceof Stage stage
+                        && stage.getOwner() == owner && stage.isShowing())) {
+            return;
+        }
         if (!updateChecker.source().isAvailable()) {
             LOGGER.debug("Skipping automatic application update check because the local manifest is absent.");
             return;
@@ -355,7 +394,7 @@ public final class MainWindow {
                 return;
             }
             channel = preferences.readUpdateChannel(updateChecker.current().inferredChannel());
-            if (!applicationUpdateCheckDue(
+            if (startup && !applicationUpdateCheckDue(
                     preferences.readApplicationUpdateCheckedAt(channel),
                     Instant.now())) {
                 return;
@@ -376,6 +415,9 @@ public final class MainWindow {
             }
         };
         startBackgroundTask(task, result -> {
+            if (closing) {
+                return;
+            }
             recordApplicationUpdateCheckSuccess(channel);
             if (result.status() == UpdateCheckResult.Status.UPDATE_AVAILABLE
                     && !isUpdateSkipped(Objects.requireNonNull(result.available()))) {
@@ -390,7 +432,7 @@ public final class MainWindow {
         });
     }
 
-    /// Evaluates the automatic application update check interval.
+    /// Evaluates the one-hour startup application update check interval.
     ///
     /// @param checkedAt last successful check time, or null when unknown.
     /// @param now       current time.
@@ -1903,7 +1945,7 @@ public final class MainWindow {
         thread.start();
     }
 
-    /// Coordinates a main-window close request with an active flash operation.
+    /// Stops update scheduling and coordinates a main-window close request with an active flash operation.
     ///
     /// This method must be called on the JavaFX application thread. When flashing is active, it stores the close
     /// action, requests cancellation, and returns `false`; the action runs after the flash worker and any elevated
@@ -1912,6 +1954,8 @@ public final class MainWindow {
     /// @param closeAction action that retries closing the stage.
     /// @return whether the stage may close immediately.
     public boolean requestClose(Runnable closeAction) {
+        closing = true;
+        applicationUpdateTimer.stop();
         @Nullable Thread thread = currentBackgroundThread;
         if (!flashInProgress || thread == null || !thread.isAlive()) {
             return true;
@@ -1925,11 +1969,14 @@ public final class MainWindow {
         return false;
     }
 
-    /// Stops an active flash worker before the JavaFX application exits.
+    /// Stops update scheduling and an active flash worker before the JavaFX application exits.
     ///
     /// This method blocks until the worker has completed its helper cancellation and termination path. Background
     /// operations that do not write devices remain daemon tasks and are not awaited.
+    /// This method must be called on the JavaFX application thread.
     public void shutdown() {
+        closing = true;
+        applicationUpdateTimer.stop();
         @Nullable Thread thread = currentBackgroundThread;
         if (!flashInProgress || thread == null || !thread.isAlive()) {
             return;

@@ -5,7 +5,10 @@ package org.glavo.ruyi.imager.gui;
 
 import io.github.palexdev.materialfx.controls.MFXComboBox;
 import io.github.palexdev.materialfx.enums.FloatMode;
+import javafx.animation.Animation;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.event.ActionEvent;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Parent;
@@ -16,6 +19,7 @@ import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.AppServices;
 import org.glavo.ruyi.imager.core.OperationResult;
@@ -33,6 +37,7 @@ import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.core.repo.RepositoryService;
 import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.update.UpdateChannel;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -45,6 +50,7 @@ import org.opentest4j.TestAbortedException;
 import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -65,6 +71,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 /// Smoke tests for JavaFX controls used by the main window selection flows.
 @NotNullByDefault
@@ -228,15 +235,119 @@ public final class MainWindowJavaFxSmokeTest {
         assertFalse(MainWindow.metadataUpdateDue(now.plus(Duration.ofHours(1)), now));
     }
 
-    /// Verifies the daily automatic application update check boundary.
+    /// Verifies the one-hour startup application update check boundary.
     @Test
-    public void schedulesDailyApplicationUpdateChecks() {
+    public void schedulesHourlyStartupApplicationUpdateChecks() {
         Instant now = Instant.parse("2026-07-16T06:00:00Z");
 
         assertTrue(MainWindow.applicationUpdateCheckDue(null, now));
-        assertFalse(MainWindow.applicationUpdateCheckDue(now.minus(Duration.ofHours(23)), now));
-        assertTrue(MainWindow.applicationUpdateCheckDue(now.minus(Duration.ofHours(24)), now));
+        assertFalse(MainWindow.applicationUpdateCheckDue(now.minus(Duration.ofHours(1)).plusNanos(1), now));
+        assertTrue(MainWindow.applicationUpdateCheckDue(now.minus(Duration.ofHours(1)), now));
+        assertTrue(MainWindow.applicationUpdateCheckDue(now.minus(Duration.ofHours(2)), now));
         assertFalse(MainWindow.applicationUpdateCheckDue(now.plus(Duration.ofHours(1)), now));
+    }
+
+    /// Exercises timer wiring, preference changes, workflow exclusion, silent failures, and shutdown.
+    ///
+    /// @param directory isolated application directory.
+    /// @throws Exception when fixture setup or JavaFX execution fails.
+    @Test
+    public void checksUpdatesPeriodicallyWithoutOverlappingWork(@TempDir Path directory) throws Exception {
+        AppServices services = testServices(directory);
+        GuiPreferences preferences = new GuiPreferences(services.directories());
+        preferences.writeStartupSafetyWarningAccepted();
+        preferences.writeSettings(Locale.ENGLISH, true, UpdateChannel.STABLE);
+        Instant previousCheck = Instant.now().minusSeconds(60);
+        preferences.writeApplicationUpdateCheckedAt(UpdateChannel.STABLE, previousCheck);
+        Path manifest = services.directories().configDirectory().resolve("update-manifest.json");
+        Files.writeString(manifest, "{\"schemaVersion\":1,\"releases\":[]}");
+        MainWindow window = runOnJavaFxThread(() -> {
+            Platform.setImplicitExit(false);
+            MainWindow result = new MainWindow(services);
+            Stage owner = new Stage();
+            owner.setOpacity(0);
+            owner.setScene(new Scene(result.root()));
+            owner.show();
+            result.showStartupActions();
+            return result;
+        });
+        try {
+            Thread worker = runOnJavaFxThread(() -> {
+                Timeline timer = assertInstanceOf(Timeline.class, windowField(window, "applicationUpdateTimer"));
+                assertEquals(Animation.Status.RUNNING, timer.getStatus());
+                assertEquals(Animation.INDEFINITE, timer.getCycleCount());
+                assertEquals(javafx.util.Duration.hours(4), timer.getKeyFrames().getFirst().getTime());
+                assertEquals(false, windowField(window, "busy"));
+                window.showStartupActions();
+                assertEquals(previousCheck, preferences.readApplicationUpdateCheckedAt(UpdateChannel.STABLE));
+
+                preferences.writeSettings(Locale.ENGLISH, false, UpdateChannel.STABLE);
+                timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
+                assertEquals(false, windowField(window, "busy"));
+                preferences.writeSettings(Locale.ENGLISH, true, UpdateChannel.NIGHTLY);
+
+                Stage dialog = new Stage();
+                dialog.initOwner(window.root().getScene().getWindow());
+                dialog.setOpacity(0);
+                dialog.show();
+                try {
+                    timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
+                    assertEquals(false, windowField(window, "busy"));
+                } finally {
+                    dialog.hide();
+                }
+
+                timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
+                assertEquals(true, windowField(window, "busy"));
+                Thread first = assertInstanceOf(Thread.class, windowField(window, "currentBackgroundThread"));
+                timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
+                assertSame(first, windowField(window, "currentBackgroundThread"));
+                return first;
+            });
+            assertTrue(worker.join(Duration.ofSeconds(FX_TIMEOUT_SECONDS)));
+
+            Thread failingWorker = runOnJavaFxThread(() -> {
+                assertEquals(false, windowField(window, "busy"));
+                assertNotNull(preferences.readApplicationUpdateCheckedAt(UpdateChannel.NIGHTLY));
+                assertEquals(previousCheck, preferences.readApplicationUpdateCheckedAt(UpdateChannel.STABLE));
+                Files.writeString(manifest, "invalid JSON");
+                Timeline timer = assertInstanceOf(Timeline.class, windowField(window, "applicationUpdateTimer"));
+                timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
+                return assertInstanceOf(Thread.class, windowField(window, "currentBackgroundThread"));
+            });
+            assertTrue(failingWorker.join(Duration.ofSeconds(FX_TIMEOUT_SECONDS)));
+            runOnJavaFxThread(() -> {
+                assertEquals(false, windowField(window, "busy"));
+                assertEquals(1, javafx.stage.Window.getWindows().size());
+                Timeline timer = assertInstanceOf(Timeline.class, windowField(window, "applicationUpdateTimer"));
+                assertEquals(Animation.Status.RUNNING, timer.getStatus());
+                assertTrue(window.requestClose(() -> {}));
+                assertEquals(Animation.Status.STOPPED, timer.getStatus());
+                timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
+                window.showStartupActions();
+                assertEquals(false, windowField(window, "busy"));
+                assertEquals(Animation.Status.STOPPED, timer.getStatus());
+                return null;
+            });
+        } finally {
+            runOnJavaFxThread(() -> {
+                window.shutdown();
+                window.root().getScene().getWindow().hide();
+                return null;
+            });
+        }
+    }
+
+    /// Reads lifecycle state without exposing mutable test hooks in the window API.
+    ///
+    /// @param window window inspected on the JavaFX thread.
+    /// @param name declared field name.
+    /// @return current field value, possibly null.
+    /// @throws ReflectiveOperationException when the field is unavailable.
+    private static @Nullable Object windowField(MainWindow window, String name) throws ReflectiveOperationException {
+        var field = MainWindow.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(window);
     }
 
     /// Verifies flash progress rows are known before backend progress events arrive.

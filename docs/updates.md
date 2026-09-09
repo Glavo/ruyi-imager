@@ -29,8 +29,13 @@ also starts it. Checks alone never install anything. A newer release without a
 compatible installer is reported separately; requesting preparation or installation
 in that case exits with status 1.
 
-The GUI retains its stable/nightly preference, daily startup-check policy, manual
-check, and exact-release skip state. Startup failures stay silent. Installation
+The GUI checks at startup when the selected channel's last successful check is at
+least one hour old or unknown, then attempts another check every four hours while
+open. Each timer tick rereads the automatic-check setting and selected channel.
+Ticks during background work or an owned dialog are skipped until the next cycle;
+failures stay silent and do not trigger immediate retries. Closing the window stops
+the timer. Manual checks bypass the interval and automatic-check setting.
+The stable/nightly preference and exact-release skip state are retained. Installation
 requires user confirmation; after starting the installer, the GUI exits. Handoff
 does not prove that the installation finished successfully.
 
