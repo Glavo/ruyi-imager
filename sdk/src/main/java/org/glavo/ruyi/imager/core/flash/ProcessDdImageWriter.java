@@ -304,6 +304,29 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", commandText(command)), exception);
         }
 
+        return runEventLogElevated(operation, progressSinks, command, process, eventLog, cancelFile, reporter);
+    }
+
+    /// Reads an elevated launcher's events and owns cleanup of its temporary files.
+    /// Cancellation signals are retained after failure because launcher termination does not prove helper exit.
+    ///
+    /// @param operation helper operation.
+    /// @param progressSinks progress sinks keyed by helper operation.
+    /// @param command launcher command for diagnostics.
+    /// @param process running elevation launcher.
+    /// @param eventLog helper event log.
+    /// @param cancelFile helper cancellation signal path.
+    /// @param reporter progress reporter.
+    /// @return whether the helper completed successfully.
+    /// @throws IOException when waiting, event parsing, or the helper operation fails.
+    static boolean runEventLogElevated(
+            String operation,
+            Map<String, ProgressSink> progressSinks,
+            List<String> command,
+            Process process,
+            Path eventLog,
+            Path cancelFile,
+            ProgressReporter reporter) throws IOException {
         HelperEventState state = new HelperEventState(progressSinks, reporter);
         ProcessStreamCollector stdout = ProcessStreamCollector.start(process.getInputStream(), "dd-flasher-elevated-stdout");
         ProcessStreamCollector stderr = ProcessStreamCollector.start(
@@ -311,12 +334,18 @@ public final class ProcessDdImageWriter implements DdImageWriter {
                 "dd-flasher-elevated-stderr");
         long offset = 0L;
         int exitCode;
+        boolean finished = false;
         try {
             while (!process.waitFor(100L, TimeUnit.MILLISECONDS)) {
                 offset = readEventLog(eventLog, offset, state);
             }
             exitCode = process.exitValue();
             readEventLog(eventLog, offset, state);
+            stdout.await(command);
+            stderr.await(command);
+            boolean result = finish(operation, state, exitCode, diagnosticText(stdout, stderr));
+            finished = true;
+            return result;
         } catch (InterruptedException exception) {
             cleanupElevatedProcess(process, cancelFile, exception);
             Thread.currentThread().interrupt();
@@ -330,12 +359,13 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw exception;
         } finally {
             deleteEventLog(eventLog);
-            deleteCancelFile(cancelFile);
+            if (finished) {
+                deleteCancelFile(cancelFile);
+            } else {
+                LOGGER.warn("Elevated helper exit could not be confirmed; retaining cancellation signal at {}.",
+                        cancelFile);
+            }
         }
-        stdout.await(command);
-        stderr.await(command);
-
-        return finish(operation, state, exitCode, diagnosticText(stdout, stderr));
     }
 
     /// Runs one elevated helper operation while reading helper NDJSON events from stdout.
@@ -532,7 +562,7 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param diagnosticText captured process diagnostic text.
     /// @return operation success result.
     /// @throws IOException when helper execution failed.
-    private boolean finish(
+    private static boolean finish(
             String operation,
             HelperEventState state,
             int exitCode,
@@ -1252,6 +1282,6 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param stage SDK progress stage.
     /// @param message SDK progress message.
     @NotNullByDefault
-    private record ProgressSink(String stage, String message) {
+    record ProgressSink(String stage, String message) {
     }
 }

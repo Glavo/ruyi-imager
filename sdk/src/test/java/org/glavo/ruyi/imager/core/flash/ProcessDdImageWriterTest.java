@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
@@ -18,7 +20,9 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -169,6 +173,115 @@ public final class ProcessDdImageWriterTest {
         assertTrue(ProcessDdImageWriter.usesElevatedEventLog("Windows 11"));
         assertTrue(ProcessDdImageWriter.usesElevatedEventLog("macOS"));
         assertTrue(ProcessDdImageWriter.usesElevatedEventLog("Darwin"));
+    }
+
+    /// Retains cancellation after event parsing or a progress callback fails, even after killing the launcher.
+    @Test
+    public void retainsCancellationAfterEventFailure(@TempDir Path directory) throws Exception {
+        for (boolean callbackFailure : List.of(false, true)) {
+            Path eventLog = directory.resolve("events.ndjson");
+            Path cancel = directory.resolve("cancel");
+            Files.writeString(eventLog, callbackFailure
+                    ? "{\"type\":\"progress\",\"operation\":\"write\"}\n"
+                    : "invalid-json\n");
+            var process = new TestElevationLauncher(false);
+            ProgressReporter reporter = _ -> { throw new IllegalStateException("Callback failed."); };
+            Class<? extends Exception> expectedType = callbackFailure ? IllegalStateException.class : IOException.class;
+            assertThrows(expectedType,
+                    () -> ProcessDdImageWriter.runEventLogElevated("write",
+                            Map.of("write", new ProcessDdImageWriter.ProgressSink("flash", "Writing")),
+                            List.of("test-launcher"), process, eventLog, cancel, reporter));
+            assertTrue(process.destroyed);
+            assertTrue(Files.exists(cancel));
+            assertFalse(Files.exists(eventLog));
+            Files.delete(cancel);
+        }
+    }
+
+    /// Retains cancellation and the interrupt flag when the launcher wait is interrupted.
+    @Test
+    public void retainsCancellationAfterInterruptedWait(@TempDir Path directory) throws Exception {
+        Path eventLog = Files.createFile(directory.resolve("events.ndjson"));
+        Path cancel = directory.resolve("cancel");
+        var process = new TestElevationLauncher(false);
+        try {
+            Thread.currentThread().interrupt();
+            IOException failure = assertThrows(IOException.class, () -> ProcessDdImageWriter.runEventLogElevated(
+                    "write", Map.of(), List.of("test-launcher"), process, eventLog, cancel, NO_PROGRESS));
+            assertTrue(failure.getCause() instanceof InterruptedException);
+            assertTrue(Thread.currentThread().isInterrupted());
+            assertTrue(process.destroyed);
+            assertTrue(Files.exists(cancel));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    /// Removes temporary files after a normally completed helper operation.
+    @Test
+    public void cleansCancellationAfterNormalCompletion(@TempDir Path directory) throws Exception {
+        Path eventLog = directory.resolve("events.ndjson");
+        Path cancel = Files.createFile(directory.resolve("cancel"));
+        Files.writeString(eventLog, "{\"type\":\"complete\",\"success\":true}\n");
+        assertTrue(ProcessDdImageWriter.runEventLogElevated("write", Map.of(), List.of("test-launcher"),
+                new TestElevationLauncher(true), eventLog, cancel, NO_PROGRESS));
+        assertFalse(Files.exists(eventLog));
+        assertFalse(Files.exists(cancel));
+    }
+
+    /// Models a launcher whose termination gives no information about its elevated child.
+    @NotNullByDefault
+    private static final class TestElevationLauncher extends Process {
+        /// Whether the launcher completed without intervention.
+        private final boolean completed;
+
+        /// Whether forceful termination was requested.
+        private boolean destroyed;
+
+        /// Creates a completed or unresponsive launcher.
+        private TestElevationLauncher(boolean completed) {
+            this.completed = completed;
+        }
+
+        /// Discards launcher input.
+        @Override
+        public OutputStream getOutputStream() { return OutputStream.nullOutputStream(); }
+
+        /// Returns empty launcher output.
+        @Override
+        public InputStream getInputStream() { return InputStream.nullInputStream(); }
+
+        /// Returns empty launcher diagnostics.
+        @Override
+        public InputStream getErrorStream() { return InputStream.nullInputStream(); }
+
+        /// Rejects unbounded waits in this fixture.
+        @Override
+        public int waitFor() { throw new AssertionError("Unbounded wait."); }
+
+        /// Simulates interruption or an expired wait without delaying the test.
+        @Override
+        public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+            if (Thread.interrupted()) {
+                throw new InterruptedException();
+            }
+            return completed || destroyed;
+        }
+
+        /// Returns a successful launcher exit only when it has stopped.
+        @Override
+        public int exitValue() {
+            if (!completed && !destroyed) { throw new IllegalThreadStateException(); }
+            return 0;
+        }
+
+        /// Records termination without affecting any elevated child.
+        @Override
+        public void destroy() { destroyed = true; }
+
+        /// Records forceful termination without affecting any elevated child.
+        @Override
+        public Process destroyForcibly() { destroy(); return this; }
     }
 
     /// Returns the current Java executable path.

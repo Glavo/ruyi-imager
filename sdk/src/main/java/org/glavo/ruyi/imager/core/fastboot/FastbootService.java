@@ -3,7 +3,6 @@
 
 package org.glavo.ruyi.imager.core.fastboot;
 
-import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressReporter;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -44,9 +43,9 @@ public interface FastbootService {
     /// @param partitions materialized partition images keyed by target partition name.
     /// @param device target fastboot device.
     /// @param reporter progress reporter.
-    /// @return operation result.
+    /// @return operation outcome and the target identity to use for subsequent components after success.
     /// @throws IOException when fastboot cannot be executed.
-    OperationResult flash(
+    FastbootFlashResult flash(
             String strategy,
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,

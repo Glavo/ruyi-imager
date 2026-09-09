@@ -10,6 +10,7 @@ import org.glavo.ruyi.imager.core.ProvisionStrategies;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
+import org.glavo.ruyi.imager.core.fastboot.FastbootFlashResult;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.fastboot.ProcessFastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
@@ -662,7 +663,7 @@ public final class LocalFlashService implements FlashService {
         @Unmodifiable List<ImageComponent> components = image.components();
         if (components.size() <= 1) {
             @Unmodifiable Map<String, Path> partitions = resolvePartitionPaths(image, materialized);
-            return fastboot.flash(image.strategy(), partitions, fastbootDevice, reporter);
+            return fastboot.flash(image.strategy(), partitions, fastbootDevice, reporter).result();
         }
 
         for (ImageComponent component : components) {
@@ -678,10 +679,11 @@ public final class LocalFlashService implements FlashService {
                     + component.strategy());
             @Unmodifiable Map<String, Path> partitions =
                     resolvePartitionPaths(component.atom(), component.partitionMap(), materialized);
-            OperationResult result = fastboot.flash(component.strategy(), partitions, fastbootDevice, reporter);
-            if (!result.success()) {
-                return result;
+            FastbootFlashResult result = fastboot.flash(component.strategy(), partitions, fastbootDevice, reporter);
+            if (!result.result().success()) {
+                return result.result();
             }
+            fastbootDevice = result.device();
         }
         return OperationResult.success(SdkMessages.get("core.fastboot.success"));
     }

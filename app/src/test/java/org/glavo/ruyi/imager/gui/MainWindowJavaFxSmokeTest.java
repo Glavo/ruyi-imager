@@ -28,6 +28,7 @@ import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
+import org.glavo.ruyi.imager.core.fastboot.FastbootFlashResult;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.flash.FlashRequest;
 import org.glavo.ruyi.imager.core.flash.FlashService;
@@ -655,7 +656,7 @@ public final class MainWindowJavaFxSmokeTest {
         /// @return never returns.
         /// @throws IOException always thrown.
         @Override
-        public OperationResult flash(
+        public FastbootFlashResult flash(
                 String strategy,
                 @Unmodifiable Map<String, Path> partitions,
                 FastbootDevice device,

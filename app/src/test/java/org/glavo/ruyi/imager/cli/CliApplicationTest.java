@@ -13,6 +13,7 @@ import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
+import org.glavo.ruyi.imager.core.fastboot.FastbootFlashResult;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.flash.BlockDevicePreparer;
 import org.glavo.ruyi.imager.core.flash.LocalFlashService;
@@ -1044,12 +1045,12 @@ public final class CliApplicationTest {
         /// @param reporter progress reporter.
         /// @return failure result.
         @Override
-        public OperationResult flash(
+        public FastbootFlashResult flash(
                 String strategy,
                 @Unmodifiable Map<String, Path> partitions,
                 FastbootDevice device,
                 ProgressReporter reporter) {
-            return OperationResult.failure("No fastboot devices are available.");
+            return new FastbootFlashResult(OperationResult.failure("No fastboot devices are available."), device);
         }
     }
 
@@ -1088,14 +1089,14 @@ public final class CliApplicationTest {
         /// @param reporter progress reporter.
         /// @return success result.
         @Override
-        public OperationResult flash(
+        public FastbootFlashResult flash(
                 String strategy,
                 @Unmodifiable Map<String, Path> partitions,
                 FastbootDevice device,
                 ProgressReporter reporter) {
             this.strategy = strategy;
             this.partitions = Map.copyOf(partitions);
-            return OperationResult.success("Fastboot complete.");
+            return new FastbootFlashResult(OperationResult.success("Fastboot complete."), device);
         }
     }
 }

@@ -10,6 +10,7 @@ import org.glavo.ruyi.imager.core.StrategySupport;
 import org.glavo.ruyi.imager.core.device.BlockDevice;
 import org.glavo.ruyi.imager.core.device.BlockDeviceService;
 import org.glavo.ruyi.imager.core.fastboot.FastbootDevice;
+import org.glavo.ruyi.imager.core.fastboot.FastbootFlashResult;
 import org.glavo.ruyi.imager.core.fastboot.FastbootService;
 import org.glavo.ruyi.imager.core.image.ImageCatalog;
 import org.glavo.ruyi.imager.core.image.ImageCatalogService;
@@ -564,8 +565,10 @@ public final class LocalFlashServiceTest {
         assertTrue(result.success(), result.message());
         assertEquals(2, fastboot.calls.size());
         assertEquals("fastboot-v1(lpi4a-uboot)", fastboot.calls.get(0).strategy());
+        assertEquals(device, fastboot.calls.get(0).device());
         assertEquals(Map.of("uboot", uboot), fastboot.calls.get(0).partitions());
         assertEquals("fastboot-v1", fastboot.calls.get(1).strategy());
+        assertEquals("new456", fastboot.calls.get(1).device().serial());
         assertEquals(boot, fastboot.calls.get(1).partitions().get("boot"));
         assertEquals(root, fastboot.calls.get(1).partitions().get("root"));
     }
@@ -1076,7 +1079,7 @@ public final class LocalFlashServiceTest {
         /// @param reporter progress reporter.
         /// @return success result.
         @Override
-        public OperationResult flash(
+        public FastbootFlashResult flash(
                 String strategy,
                 @Unmodifiable Map<String, Path> partitions,
                 FastbootDevice device,
@@ -1085,7 +1088,10 @@ public final class LocalFlashServiceTest {
             this.partitions = Map.copyOf(partitions);
             this.device = device;
             this.calls.add(new FastbootCall(strategy, Map.copyOf(partitions), device));
-            return OperationResult.success("Fastboot complete.");
+            FastbootDevice currentDevice = "fastboot-v1(lpi4a-uboot)".equals(strategy)
+                    ? new FastbootDevice("new456", "new456", "fastboot")
+                    : device;
+            return new FastbootFlashResult(OperationResult.success("Fastboot complete."), currentDevice);
         }
     }
 

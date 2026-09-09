@@ -157,29 +157,30 @@ public final class ProcessFastbootService implements FastbootService {
     /// @param partitions materialized partition images keyed by target partition name.
     /// @param device target fastboot device.
     /// @param reporter progress reporter.
-    /// @return operation result.
+    /// @return operation outcome and the last resolved target identity.
     /// @throws IOException when fastboot cannot be executed.
     @Override
-    public OperationResult flash(
+    public FastbootFlashResult flash(
             String strategy,
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
         if (partitions.isEmpty()) {
-            return OperationResult.failure(SdkMessages.get("core.fastboot.noPartitions"));
+            return new FastbootFlashResult(OperationResult.failure(SdkMessages.get("core.fastboot.noPartitions")), device);
         }
 
         if (ProvisionStrategies.FASTBOOT_V1.equals(strategy)) {
-            return flashStandard(partitions, device, reporter);
+            return new FastbootFlashResult(flashStandard(partitions, device, reporter), device);
         }
         if (ProvisionStrategies.FASTBOOT_LPI4A_UBOOT_V1.equals(strategy)) {
             return flashLpi4aUboot(partitions, device, reporter);
         }
         if (ProvisionStrategies.SPACEMIT_K1_V1.equals(strategy)) {
-            return flashSpacemitK1(partitions, device, reporter);
+            return new FastbootFlashResult(flashSpacemitK1(partitions, device, reporter), device);
         }
 
-        return OperationResult.failure(SdkMessages.get("core.fastboot.unsupportedStrategy", strategy));
+        return new FastbootFlashResult(
+                OperationResult.failure(SdkMessages.get("core.fastboot.unsupportedStrategy", strategy)), device);
     }
 
     /// Parses `fastboot devices` output.
@@ -361,15 +362,16 @@ public final class ProcessFastbootService implements FastbootService {
     /// @param partitions materialized partition images.
     /// @param device target fastboot device.
     /// @param reporter progress reporter.
-    /// @return operation result.
+    /// @return operation outcome and the last resolved target identity.
     /// @throws IOException when fastboot cannot be executed.
-    private OperationResult flashLpi4aUboot(
+    private FastbootFlashResult flashLpi4aUboot(
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
         @Nullable Path uboot = partitions.get("uboot");
         if (uboot == null) {
-            return OperationResult.failure(SdkMessages.get("core.fastboot.missingPartition", "uboot"));
+            return new FastbootFlashResult(
+                    OperationResult.failure(SdkMessages.get("core.fastboot.missingPartition", "uboot")), device);
         }
 
         int totalSteps = 4;
@@ -382,11 +384,11 @@ public final class ProcessFastbootService implements FastbootService {
                 new FastbootCommandProgress(reporter, 0, totalSteps));
         if (!ramResult.success()) {
             if (isLpi4aRamTargetMissing(ramResult.message())) {
-                return OperationResult.failure(SdkMessages.get(
+                return new FastbootFlashResult(OperationResult.failure(SdkMessages.get(
                         "core.fastboot.lpi4aRamTargetMissing",
-                        ramResult.message()));
+                        ramResult.message())), device);
             }
-            return ramResult;
+            return new FastbootFlashResult(ramResult, device);
         }
         reporter.report(progress(SdkMessages.get("core.fastboot.loadingLpi4aUboot"), 1, totalSteps));
         preHandoffOtherSerials = mergeSerials(preHandoffOtherSerials, readOtherFastbootSerials(device));
@@ -397,7 +399,7 @@ public final class ProcessFastbootService implements FastbootService {
                 List.of("reboot"),
                 new FastbootCommandProgress(reporter, 1, totalSteps));
         if (!rebootResult.success()) {
-            return rebootResult;
+            return new FastbootFlashResult(rebootResult, device);
         }
         reporter.report(progress(SdkMessages.get("core.fastboot.rebooting"), 2, totalSteps));
 
@@ -407,22 +409,23 @@ public final class ProcessFastbootService implements FastbootService {
         ResolvedFastbootDevice resolvedDevice =
                 resolveLpi4aUbootDevice(device, preHandoffOtherSerials, reporter, totalSteps);
         if (!resolvedDevice.success()) {
-            return OperationResult.failure(resolvedDevice.message());
+            return new FastbootFlashResult(OperationResult.failure(resolvedDevice.message()), device);
         }
         reporter.report(progress(waitMessage, 3, totalSteps));
 
         String flashMessage = SdkMessages.get("core.fastboot.flashingPartition", "uboot");
         reporter.report(progress(flashMessage, 3, totalSteps));
+        FastbootDevice currentDevice = Objects.requireNonNull(resolvedDevice.device());
         OperationResult ubootResult = runFastboot(
-                Objects.requireNonNull(resolvedDevice.device()),
+                currentDevice,
                 List.of("flash", "uboot", uboot.toString()),
                 new FastbootCommandProgress(reporter, 3, totalSteps));
         if (!ubootResult.success()) {
-            return ubootResult;
+            return new FastbootFlashResult(ubootResult, currentDevice);
         }
         reporter.report(progress(flashMessage, 4, totalSteps));
 
-        return OperationResult.success(SdkMessages.get("core.fastboot.success"));
+        return new FastbootFlashResult(OperationResult.success(SdkMessages.get("core.fastboot.success")), currentDevice);
     }
 
     /// Resolves the fastboot device visible after LPi4A jumps into RAM-loaded U-Boot.

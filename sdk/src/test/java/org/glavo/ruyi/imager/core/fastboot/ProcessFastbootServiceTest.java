@@ -3,7 +3,6 @@
 
 package org.glavo.ruyi.imager.core.fastboot;
 
-import org.glavo.ruyi.imager.core.OperationResult;
 import org.glavo.ruyi.imager.core.ProgressEvent;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
@@ -75,13 +74,13 @@ public final class ProcessFastbootServiceTest {
         });
 
         ArrayList<ProgressEvent> progress = new ArrayList<>();
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "fastboot-v1(lpi4a-uboot)",
                 Map.of("uboot", Path.of("uboot.img")),
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 progress::add);
 
-        assertTrue(result.success(), result.message());
+        assertTrue(result.result().success(), result.result().message());
         assertEquals(3, devicesCalls[0]);
         assertEquals(List.of(
                 List.of("fastboot-test", "devices"),
@@ -91,6 +90,7 @@ public final class ProcessFastbootServiceTest {
                 List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "uboot", "uboot.img")), commands);
         ProgressEvent last = progress.getLast();
+        assertEquals("abc123", result.device().serial());
         assertEquals(4000L, last.currentBytes());
         assertEquals(4000L, last.totalBytes());
     }
@@ -114,14 +114,14 @@ public final class ProcessFastbootServiceTest {
             return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
         });
 
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "fastboot-v1(lpi4a-uboot)",
                 Map.of("uboot", Path.of("uboot.img")),
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 _ -> {
                 });
 
-        assertTrue(result.success(), result.message());
+        assertTrue(result.result().success(), result.result().message());
         assertEquals(3, devicesCalls[0]);
         assertEquals(List.of(
                 List.of("fastboot-test", "devices"),
@@ -130,6 +130,11 @@ public final class ProcessFastbootServiceTest {
                 List.of("fastboot-test", "-s", "abc123", "reboot"),
                 List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "new456", "flash", "uboot", "uboot.img")), commands);
+        assertEquals("new456", result.device().serial());
+        FastbootFlashResult rootfsResult = service.flash(
+                "fastboot-v1", Map.of("root", Path.of("root.ext4")), result.device(), _ -> { });
+        assertTrue(rootfsResult.result().success());
+        assertEquals(List.of("fastboot-test", "-s", "new456", "flash", "root", "root.ext4"), commands.getLast());
     }
 
     /// Keeps waiting when only a pre-existing non-target serial is visible after LPi4A U-Boot handoff.
@@ -154,14 +159,14 @@ public final class ProcessFastbootServiceTest {
             return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
         });
 
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "fastboot-v1(lpi4a-uboot)",
                 Map.of("uboot", Path.of("uboot.img")),
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 _ -> {
                 });
 
-        assertTrue(result.success(), result.message());
+        assertTrue(result.result().success(), result.result().message());
         assertEquals(4, devicesCalls[0]);
         assertEquals(List.of(
                 List.of("fastboot-test", "devices"),
@@ -194,15 +199,15 @@ public final class ProcessFastbootServiceTest {
                     false);
         });
 
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "fastboot-v1(lpi4a-uboot)",
                 Map.of("uboot", Path.of("uboot.img")),
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 _ -> {
                 });
 
-        assertFalse(result.success());
-        assertTrue(result.message().contains("does not accept the LPi4A RAM U-Boot handoff"), result.message());
+        assertFalse(result.result().success());
+        assertTrue(result.result().message().contains("does not accept the LPi4A RAM U-Boot handoff"), result.result().message());
         assertEquals(List.of(
                 List.of("fastboot-test", "devices"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "ram", "uboot.img")), commands);
@@ -230,14 +235,14 @@ public final class ProcessFastbootServiceTest {
             return new ProcessFastbootService.CommandResult(0, "OKAY\n", false);
         });
 
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "fastboot-v1(lpi4a-uboot)",
                 Map.of("uboot", Path.of("uboot.img")),
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 _ -> {
                 });
 
-        assertFalse(result.success());
+        assertFalse(result.result().success());
         assertEquals(3, devicesCalls[0]);
         assertEquals(List.of(
                 List.of("fastboot-test", "devices"),
@@ -262,13 +267,13 @@ public final class ProcessFastbootServiceTest {
         partitions.put("boot", Path.of("boot.img"));
 
         ArrayList<ProgressEvent> progress = new ArrayList<>();
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "fastboot-v1",
                 partitions,
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 progress::add);
 
-        assertTrue(result.success(), result.message());
+        assertTrue(result.result().success(), result.result().message());
         assertEquals(List.of(
                 List.of("fastboot-test", "-s", "abc123", "flash", "root", "root.img"),
                 List.of("fastboot-test", "-s", "abc123", "flash", "boot", "boot.img")), commands);
@@ -301,13 +306,13 @@ public final class ProcessFastbootServiceTest {
         });
 
         ArrayList<ProgressEvent> progress = new ArrayList<>();
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "fastboot-v1",
                 Map.of("root", Path.of("root.img")),
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 progress::add);
 
-        assertTrue(result.success(), result.message());
+        assertTrue(result.result().success(), result.result().message());
         boolean sawSparseChunk = false;
         ArrayList<Long> writingProgress = new ArrayList<>();
         long previousProgress = -1L;
@@ -353,13 +358,13 @@ public final class ProcessFastbootServiceTest {
         });
 
         ArrayList<ProgressEvent> progress = new ArrayList<>();
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "fastboot-v1",
                 Map.of("root", Path.of("root.ext4")),
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 progress::add);
 
-        assertTrue(result.success(), result.message());
+        assertTrue(result.result().success(), result.result().message());
         ProgressEvent last = progress.getLast();
         assertEquals(1000L, last.currentBytes());
         assertEquals(1000L, last.totalBytes());
@@ -375,7 +380,7 @@ public final class ProcessFastbootServiceTest {
         });
 
         ArrayList<ProgressEvent> progress = new ArrayList<>();
-        OperationResult result = service.flash(
+        FastbootFlashResult result = service.flash(
                 "spacemit-k1-v1",
                 Map.of(
                         "bootfs", Path.of("bootfs.ext4"),
@@ -389,7 +394,7 @@ public final class ProcessFastbootServiceTest {
                 new FastbootDevice("abc123", "abc123", "fastboot"),
                 progress::add);
 
-        assertTrue(result.success(), result.message());
+        assertTrue(result.result().success(), result.result().message());
         assertEquals(List.of(
                 List.of("fastboot-test", "-s", "abc123", "stage", "FSBL.bin"),
                 List.of("fastboot-test", "-s", "abc123", "continue"),

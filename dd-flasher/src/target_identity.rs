@@ -236,25 +236,34 @@ fn inspect_target(_path: &Path, _target: &File) -> Result<TargetObservation, Str
 }
 
 /// Linux target inspection.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 mod linux {
     use super::TargetObservation;
     use serde_json::Value;
+    #[cfg(target_os = "linux")]
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
+    /// Builds a tree query so partitions remain children of the selected whole disk.
+    fn lsblk_command(executable: &std::path::Path) -> Command {
+        let mut command = Command::new(executable);
+        command.args([
+            "--json",
+            "--bytes",
+            "--tree",
+            "--output",
+            "PATH,TYPE,SIZE,RM,RO,MOUNTPOINTS,MODEL,TRAN,SERIAL,WWN,HOTPLUG",
+            "--",
+        ]);
+        command
+    }
+
     /// Returns target properties from lsblk.
+    #[cfg(target_os = "linux")]
     pub(super) fn inspect_target(path: &Path) -> Result<TargetObservation, String> {
         let executable = lsblk_executable()
             .ok_or_else(|| "cannot find lsblk at /usr/bin/lsblk or /bin/lsblk".to_string())?;
-        let output = Command::new(executable)
-            .args([
-                "--json",
-                "--bytes",
-                "--output",
-                "PATH,TYPE,SIZE,RM,RO,MOUNTPOINTS,MODEL,TRAN,SERIAL,WWN,HOTPLUG",
-                "--",
-            ])
+        let output = lsblk_command(&executable)
             .arg(path)
             .output()
             .map_err(|error| format!("failed to run lsblk: {error}"))?;
@@ -266,7 +275,12 @@ mod linux {
             ));
         }
 
-        let root: Value = serde_json::from_slice(&output.stdout)
+        parse_target(&output.stdout)
+    }
+
+    /// Decodes one whole disk and preserves system mount checks across its descendants.
+    fn parse_target(output: &[u8]) -> Result<TargetObservation, String> {
+        let root: Value = serde_json::from_slice(output)
             .map_err(|error| format!("failed to parse lsblk JSON: {error}"))?;
         let devices = root
             .get("blockdevices")
@@ -302,6 +316,7 @@ mod linux {
     }
 
     /// Returns the trusted lsblk executable path.
+    #[cfg(target_os = "linux")]
     fn lsblk_executable() -> Option<PathBuf> {
         [PathBuf::from("/usr/bin/lsblk"), PathBuf::from("/bin/lsblk")]
             .into_iter()
@@ -366,6 +381,48 @@ mod linux {
             parts.push(format!("wwn={wwn}"));
         }
         (!parts.is_empty()).then(|| parts.join(";"))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use serde_json::json;
+
+        /// Ensures the actual query requests children even without the NAME column.
+        #[test]
+        fn requests_tree_output() {
+            let command = lsblk_command(std::path::Path::new("/usr/bin/lsblk"));
+            assert!(command.get_args().any(|argument| argument == "--tree"));
+            assert!(!command.get_args().any(|argument| argument == "--nodeps"));
+        }
+
+        /// Accepts partitioned disks while retaining recursive protection of system mounts.
+        #[test]
+        fn inspects_partitioned_disk_and_nested_system_mounts() {
+            let mut root = json!({"blockdevices": [{
+                "path": "/dev/sdb", "type": "disk", "size": 1048576,
+                "rm": true, "ro": false, "tran": "usb", "mountpoints": [null],
+                "children": [{"type": "part", "mountpoints": ["/media/data"],
+                    "children": [{"type": "crypt", "mountpoints": [null]}]}]
+            }]});
+            let observation = parse_target(&serde_json::to_vec(&root).unwrap()).unwrap();
+            assert!(observation.removable);
+            assert!(!observation.system);
+            for mount in ["/", "/boot", "/boot/efi", "/efi"] {
+                root["blockdevices"][0]["children"][0]["children"][0]["mountpoints"] =
+                    json!([mount]);
+                assert!(
+                    parse_target(&serde_json::to_vec(&root).unwrap())
+                        .unwrap()
+                        .system
+                );
+            }
+            root["blockdevices"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"type": "disk"}));
+            assert!(parse_target(&serde_json::to_vec(&root).unwrap()).is_err());
+        }
     }
 }
 

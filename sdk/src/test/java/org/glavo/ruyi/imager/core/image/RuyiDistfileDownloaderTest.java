@@ -17,21 +17,29 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /// Tests for Ruyi distfile downloading.
@@ -161,6 +169,67 @@ public final class RuyiDistfileDownloaderTest {
         }
     }
 
+    /// Times out stalled bodies and resumes from the next source without losing received bytes.
+    @Test
+    public void fallsBackAfterBodyTimeout(@TempDir Path directory) throws Exception {
+        byte[] content = "download through a fallback source".getBytes(StandardCharsets.UTF_8);
+        for (boolean partialBody : List.of(false, true)) {
+            try (TinyHttpServer server = new TinyHttpServer(content);
+                 HttpClient client = HttpClient.newHttpClient()) {
+                RuyiDistfile distfile = new RuyiDistfile("image.raw",
+                        List.of(server.uri(partialBody ? "/stall-partial" : "/stall-empty"), server.uri("/image.raw")),
+                        (long) content.length, Map.of("sha256", sha256(content)), false, true, null, 0, List.of(), "raw");
+                Path result = assertTimeoutPreemptively(Duration.ofSeconds(5), () ->
+                        new RuyiDistfileDownloader(client, Duration.ofMillis(200))
+                                .download(distfile, directory, NO_PROGRESS));
+                assertArrayEquals(content, Files.readAllBytes(result));
+                assertTrue(server.stalledConnectionClosed.await(1, TimeUnit.SECONDS));
+                assertEquals(partialBody ? List.of("bytes=4-") : List.of(), server.rangeRequests());
+                Files.delete(result);
+            }
+        }
+    }
+
+    /// Interrupts a body wait promptly and does not try another source after cancellation.
+    @Test
+    public void cancelsStalledBodyWithoutFallback(@TempDir Path directory) throws Exception {
+        byte[] content = "download cancellation".getBytes(StandardCharsets.UTF_8);
+        try (TinyHttpServer server = new TinyHttpServer(content);
+             HttpClient client = HttpClient.newHttpClient()) {
+            RuyiDistfile distfile = new RuyiDistfile("image.raw",
+                    List.of(server.uri("/stall-partial"), server.uri("/image.raw")),
+                    (long) content.length, Map.of("sha256", sha256(content)), false, true, null, 0, List.of(), "raw");
+            AtomicReference<@Nullable Throwable> failure = new AtomicReference<>();
+            CountDownLatch received = new CountDownLatch(1);
+            Thread download = Thread.ofVirtual().start(() -> {
+                try {
+                    new RuyiDistfileDownloader(client).download(distfile, directory, event -> {
+                        if (event.currentBytes() != null && event.currentBytes() > 0) {
+                            received.countDown();
+                        }
+                    });
+                } catch (Throwable exception) {
+                    failure.set(exception);
+                }
+            });
+            try {
+                assertTrue(received.await(3, TimeUnit.SECONDS));
+                download.interrupt();
+                download.join(2000);
+                assertFalse(download.isAlive());
+                assertTrue(download.isInterrupted());
+                IOException exception = assertInstanceOf(IOException.class, failure.get());
+                assertInstanceOf(InterruptedException.class, exception.getCause());
+                assertTrue(server.stalledConnectionClosed.await(1, TimeUnit.SECONDS));
+                assertEquals(List.of(), server.rangeRequests());
+                assertFalse(Files.exists(directory.resolve("image.raw")));
+            } finally {
+                download.interrupt();
+                download.join(2000);
+            }
+        }
+    }
+
     /// Verifies unsafe distfile names are rejected before they can be resolved against cache directories.
     @Test
     public void rejectsUnsafeDistfileName() {
@@ -283,6 +352,9 @@ public final class RuyiDistfileDownloaderTest {
         /// Range request headers received by the server.
         private final List<String> rangeRequests = java.util.Collections.synchronizedList(new ArrayList<>());
 
+        /// Signals that a stalled response was cancelled by its client.
+        private final CountDownLatch stalledConnectionClosed = new CountDownLatch(1);
+
         /// Creates and starts the fixture server.
         ///
         /// @param content bytes to serve.
@@ -349,6 +421,19 @@ public final class RuyiDistfileDownloaderTest {
                     if (line.regionMatches(true, 0, "Range:", 0, "Range:".length())) {
                         range = line.substring("Range:".length()).strip();
                     }
+                }
+
+                if (requestLine.startsWith("GET /stall-")) {
+                    output.write(("HTTP/1.1 200 OK\r\nContent-Length: " + content.length
+                            + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                    if (requestLine.startsWith("GET /stall-partial")) {
+                        output.write(content, 0, 4);
+                    }
+                    output.flush();
+                    if (reader.read() == -1) {
+                        stalledConnectionClosed.countDown();
+                    }
+                    return;
                 }
 
                 if (range != null) {

@@ -13,12 +13,15 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.ProxySelector;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -43,6 +46,9 @@ public final class RuyiDistfileDownloader {
     /// HTTP client used for distfile downloads.
     private final HttpClient httpClient;
 
+    /// Maximum wait for each demanded response-body chunk, excluding local writes and progress reporting.
+    private final Duration bodyTimeout;
+
     /// Creates a downloader with a default HTTP client.
     public RuyiDistfileDownloader() {
         this(defaultHttpClient());
@@ -52,7 +58,20 @@ public final class RuyiDistfileDownloader {
     ///
     /// @param httpClient HTTP client.
     public RuyiDistfileDownloader(HttpClient httpClient) {
+        this(httpClient, Duration.ofSeconds(60));
+    }
+
+    /// Creates a downloader with an explicit response-body wait limit.
+    ///
+    /// @param httpClient HTTP client owned by the caller.
+    /// @param bodyTimeout positive maximum wait for each body chunk.
+    /// @throws IllegalArgumentException when the wait limit is not positive.
+    RuyiDistfileDownloader(HttpClient httpClient, Duration bodyTimeout) {
+        if (bodyTimeout.isNegative() || bodyTimeout.isZero()) {
+            throw new IllegalArgumentException("Body timeout must be positive.");
+        }
         this.httpClient = httpClient;
+        this.bodyTimeout = bodyTimeout;
     }
 
     /// Creates the default HTTP client.
@@ -124,6 +143,11 @@ public final class RuyiDistfileDownloader {
                 LOGGER.atInfo().log(() -> "Distfile download completed. name=" + distfile.name() + ", target=" + target);
                 return target;
             } catch (IOException e) {
+                if (Thread.currentThread().isInterrupted()) {
+                    var interruption = new InterruptedIOException(SdkMessages.get("core.download.interrupted", distfile.name()));
+                    interruption.initCause(e);
+                    throw interruption;
+                }
                 LOGGER.warn("Distfile source failed. name="
                         + distfile.name()
                         + ", uri="
@@ -177,41 +201,41 @@ public final class RuyiDistfileDownloader {
                     + ", resumeBytes="
                     + resumeBytes);
             reporter.report(new ProgressEvent("download", SdkMessages.get("core.download.downloading", distfile.name()), existingBytes, expectedSize));
-            HttpResponse<InputStream> response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
-            int statusCode = response.statusCode();
-            LOGGER.atInfo().log(() -> "Distfile source responded. name="
-                    + distfile.name()
-                    + ", uri="
-                    + LogRedactor.redactUri(sourceUri)
-                    + ", status="
-                    + statusCode);
-            boolean append = existingBytes > 0L && statusCode == 206;
-            if (existingBytes > 0L && statusCode == 416) {
-                response.body().close();
-                if (verify(partial, distfile)) {
-                    return;
-                }
-                LOGGER.atInfo().log(() -> "Discarding invalid complete partial download. name=" + distfile.name());
-                Files.deleteIfExists(partial);
-                continue;
-            }
-            if (statusCode != 200 && statusCode != 206) {
-                response.body().close();
-                LOGGER.atWarn().log(() -> "Unexpected distfile source status. name="
+            try (DistfileResponseBody body = new DistfileResponseBody()) {
+                HttpResponse<DistfileResponseBody> response = httpClient.send(requestBuilder.build(), _ -> body);
+                int statusCode = response.statusCode();
+                LOGGER.atInfo().log(() -> "Distfile source responded. name="
                         + distfile.name()
                         + ", uri="
                         + LogRedactor.redactUri(sourceUri)
                         + ", status="
                         + statusCode);
-                throw new IOException(SdkMessages.get("core.download.unexpectedStatus", statusCode, sourceUri));
-            }
-            if (existingBytes > 0L && statusCode == 200) {
-                LOGGER.atInfo().log(() -> "Source ignored range request; restarting partial download. name=" + distfile.name());
-                existingBytes = 0L;
-            }
+                boolean append = existingBytes > 0L && statusCode == 206;
+                if (existingBytes > 0L && statusCode == 416) {
+                    if (verify(partial, distfile)) {
+                        return;
+                    }
+                    LOGGER.atInfo().log(() -> "Discarding invalid complete partial download. name=" + distfile.name());
+                    Files.deleteIfExists(partial);
+                    continue;
+                }
+                if (statusCode != 200 && statusCode != 206) {
+                    LOGGER.atWarn().log(() -> "Unexpected distfile source status. name="
+                            + distfile.name()
+                            + ", uri="
+                            + LogRedactor.redactUri(sourceUri)
+                            + ", status="
+                            + statusCode);
+                    throw new IOException(SdkMessages.get("core.download.unexpectedStatus", statusCode, sourceUri));
+                }
+                if (existingBytes > 0L && statusCode == 200) {
+                    LOGGER.atInfo().log(() -> "Source ignored range request; restarting partial download. name=" + distfile.name());
+                    existingBytes = 0L;
+                }
 
-            writeResponse(response.body(), partial, distfile, reporter, existingBytes, append);
-            return;
+                writeResponse(response.body(), partial, distfile, reporter, existingBytes, append);
+                return;
+            }
         }
 
         throw new IOException(SdkMessages.get("core.download.verifyFailed", distfile.name()));
@@ -255,43 +279,47 @@ public final class RuyiDistfileDownloader {
     /// @param reporter progress reporter.
     /// @param initialBytes bytes already present in the partial file.
     /// @param append whether the response should be appended.
-    /// @throws IOException when the response cannot be written.
+    /// @throws IOException when the response fails, a body wait times out, or the file cannot be written.
     /// @throws InterruptedException when cancellation is requested while writing.
-    private static void writeResponse(
-            InputStream body,
+    private void writeResponse(
+            DistfileResponseBody body,
             Path partial,
             RuyiDistfile distfile,
             ProgressReporter reporter,
             long initialBytes,
             boolean append) throws IOException, InterruptedException {
         StandardOpenOption writeMode = append ? StandardOpenOption.APPEND : StandardOpenOption.TRUNCATE_EXISTING;
-        try (InputStream input = body;
-             OutputStream output = Files.newOutputStream(partial, StandardOpenOption.CREATE, StandardOpenOption.WRITE, writeMode)) {
-            byte[] buffer = new byte[256 * 1024];
+        try (FileChannel output = FileChannel.open(partial, StandardOpenOption.CREATE, StandardOpenOption.WRITE, writeMode)) {
             long currentBytes = initialBytes;
             @Nullable Long expectedSize = distfile.sizeBytes();
             while (true) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new InterruptedException();
                 }
-                int read = input.read(buffer);
-                if (read < 0) {
+                List<ByteBuffer> buffers = body.next(bodyTimeout);
+                if (buffers.isEmpty()) {
                     break;
                 }
-                if (expectedSize != null
-                        && (currentBytes > expectedSize || read > expectedSize - currentBytes)) {
-                    throw new IOException(SdkMessages.get(
-                            "core.download.sizeExceeded",
-                            distfile.name(),
-                            expectedSize));
+                for (ByteBuffer buffer : buffers) {
+                    int read = buffer.remaining();
+                    if (expectedSize != null
+                            && (currentBytes > expectedSize || read > expectedSize - currentBytes)) {
+                        throw new IOException(SdkMessages.get(
+                                "core.download.sizeExceeded",
+                                distfile.name(),
+                                expectedSize));
+                    }
+                    while (buffer.hasRemaining()) {
+                        output.write(buffer);
+                    }
+                    currentBytes += read;
+                    reporter.report(new ProgressEvent(
+                            "download",
+                            SdkMessages.get("core.download.downloading", distfile.name()),
+                            currentBytes,
+                            distfile.sizeBytes()));
                 }
-                output.write(buffer, 0, read);
-                currentBytes += read;
-                reporter.report(new ProgressEvent(
-                        "download",
-                        SdkMessages.get("core.download.downloading", distfile.name()),
-                        currentBytes,
-                        distfile.sizeBytes()));
+                body.requestNext();
             }
         }
     }
