@@ -3,10 +3,14 @@
 
 package org.glavo.ruyi.imager.update;
 
+import org.glavo.ruyi.imager.core.AppDirectories;
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
@@ -19,10 +23,51 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.parallel.Resources.SYSTEM_PROPERTIES;
 
 /// Tests local application update manifest checks.
 @NotNullByDefault
 public final class UpdateCheckerTest {
+    /// Keeps every checker factory usable on unknown platforms while rejecting installer preparation.
+    ///
+    /// @param property runtime platform property to override.
+    /// @param value unsupported OS or architecture.
+    /// @param directory isolated application directory.
+    /// @throws IOException when the manifest cannot be written or checked.
+    @ParameterizedTest
+    @CsvSource({"os.name, UnsupportedOS", "os.arch, unsupported-arch"})
+    @ResourceLock(SYSTEM_PROPERTIES)
+    public void degradesUnsupportedPlatforms(String property, String value, @TempDir Path directory) throws IOException {
+        Path manifest = writeManifest(directory, "stable", "1.1.0");
+        AppDirectories directories = new AppDirectories(directory, directory.resolve("cache"));
+        UpdateSource source = UpdateSource.of(manifest);
+        UpdateChecker local;
+        UpdateChecker configured;
+        UpdateChecker defaults;
+        @Nullable String original = System.getProperty(property);
+        System.setProperty(property, value);
+        try {
+            local = new UpdateChecker(new BuildInfo("1.0.0"), manifest);
+            configured = UpdateChecker.createConfigured(source);
+            defaults = UpdateChecker.createDefault(directories);
+        } finally {
+            if (original == null) {
+                System.clearProperty(property);
+            } else {
+                System.setProperty(property, original);
+            }
+        }
+        for (UpdateChecker checker : List.of(local, configured, defaults)) {
+            assertNull(checker.target());
+            assertThrows(IllegalStateException.class, () -> UpdatePackageManager.createDefault(directories, checker));
+        }
+        UpdateCheckResult result = local.check();
+        assertEquals(UpdateCheckResult.Status.NO_COMPATIBLE_UPDATE, result.status());
+        assertEquals("1.1.0", Objects.requireNonNull(result.available()).version());
+        assertNull(result.artifact());
+        assertEquals(UpdateCheckResult.Status.UP_TO_DATE, local.check(UpdateChannel.NIGHTLY).status());
+    }
+
     /// Detects a newer stable Burn-compatible version.
     ///
     /// @param temporaryDirectory temporary test directory.

@@ -73,8 +73,13 @@ public final class UpdatePackageManager {
     /// @param directories application directories.
     /// @param checker     configured update checker.
     /// @return package manager.
+    /// @throws IllegalStateException when the checker has no supported installation target.
     public static UpdatePackageManager createDefault(AppDirectories directories, UpdateChecker checker) {
-        return new UpdatePackageManager(checker.source(), directories.cacheDirectory(), checker.current(), checker.target());
+        @Nullable UpdateTarget target = checker.target();
+        if (target == null) {
+            throw new IllegalStateException("Application update installers are unavailable on this platform.");
+        }
+        return new UpdatePackageManager(checker.source(), directories.cacheDirectory(), checker.current(), target);
     }
 
     /// Returns the preferred compatible artifact, or null when none satisfies this target.

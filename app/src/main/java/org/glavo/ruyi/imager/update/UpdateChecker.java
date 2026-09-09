@@ -23,9 +23,9 @@ import java.util.Set;
 ///
 /// @param current installed application build.
 /// @param source local or HTTPS update manifest.
-/// @param target local installation capabilities.
+/// @param target local installation capabilities, or null when the update platform is unsupported.
 @NotNullByDefault
-public record UpdateChecker(BuildInfo current, UpdateSource source, UpdateTarget target) {
+public record UpdateChecker(BuildInfo current, UpdateSource source, @Nullable UpdateTarget target) {
     /// JVM property overriding the default local manifest with a path or HTTPS URL.
     public static final String SOURCE_PROPERTY = "ruyi.imager.update.source";
 
@@ -38,12 +38,12 @@ public record UpdateChecker(BuildInfo current, UpdateSource source, UpdateTarget
     private static final @Unmodifiable Set<String> REQUIREMENT_FIELDS = Set.of(
             "minimumAppVersion", "minimumSystemVersion");
 
-    /// Creates a local-file checker using detected platform capabilities.
+    /// Creates a local-file checker, retaining version checks on unsupported update platforms.
     ///
     /// @param current installed build.
     /// @param source local manifest file.
     public UpdateChecker(BuildInfo current, Path source) {
-        this(current, UpdateSource.of(source), UpdateTarget.current());
+        this(current, UpdateSource.of(source), currentTarget());
     }
 
     /// Creates a checker using application directories and an optional source override.
@@ -55,11 +55,23 @@ public record UpdateChecker(BuildInfo current, UpdateSource source, UpdateTarget
     }
 
     /// Creates a checker for the running application and an explicit source.
+    /// Unsupported update platforms can report newer releases but cannot select installers.
     ///
     /// @param source manifest location.
     /// @return configured checker.
     public static UpdateChecker createConfigured(UpdateSource source) {
-        return new UpdateChecker(BuildInfo.current(), source, UpdateTarget.current());
+        return new UpdateChecker(BuildInfo.current(), source, currentTarget());
+    }
+
+    /// Detects installer capabilities without making them a prerequisite for version checks.
+    ///
+    /// @return current target, or null when the OS or architecture is unsupported for updates.
+    private static @Nullable UpdateTarget currentTarget() {
+        try {
+            return UpdateTarget.current();
+        } catch (IllegalStateException ignored) {
+            return null;
+        }
     }
 
     /// Resolves the configured update source, defaulting to a local test manifest.
@@ -107,7 +119,7 @@ public record UpdateChecker(BuildInfo current, UpdateSource source, UpdateTarget
             if (newest == null || compare(release, newest) > 0) {
                 newest = release;
             }
-            @Nullable UpdateArtifact artifact = target.select(release, current);
+            @Nullable UpdateArtifact artifact = target == null ? null : target.select(release, current);
             if (artifact != null && (compatible == null || compare(release, compatible) > 0)) {
                 compatible = release;
                 selected = artifact;

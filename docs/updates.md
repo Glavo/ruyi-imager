@@ -99,6 +99,10 @@ Linux requires a detected `dpkg`; macOS prefers `pkg` over `dmg`. These capabili
 describe installer handoff, not which packages the release workflow currently
 publishes. Portable ZIP and TAR archives are not installed by the updater.
 
+An OS or architecture without update support does not prevent GUI startup.
+Version checks remain available, but newer releases are informational only and
+installer preparation is disabled.
+
 ## Compatibility and extension rules
 
 Optional `requirements` objects can appear on a release, an artifact, or both.

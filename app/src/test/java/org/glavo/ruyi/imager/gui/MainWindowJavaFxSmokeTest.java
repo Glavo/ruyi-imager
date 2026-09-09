@@ -38,6 +38,7 @@ import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.core.repo.RepositoryService;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.update.UpdateChannel;
+import org.glavo.ruyi.imager.update.UpdateChecker;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -45,6 +46,9 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.opentest4j.TestAbortedException;
 
 import java.awt.GraphicsEnvironment;
@@ -70,8 +74,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.parallel.Resources.SYSTEM_PROPERTIES;
 
 /// Smoke tests for JavaFX controls used by the main window selection flows.
 @NotNullByDefault
@@ -90,6 +96,47 @@ public final class MainWindowJavaFxSmokeTest {
         } catch (RuntimeException e) {
             throw new TestAbortedException("JavaFX toolkit is not available.", e);
         }
+    }
+
+    /// Constructs the GUI without installers on an unknown architecture regardless of automatic-check preference.
+    ///
+    /// @param automaticChecks whether automatic checks are enabled.
+    /// @param directory isolated application directory without an update manifest.
+    /// @throws Exception when preferences or JavaFX execution fail.
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @ResourceLock(SYSTEM_PROPERTIES)
+    public void opensWithoutUpdatePlatformSupport(boolean automaticChecks, @TempDir Path directory) throws Exception {
+        AppServices services = testServices(directory);
+        GuiPreferences preferences = new GuiPreferences(services.directories());
+        preferences.writeStartupSafetyWarningAccepted();
+        preferences.writeSettings(Locale.ENGLISH, automaticChecks, UpdateChannel.STABLE);
+        runOnJavaFxThread(() -> {
+            @Nullable String original = System.getProperty("os.arch");
+            MainWindow window;
+            System.setProperty("os.arch", "unsupported-arch");
+            try {
+                window = new MainWindow(services);
+            } finally {
+                if (original == null) {
+                    System.clearProperty("os.arch");
+                } else {
+                    System.setProperty("os.arch", original);
+                }
+            }
+            try {
+                new Scene(window.root());
+                assertNotNull(window.root());
+                UpdateChecker checker = assertInstanceOf(UpdateChecker.class, windowField(window, "updateChecker"));
+                assertNull(checker.target());
+                assertNull(windowField(window, "updatePackageManager"));
+                window.showStartupActions();
+                assertEquals(false, windowField(window, "busy"));
+            } finally {
+                window.shutdown();
+            }
+            return null;
+        });
     }
 
     /// Verifies that the operating-system tree can filter, select leaves, and resolve a selected category.
