@@ -7,6 +7,17 @@ a separate feature.
 
 ## Sources and commands
 
+Application update entry points are disabled by default for the 1.0 release.
+The tracked `gradle/project.properties` sets `ruyiApplicationUpdatesEnabled=false`.
+Disabled builds hide application update settings, do not start automatic checks,
+and do not register the CLI `check-update` command. Saved preferences and update
+source overrides cannot enable these entry points. Repository metadata updates
+remain available and retain their automatic-update policy.
+
+The update implementation and tests are retained. Build with
+`-PruyiApplicationUpdatesEnabled=true` to enable the entry points for development.
+The commands and scheduling behavior below apply to enabled builds.
+
 The default source is `update-manifest.json` in the application configuration
 directory. A missing default file silently disables startup checks. No public
 update endpoint is configured yet.

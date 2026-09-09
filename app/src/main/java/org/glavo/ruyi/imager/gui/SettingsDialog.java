@@ -123,7 +123,11 @@ final class SettingsDialog {
         VBox metadataSection = new VBox(metadataTitle, metadataUpdateButton, metadataUpdateStatus);
         metadataSection.getStyleClass().add("settings-section");
 
-        this.root = new VBox(generalSection, applicationUpdateSection, metadataSection);
+        this.root = new VBox(generalSection);
+        if (buildInfo.applicationUpdatesEnabled()) {
+            this.root.getChildren().add(applicationUpdateSection);
+        }
+        this.root.getChildren().add(metadataSection);
         this.root.getStyleClass().add("settings-content");
     }
 

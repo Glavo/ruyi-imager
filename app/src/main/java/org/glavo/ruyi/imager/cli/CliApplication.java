@@ -133,7 +133,9 @@ public final class CliApplication implements Runnable {
             commandLine.addSubcommand("image", imageCommand(services));
             commandLine.addSubcommand("device", deviceCommand(services));
             commandLine.addSubcommand("flash", new FlashCommand(services));
-            commandLine.addSubcommand("check-update", new CheckUpdateCommand(services));
+            if (BuildInfo.current().applicationUpdatesEnabled()) {
+                commandLine.addSubcommand("check-update", new CheckUpdateCommand(services));
+            }
             localizeCommands(commandLine);
             int exitCode = commandLine.execute(args);
             LOGGER.atInfo().log(() -> "CLI command finished. exitCode=" + exitCode);
@@ -395,7 +397,10 @@ public final class CliApplication implements Runnable {
         setDescription(device, "cli.device.description");
         setDescription(device.getSubcommands().get("list"), "cli.device.list.description");
         setDescription(commandLine.getSubcommands().get("flash"), "cli.flash.description");
-        setDescription(commandLine.getSubcommands().get("check-update"), "cli.update.description");
+        @Nullable CommandLine checkUpdate = commandLine.getSubcommands().get("check-update");
+        if (checkUpdate != null) {
+            setDescription(checkUpdate, "cli.update.description");
+        }
     }
 
     /// Sets one command description from the active message bundle.

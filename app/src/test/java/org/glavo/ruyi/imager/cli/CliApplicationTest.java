@@ -28,6 +28,7 @@ import org.glavo.ruyi.imager.core.repo.RuyiRepositoryStore;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.logging.RuyiLogLevel;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
+import org.glavo.ruyi.imager.update.BuildInfo;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
@@ -56,6 +57,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public final class CliApplicationTest {
     /// JSON mapper used to inspect CLI output.
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /// Registers application update commands only in builds that enable them, retaining repository updates.
+    ///
+    /// @param directory isolated application directory.
+    /// @throws IOException when the local update manifest cannot be written.
+    @Test
+    public void gatesApplicationUpdateCommand(@TempDir Path directory) throws IOException {
+        AppServices services = services(directory, List.of());
+        CliResult help = runCli(services, "--help");
+        assertEquals(0, help.exitCode(), help.stderr());
+        assertEquals(BuildInfo.current().applicationUpdatesEnabled(), help.stdout().contains("check-update"));
+        Path manifest = directory.resolve("update.json");
+        Files.writeString(manifest, "{\"schemaVersion\":1,\"releases\":[]}");
+        CliResult update = runCli(services, "check-update", "--source", manifest.toString());
+        assertEquals(BuildInfo.current().applicationUpdatesEnabled() ? 0 : 2, update.exitCode());
+        CliResult repository = runCli(services, "repo", "update");
+        assertEquals(0, repository.exitCode(), repository.stderr());
+        assertTrue(repository.stdout().contains("Repositories updated."));
+    }
 
     /// Verifies stable JSON output for candidate devices.
     ///

@@ -60,6 +60,7 @@ import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.i18n.Messages;
 import org.glavo.ruyi.imager.logging.LoggingProgressReporter;
 import org.glavo.ruyi.imager.logging.RuyiLogging;
+import org.glavo.ruyi.imager.update.BuildInfo;
 import org.glavo.ruyi.imager.update.PreparedUpdate;
 import org.glavo.ruyi.imager.update.UpdateChannel;
 import org.glavo.ruyi.imager.update.UpdateCheckResult;
@@ -67,6 +68,7 @@ import org.glavo.ruyi.imager.update.UpdateChecker;
 import org.glavo.ruyi.imager.update.UpdateInstaller;
 import org.glavo.ruyi.imager.update.UpdatePackageManager;
 import org.glavo.ruyi.imager.update.UpdateRelease;
+import org.glavo.ruyi.imager.update.UpdateSource;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -289,13 +291,17 @@ public final class MainWindow {
     public MainWindow(AppServices services) {
         this.services = services;
         this.preferences = new GuiPreferences(services.directories());
-        this.updateChecker = UpdateChecker.createDefault(services.directories());
-        UpdatePackageManager packageManager;
-        try {
-            packageManager = UpdatePackageManager.createDefault(services.directories(), updateChecker);
-        } catch (IllegalStateException exception) {
-            packageManager = null;
-            LOGGER.warn("Application update installers are unavailable on this platform.", exception);
+        this.updateChecker = BuildInfo.current().applicationUpdatesEnabled()
+                ? UpdateChecker.createDefault(services.directories())
+                : new UpdateChecker(BuildInfo.current(),
+                        UpdateSource.of(services.directories().configDirectory().resolve("update-manifest.json")), null);
+        @Nullable UpdatePackageManager packageManager = null;
+        if (updateChecker.current().applicationUpdatesEnabled()) {
+            try {
+                packageManager = UpdatePackageManager.createDefault(services.directories(), updateChecker);
+            } catch (IllegalStateException exception) {
+                LOGGER.warn("Application update installers are unavailable on this platform.", exception);
+            }
         }
         this.updatePackageManager = packageManager;
         loadPreferredLocale();
@@ -353,7 +359,7 @@ public final class MainWindow {
         }
     }
 
-    /// Shows first-run notices and starts startup and four-hour automatic update checks once.
+    /// Shows first-run notices and, when enabled in this build, starts application update checks once.
     /// This method must be called on the JavaFX application thread.
     public void showStartupActions() {
         if (closing || applicationUpdateSchedulingStarted) {
@@ -361,7 +367,7 @@ public final class MainWindow {
         }
         applicationUpdateSchedulingStarted = true;
         showStartupSafetyWarningIfNeeded();
-        if (!closing) {
+        if (!closing && updateChecker.current().applicationUpdatesEnabled()) {
             applicationUpdateTimer.setCycleCount(Animation.INDEFINITE);
             applicationUpdateTimer.play();
             checkApplicationUpdateAutomatically(true);
@@ -374,7 +380,7 @@ public final class MainWindow {
     ///
     /// @param startup whether the one-hour startup interval must be applied.
     private void checkApplicationUpdateAutomatically(boolean startup) {
-        if (closing || busy || root.getScene() == null) {
+        if (!updateChecker.current().applicationUpdatesEnabled() || closing || busy || root.getScene() == null) {
             return;
         }
         @Nullable Window owner = root.getScene().getWindow();
@@ -1044,7 +1050,9 @@ public final class MainWindow {
                 updateChecker.source(),
                 automaticUpdateChecks,
                 updateChannel);
-        settings.applicationUpdateButton().setOnAction(_ -> checkApplicationUpdate(settings));
+        if (updateChecker.current().applicationUpdatesEnabled()) {
+            settings.applicationUpdateButton().setOnAction(_ -> checkApplicationUpdate(settings));
+        }
         settings.metadataUpdateButton().setOnAction(_ -> updateRepository(settings));
         if (!showConfirmationDialog(
                 Messages.get("gui.settings.title"),
@@ -1057,19 +1065,18 @@ public final class MainWindow {
 
         Locale locale = settings.selectedLocale();
         try {
-            preferences.writeSettings(
-                    locale,
-                    settings.automaticUpdateChecksEnabled(),
-                    settings.selectedUpdateChannel());
+            if (updateChecker.current().applicationUpdatesEnabled()) {
+                preferences.writeSettings(
+                        locale,
+                        settings.automaticUpdateChecksEnabled(),
+                        settings.selectedUpdateChannel());
+            } else {
+                preferences.writeLocale(locale);
+            }
             if (!locale.getLanguage().equals(Messages.locale().getLanguage())) {
                 Messages.setLocale(locale);
             }
-            LOGGER.atInfo().log(() -> "Saved GUI settings. locale="
-                    + locale
-                    + ", automaticUpdateChecks="
-                    + settings.automaticUpdateChecksEnabled()
-                    + ", updateChannel="
-                    + settings.selectedUpdateChannel().token());
+            LOGGER.atInfo().log(() -> "Saved GUI settings. locale=" + locale);
         } catch (IOException exception) {
             LOGGER.warn("Failed to write GUI preferences.", exception);
             showError(Messages.get("gui.dialog.preferencesWriteFailed"), exception.getMessage());
@@ -1088,6 +1095,9 @@ public final class MainWindow {
     ///
     /// @param settings active settings dialog.
     private void checkApplicationUpdate(SettingsDialog settings) {
+        if (!updateChecker.current().applicationUpdatesEnabled()) {
+            return;
+        }
         settings.applicationUpdateStarted();
         UpdateChannel channel = settings.selectedUpdateChannel();
         Task<UpdateCheckResult> task = new Task<>() {

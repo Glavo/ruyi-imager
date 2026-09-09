@@ -21,6 +21,7 @@ import org.gradle.api.file.RelativePath
 import org.gradle.api.tasks.WriteProperties
 import org.gradle.api.tasks.bundling.Compression
 import java.net.URI
+import java.util.Properties
 
 plugins {
     application
@@ -272,9 +273,16 @@ val verifyAlibabaPuhuitiFont = tasks.register<VerifyFile>("verifyAlibabaPuhuitiF
 
 val generateBuildInfo = tasks.register<WriteProperties>("generateBuildInfo") {
     group = "build"
-    description = "Writes the application version used at runtime."
+    description = "Writes the application version and update availability used at runtime."
     destinationFile = generatedBuildInfo.get().asFile
     property("version", project.version.toString())
+    property("applicationUpdatesEnabled", providers.gradleProperty("ruyiApplicationUpdatesEnabled")
+        .orElse(providers.fileContents(rootProject.layout.projectDirectory.file("gradle/project.properties"))
+            .asText.map { text ->
+                Properties().apply { text.reader().use(::load) }
+                    .getProperty("ruyiApplicationUpdatesEnabled", "false")
+            })
+        .map { it.toBooleanStrict() })
 }
 
 val extractFastbootTasks = fastbootBundles.map { bundle ->

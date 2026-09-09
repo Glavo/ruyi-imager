@@ -10,6 +10,7 @@
 
 ### Current Status
 
+- Application update entry points are disabled by the tracked `ruyiApplicationUpdatesEnabled=false` build setting for 1.0. GUI update settings, background checks, and the CLI `check-update` command are gated; implementation and tests remain available in explicitly enabled builds. Repository metadata updates are unaffected.
 - Update manifests and dialogs do not expose release notes; the protocol contains release selection, compatibility, and installer metadata only.
 - The project is split into `:sdk`, `:app`, `:dd-flasher`, and `:launcher`; CLI and GUI share the SDK service graph.
 - Ruyi metadata, `image-combo`, distfile download/cache, checksum verification, artifact materialization, and system proxy discovery are implemented. Automatic distfile downloads require SHA-256 or SHA-512 metadata; manually supplied fetch-restricted files remain supported. In `Asia/Shanghai`, metadata synchronization tries the ISCAS mirror before the official GitHub repository; user config can override the ordered remote list, branch, or local repository.

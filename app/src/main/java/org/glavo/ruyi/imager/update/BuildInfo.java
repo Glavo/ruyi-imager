@@ -12,13 +12,21 @@ import java.util.Properties;
 /// Identifies one Ruyi Imager build.
 ///
 /// @param version application version.
+/// @param applicationUpdatesEnabled whether GUI and CLI application update entry points are enabled.
 @NotNullByDefault
-public record BuildInfo(String version) {
+public record BuildInfo(String version, boolean applicationUpdatesEnabled) {
     /// Generated build information resource.
     private static final String RESOURCE = "/org/glavo/ruyi/imager/update/build-info.properties";
 
     /// Build information for the running application.
     private static final BuildInfo CURRENT = loadCurrent();
+
+    /// Creates build information with application update entry points disabled.
+    ///
+    /// @param version application version.
+    public BuildInfo(String version) {
+        this(version, false);
+    }
 
     /// Validates build information.
     public BuildInfo {
@@ -55,7 +63,7 @@ public record BuildInfo(String version) {
 
         String version = properties.getProperty("version", "");
         try {
-            return new BuildInfo(version);
+            return new BuildInfo(version, Boolean.parseBoolean(properties.getProperty("applicationUpdatesEnabled")));
         } catch (IllegalArgumentException exception) {
             throw new IllegalStateException("Invalid application build information: " + RESOURCE, exception);
         }

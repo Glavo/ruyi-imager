@@ -38,8 +38,10 @@ import org.glavo.ruyi.imager.core.image.ImageCatalogService;
 import org.glavo.ruyi.imager.core.image.ImageEntry;
 import org.glavo.ruyi.imager.core.repo.RepositoryService;
 import org.glavo.ruyi.imager.i18n.Messages;
+import org.glavo.ruyi.imager.update.BuildInfo;
 import org.glavo.ruyi.imager.update.UpdateChannel;
 import org.glavo.ruyi.imager.update.UpdateChecker;
+import org.glavo.ruyi.imager.update.UpdateSource;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
@@ -295,12 +297,88 @@ public final class MainWindowJavaFxSmokeTest {
         assertFalse(MainWindow.applicationUpdateCheckDue(now.plus(Duration.ofHours(1)), now));
     }
 
+    /// Keeps application update controls outside the scene when disabled without hiding metadata updates.
+    ///
+    /// @param enabled whether application update entry points are enabled in the fixture build.
+    /// @param directory local manifest directory.
+    /// @throws Exception when JavaFX execution fails.
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void gatesApplicationUpdateSettings(boolean enabled, @TempDir Path directory) throws Exception {
+        runOnJavaFxThread(() -> {
+            SettingsDialog settings = new SettingsDialog(Locale.ENGLISH,
+                    new BuildInfo("1.0.0", enabled), UpdateSource.of(directory.resolve("update.json")),
+                    true, UpdateChannel.STABLE);
+            Scene scene = new Scene((Parent) settings.root());
+            assertEquals(enabled, settings.applicationUpdateButton().getScene() == scene);
+            assertSame(scene, settings.metadataUpdateButton().getScene());
+            assertFalse(settings.metadataUpdateButton().isDisabled());
+            settings.metadataUpdateStarted();
+            settings.metadataUpdateFinished(true, "Metadata updated");
+            assertFalse(settings.metadataUpdateButton().isDisabled());
+            assertEquals(enabled, settings.applicationUpdateButton().getScene() == scene);
+            return null;
+        });
+    }
+
+    /// Keeps startup and timer callbacks inactive even with saved opt-in and a configured update source.
+    ///
+    /// @param directory isolated application directory.
+    /// @throws Exception when preferences or JavaFX execution fail.
+    @Test
+    @ResourceLock(SYSTEM_PROPERTIES)
+    public void disablesApplicationUpdateScheduling(@TempDir Path directory) throws Exception {
+        Assumptions.assumeFalse(BuildInfo.current().applicationUpdatesEnabled());
+        AppServices services = testServices(directory);
+        GuiPreferences preferences = new GuiPreferences(services.directories());
+        preferences.writeStartupSafetyWarningAccepted();
+        preferences.writeSettings(Locale.ENGLISH, true, UpdateChannel.STABLE);
+        Path manifest = directory.resolve("update.json");
+        Files.writeString(manifest, "{\"schemaVersion\":1,\"releases\":[]}");
+        @Nullable String original = System.getProperty(UpdateChecker.SOURCE_PROPERTY);
+        System.setProperty(UpdateChecker.SOURCE_PROPERTY, manifest.toString());
+        try {
+            runOnJavaFxThread(() -> {
+                Platform.setImplicitExit(false);
+                MainWindow window = new MainWindow(services);
+                Stage owner = new Stage();
+                try {
+                    owner.setOpacity(0);
+                    owner.setScene(new Scene(window.root()));
+                    owner.show();
+                    window.showStartupActions();
+                    Timeline timer = assertInstanceOf(Timeline.class, windowField(window, "applicationUpdateTimer"));
+                    assertEquals(Animation.Status.STOPPED, timer.getStatus());
+                    timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
+                    window.showStartupActions();
+                    assertEquals(Animation.Status.STOPPED, timer.getStatus());
+                    assertEquals(false, windowField(window, "busy"));
+                    assertNull(windowField(window, "currentBackgroundThread"));
+                    assertNull(windowField(window, "updatePackageManager"));
+                    assertNull(preferences.readApplicationUpdateCheckedAt(UpdateChannel.STABLE));
+                    assertTrue(preferences.readAutomaticUpdateChecksEnabled());
+                } finally {
+                    window.shutdown();
+                    owner.hide();
+                }
+                return null;
+            });
+        } finally {
+            if (original == null) {
+                System.clearProperty(UpdateChecker.SOURCE_PROPERTY);
+            } else {
+                System.setProperty(UpdateChecker.SOURCE_PROPERTY, original);
+            }
+        }
+    }
+
     /// Exercises timer wiring, preference changes, workflow exclusion, silent failures, and shutdown.
     ///
     /// @param directory isolated application directory.
     /// @throws Exception when fixture setup or JavaFX execution fails.
     @Test
     public void checksUpdatesPeriodicallyWithoutOverlappingWork(@TempDir Path directory) throws Exception {
+        Assumptions.assumeTrue(BuildInfo.current().applicationUpdatesEnabled());
         AppServices services = testServices(directory);
         GuiPreferences preferences = new GuiPreferences(services.directories());
         preferences.writeStartupSafetyWarningAccepted();
