@@ -305,7 +305,7 @@ public final class UpdateTargetTest {
     /// @param artifacts available installer variants.
     /// @return candidate release.
     private static UpdateRelease release(UpdateRequirements requirements, List<UpdateArtifact> artifacts) {
-        return new UpdateRelease(UpdateChannel.STABLE, "20.0", null, artifacts, requirements);
+        return new UpdateRelease(UpdateChannel.STABLE, "20.0", artifacts, requirements);
     }
 
     /// Parses one installer and both requirement layers through the production manifest parser.

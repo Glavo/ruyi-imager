@@ -10,6 +10,7 @@
 
 ### Current Status
 
+- Update manifests and dialogs do not expose release notes; the protocol contains release selection, compatibility, and installer metadata only.
 - The project is split into `:sdk`, `:app`, `:dd-flasher`, and `:launcher`; CLI and GUI share the SDK service graph.
 - Ruyi metadata, `image-combo`, distfile download/cache, checksum verification, artifact materialization, and system proxy discovery are implemented. Automatic distfile downloads require SHA-256 or SHA-512 metadata; manually supplied fetch-restricted files remain supported. In `Asia/Shanghai`, metadata synchronization tries the ISCAS mirror before the official GitHub repository; user config can override the ordered remote list, branch, or local repository.
 - Distfile and artifact extraction paths are hardened against unsafe names, cache corruption, path escape, conflicting declarations, missing single-partition ZIP artifacts, excessive archive entry counts, oversized entries, aggregate expansion, filesystem exhaustion, unbounded TAR parser metadata, invalid TAR checksums, and unsupported sparse TAR extensions. Distfile responses are also rejected before any bytes beyond their declared size are written.

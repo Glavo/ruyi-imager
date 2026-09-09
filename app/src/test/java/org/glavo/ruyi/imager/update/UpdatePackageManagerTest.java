@@ -261,7 +261,6 @@ public final class UpdatePackageManagerTest {
         return new UpdateRelease(
                 UpdateChannel.STABLE,
                 "1.1.0",
-                "Test release",
                 List.of(artifact));
     }
 

@@ -123,7 +123,7 @@ public final class ApplicationVersionTest {
     /// Keeps update channel metadata independent from prerelease conventions.
     @Test
     public void acceptsChannelIndependentPrereleases() {
-        new UpdateRelease(UpdateChannel.STABLE, "1.2.3-preview.4", null, java.util.List.of());
-        new UpdateRelease(UpdateChannel.NIGHTLY, "1.2.3-build.2027", null, java.util.List.of());
+        new UpdateRelease(UpdateChannel.STABLE, "1.2.3-preview.4", java.util.List.of());
+        new UpdateRelease(UpdateChannel.NIGHTLY, "1.2.3-build.2027", java.util.List.of());
     }
 }

@@ -51,7 +51,6 @@ size, digest, and location with values from a real release before publishing it.
     {
       "channel": "stable",
       "version": "1.1.0",
-      "releaseNotes": "Release notes shown before installation",
       "requirements": {
         "minimumAppVersion": "1.0.0"
       },
@@ -77,8 +76,7 @@ size, digest, and location with values from a real release before publishing it.
 - `version` is the sole ordering key, using the application's Burn-compatible
   comparator. Build metadata does not change precedence. Equal-precedence releases
   in the same channel are rejected as ambiguous.
-- `releaseNotes` is optional plain text. HTML, executable commands, and installer
-  arguments from the manifest are not interpreted.
+- Release notes are not part of the update protocol or displayed by the updater.
 - `artifacts` may be empty. Each `(platform, packageType)` pair must be unique
   within a release. Different package types for one platform are allowed.
 - `size` is a positive integer byte count. `sha256` is exactly 64 hexadecimal

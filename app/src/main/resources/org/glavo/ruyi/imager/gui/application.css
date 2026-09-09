@@ -654,11 +654,6 @@
     -fx-text-fill: #b3353e;
 }
 
-.update-release-notes {
-    -fx-padding: 10 0 0 0;
-    -fx-text-fill: #5a6673;
-}
-
 .partition-target-content {
     -fx-min-width: 640px;
     -fx-max-width: 760px;

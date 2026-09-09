@@ -147,7 +147,6 @@ public final class GuiPreferencesTest {
         UpdateRelease skipped = new UpdateRelease(
                 UpdateChannel.NIGHTLY,
                 "1.1.0-nightly.20260716T143052Z.1111111",
-                null,
                 List.of());
 
         preferences.writeApplicationUpdateCheckedAt(UpdateChannel.NIGHTLY, checkedAt);
@@ -159,7 +158,6 @@ public final class GuiPreferencesTest {
         assertFalse(preferences.isUpdateSkipped(new UpdateRelease(
                 UpdateChannel.NIGHTLY,
                 "1.1.0-nightly.20260716T143053Z.2222222",
-                null,
                 List.of())));
     }
 

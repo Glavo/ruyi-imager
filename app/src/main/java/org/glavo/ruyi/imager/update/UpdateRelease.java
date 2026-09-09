@@ -4,7 +4,6 @@
 package org.glavo.ruyi.imager.update;
 
 import org.jetbrains.annotations.NotNullByDefault;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.HashSet;
@@ -15,25 +14,22 @@ import java.util.Set;
 ///
 /// @param channel      release channel.
 /// @param version      application version and update identity.
-/// @param releaseNotes optional short release notes.
 /// @param artifacts    platform installer artifacts.
 /// @param requirements conditions shared by every artifact in the release.
 @NotNullByDefault
 public record UpdateRelease(
         UpdateChannel channel,
         String version,
-        @Nullable String releaseNotes,
         @Unmodifiable List<UpdateArtifact> artifacts,
         UpdateRequirements requirements) {
     /// Creates a release without additional installation requirements.
     ///
     /// @param channel update channel.
     /// @param version application version.
-    /// @param releaseNotes optional release notes.
     /// @param artifacts platform installers.
-    public UpdateRelease(UpdateChannel channel, String version, @Nullable String releaseNotes,
+    public UpdateRelease(UpdateChannel channel, String version,
                          @Unmodifiable List<UpdateArtifact> artifacts) {
-        this(channel, version, releaseNotes, artifacts, UpdateRequirements.NONE);
+        this(channel, version, artifacts, UpdateRequirements.NONE);
     }
 
     /// Validates and freezes release metadata.

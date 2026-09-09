@@ -362,6 +362,7 @@ public final class UpdateCheckerTest {
                       "channel": "stable",
                       "version": "1.1.0",
                       "artifacts": [],
+                      "releaseNotes": {"en": "Ignored descriptive metadata"},
                       "unexpected": true
                     }
                   ]
@@ -523,7 +524,6 @@ public final class UpdateCheckerTest {
                     {
                       "channel": "%s",
                       "version": "%s",
-                      "releaseNotes": "Test release",
                       "artifacts": [{
                         "platform": "windows-x86_64", "packageType": "setup-exe",
                         "source": "setup.exe", "size": 123, "sha256": "%s"

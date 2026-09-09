@@ -3355,14 +3355,6 @@ public final class MainWindow {
                 release.version(),
                 updateChecker.current().version(),
                 Messages.get("gui.settings.updateChannel." + release.channel().token())));
-        VBox content = new VBox(12, message);
-        @Nullable String releaseNotes = release.releaseNotes();
-        if (releaseNotes != null && !releaseNotes.isBlank()) {
-            Label notes = messageContent(releaseNotes);
-            notes.getStyleClass().add("update-release-notes");
-            content.getChildren().add(notes);
-        }
-
         MFXButton skipButton = dialogActionButton("gui.dialog.updateAvailable.skip", "dialog-secondary-button");
         MFXButton laterButton = dialogActionButton("gui.dialog.updateAvailable.later", "dialog-secondary-button");
         @Nullable MFXButton installButton = installerAvailable
@@ -3370,7 +3362,7 @@ public final class MainWindow {
                 : null;
         MFXGenericDialogBuilder dialogBuilder = MFXGenericDialogBuilder.build()
                 .setHeaderText(Messages.get("gui.dialog.updateAvailable"))
-                .setContent(content)
+                .setContent(message)
                 .setShowClose(false)
                 .setShowMinimize(false)
                 .setShowAlwaysOnTop(false)

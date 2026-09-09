@@ -173,7 +173,7 @@ public record UpdateChecker(BuildInfo current, UpdateSource source, @Nullable Up
                 }
             }
             releases.add(new UpdateRelease(channel, requiredText(node, "version"),
-                    optionalText(node, "releaseNotes"), artifacts, readRequirements(node)));
+                    artifacts, readRequirements(node)));
         }
         return new UpdateManifest(UpdateManifest.CURRENT_SCHEMA_VERSION, releases);
     }
