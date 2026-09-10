@@ -223,14 +223,8 @@ public final class LocalFlashService implements FlashService {
                 blockDevice,
                 canPrepareMountedTarget(blockDevice));
         if (validationError != null) {
-            String message = validationError;
-            Path targetPath = blockDevice.path();
-            LOGGER.atWarn().log(() -> "Block target validation failed before preparation. source="
-                    + source
-                    + ", target="
-                    + targetPath
-                    + ", message="
-                    + message);
+            LOGGER.warn("Block target validation failed before preparation. source={}, target={}, message={}",
+                    source, blockDevice.path(), validationError);
             return OperationResult.failure(validationError);
         }
         BlockDevice preparedBlockDevice = prepareBlockTarget(blockDevice, reporter);
@@ -241,16 +235,11 @@ public final class LocalFlashService implements FlashService {
         }
         preparedBlockDevice = refreshedBlockDevice;
 
-        validationError = validateBlockImage(source, preparedBlockDevice, canWriteMountedTarget(preparedBlockDevice));
+        validationError = validateBlockImage(
+                source, preparedBlockDevice, ddImageWriter.canWriteMountedTarget(preparedBlockDevice));
         if (validationError != null) {
-            String message = validationError;
-            Path targetPath = preparedBlockDevice.path();
-            LOGGER.atWarn().log(() -> "Block target validation failed after preparation. source="
-                    + source
-                    + ", target="
-                    + targetPath
-                    + ", message="
-                    + message);
+            LOGGER.warn("Block target validation failed after preparation. source={}, target={}, message={}",
+                    source, preparedBlockDevice.path(), validationError);
             return OperationResult.failure(validationError);
         }
 
@@ -278,10 +267,11 @@ public final class LocalFlashService implements FlashService {
             ProgressReporter reporter) throws IOException {
         @Unmodifiable Map<String, BlockDevice> blockTargets = target.blockDevices();
         if (blockTargets.isEmpty()) {
-            LOGGER.atWarn().log(() -> "Partition flash requested without targets. partitions=" + partitionNames(partitions));
+            String partitionNames = String.join(", ", partitions.keySet());
+            LOGGER.warn("Partition flash requested without targets. partitions={}", partitionNames);
             return OperationResult.failure(SdkMessages.get(
                     "core.flash.partitionTargetsRequired",
-                    partitionNames(partitions)));
+                    partitionNames));
         }
 
         for (String partition : blockTargets.keySet()) {
@@ -315,14 +305,8 @@ public final class LocalFlashService implements FlashService {
                     blockDevice,
                     canPrepareMountedTarget(blockDevice));
             if (validationError != null) {
-                String message = validationError;
-                Path targetPath = blockDevice.path();
-                LOGGER.atWarn().log(() -> "Partition target validation failed before preparation. partition="
-                        + partition
-                        + ", target="
-                        + targetPath
-                        + ", message="
-                        + message);
+                LOGGER.warn("Partition target validation failed before preparation. partition={}, target={}, message={}",
+                        partition, blockDevice.path(), validationError);
                 return OperationResult.failure(SdkMessages.get(
                         "core.flash.partitionTargetInvalid",
                         partition,
@@ -338,16 +322,10 @@ public final class LocalFlashService implements FlashService {
             validationError = validateBlockImage(
                     entry.getValue(),
                     preparedBlockDevice,
-                    canWriteMountedTarget(preparedBlockDevice));
+                    ddImageWriter.canWriteMountedTarget(preparedBlockDevice));
             if (validationError != null) {
-                String message = validationError;
-                Path targetPath = preparedBlockDevice.path();
-                LOGGER.atWarn().log(() -> "Partition target validation failed after preparation. partition="
-                        + partition
-                        + ", target="
-                        + targetPath
-                        + ", message="
-                        + message);
+                LOGGER.warn("Partition target validation failed after preparation. partition={}, target={}, message={}",
+                        partition, preparedBlockDevice.path(), validationError);
                 return OperationResult.failure(SdkMessages.get(
                         "core.flash.partitionTargetInvalid",
                         partition,
@@ -426,7 +404,7 @@ public final class LocalFlashService implements FlashService {
     /// @return prepared target metadata.
     /// @throws IOException when the target cannot be prepared.
     private BlockDevice prepareBlockTarget(BlockDevice blockDevice, ProgressReporter reporter) throws IOException {
-        if (canWriteMountedTarget(blockDevice)) {
+        if (ddImageWriter.canWriteMountedTarget(blockDevice)) {
             LOGGER.atInfo().log(() -> "Skipping block target preparation; dd writer handles mounted target. target="
                     + blockDevice.path()
                     + ", mounted="
@@ -461,20 +439,12 @@ public final class LocalFlashService implements FlashService {
                 1L));
     }
 
-    /// Returns whether mounted target validation can be deferred to the writer.
-    ///
-    /// @param blockDevice target block device.
-    /// @return whether the writer can safely handle a mounted target.
-    private boolean canWriteMountedTarget(BlockDevice blockDevice) {
-        return ddImageWriter.canWriteMountedTarget(blockDevice);
-    }
-
     /// Returns whether a mounted target can be made writable before or during the write.
     ///
     /// @param blockDevice target block device.
     /// @return whether mounted target preparation is available.
     private boolean canPrepareMountedTarget(BlockDevice blockDevice) {
-        return blockDevicePreparer.canPrepareMounted(blockDevice) || canWriteMountedTarget(blockDevice);
+        return blockDevicePreparer.canPrepareMounted(blockDevice) || ddImageWriter.canWriteMountedTarget(blockDevice);
     }
 
     /// Re-resolves a selected block target before destructive writes.
@@ -593,15 +563,11 @@ public final class LocalFlashService implements FlashService {
         }
         blockDevice = refreshedBlockDevice;
 
-        @Nullable String validationError = validateBlockImage(source, blockDevice, canWriteMountedTarget(blockDevice));
+        @Nullable String validationError = validateBlockImage(
+                source, blockDevice, ddImageWriter.canWriteMountedTarget(blockDevice));
         if (validationError != null) {
-            Path targetPath = blockDevice.path();
-            LOGGER.atWarn().log(() -> "Block target validation failed before write. source="
-                    + source
-                    + ", target="
-                    + targetPath
-                    + ", message="
-                    + validationError);
+            LOGGER.warn("Block target validation failed before write. source={}, target={}, message={}",
+                    source, blockDevice.path(), validationError);
             return OperationResult.failure(validationError);
         }
 
@@ -643,14 +609,6 @@ public final class LocalFlashService implements FlashService {
         }
 
         return OperationResult.success(SdkMessages.get("core.flash.success"));
-    }
-
-    /// Formats partition names for diagnostics.
-    ///
-    /// @param partitions partition image map.
-    /// @return comma-separated partition names.
-    private static String partitionNames(@Unmodifiable Map<String, Path> partitions) {
-        return String.join(", ", partitions.keySet());
     }
 
     /// Flashes a materialized image after resolving all component paths and required partitions.
@@ -813,7 +771,10 @@ public final class LocalFlashService implements FlashService {
 
         if (partitionMap.size() == 1 && Files.isRegularFile(materialized)) {
             Map.Entry<String, String> entry = partitionMap.entrySet().iterator().next();
-            return Map.of(entry.getKey(), resolveSinglePartitionFile(entry.getValue(), materialized));
+            Path normalizedPath = materialized.toAbsolutePath().normalize();
+            @Nullable Path parent = normalizedPath.getParent();
+            Path realRoot = (parent == null ? normalizedPath : parent).toRealPath();
+            return Map.of(entry.getKey(), resolvePartitionFile(normalizedPath, realRoot, entry.getValue()));
         }
 
         if (!Files.isDirectory(materialized)) {
@@ -828,45 +789,28 @@ public final class LocalFlashService implements FlashService {
             if (!path.startsWith(normalizedRoot)) {
                 throw new IOException(SdkMessages.get("core.materialize.partitionEscape", entry.getValue()));
             }
-            if (!Files.isRegularFile(path)) {
-                throw new IOException(SdkMessages.get("core.materialize.partitionMissing", path));
-            }
-            Path realPath = path.toRealPath();
-            if (!realPath.startsWith(realRoot)) {
-                throw new IOException(SdkMessages.get("core.materialize.partitionEscape", entry.getValue()));
-            }
-            if (Files.size(realPath) == 0L) {
-                throw new IOException(SdkMessages.get("core.flash.emptyImage", realPath));
-            }
-            result.put(entry.getKey(), realPath);
+            result.put(entry.getKey(), resolvePartitionFile(path, realRoot, entry.getValue()));
         }
         return Collections.unmodifiableMap(result);
     }
 
-    /// Resolves one materialized partition file without allowing symlink escape from its parent.
+    /// Resolves a nonempty regular partition file within the allowed real directory.
     ///
+    /// @param path normalized absolute partition file path.
+    /// @param realRoot allowed directory after resolving symbolic links.
     /// @param partitionPath partition path from image metadata.
-    /// @param materialized materialized partition file.
     /// @return real partition file path.
-    /// @throws IOException when the path cannot be resolved safely.
-    private static Path resolveSinglePartitionFile(String partitionPath, Path materialized) throws IOException {
-        Path normalizedPath = materialized.toAbsolutePath().normalize();
-        if (!Files.isRegularFile(normalizedPath)) {
-            throw new IOException(SdkMessages.get("core.materialize.partitionMissing", normalizedPath));
+    /// @throws IOException when the file is missing, empty, outside the allowed directory, or its metadata cannot be read.
+    private static Path resolvePartitionFile(Path path, Path realRoot, String partitionPath) throws IOException {
+        if (!Files.isRegularFile(path)) {
+            throw new IOException(SdkMessages.get("core.materialize.partitionMissing", path));
         }
-        if (Files.size(normalizedPath) == 0L) {
-            throw new IOException(SdkMessages.get("core.flash.emptyImage", normalizedPath));
-        }
-
-        @Nullable Path normalizedParent = normalizedPath.getParent();
-        if (normalizedParent == null) {
-            return normalizedPath.toRealPath();
-        }
-
-        Path realParent = normalizedParent.toRealPath();
-        Path realPath = normalizedPath.toRealPath();
-        if (!realPath.startsWith(realParent)) {
+        Path realPath = path.toRealPath();
+        if (!realPath.startsWith(realRoot)) {
             throw new IOException(SdkMessages.get("core.materialize.partitionEscape", partitionPath));
+        }
+        if (Files.size(realPath) == 0L) {
+            throw new IOException(SdkMessages.get("core.flash.emptyImage", realPath));
         }
         return realPath;
     }

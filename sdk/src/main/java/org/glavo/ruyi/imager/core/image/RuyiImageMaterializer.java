@@ -320,10 +320,6 @@ public final class RuyiImageMaterializer {
             }
             return;
         }
-        if ("tar.auto".equals(method)) {
-            extractAutoTar(distfile, source, artifactDirectory, budget);
-            return;
-        }
         if ("deb".equals(method)) {
             extractDeb(distfile, source, artifactDirectory, budget);
             return;
@@ -338,13 +334,13 @@ public final class RuyiImageMaterializer {
             }
             return;
         }
-        if (isSingleStreamCompression(method)) {
+        @Nullable String compressorName = compressorNameForMethod(method);
+        if (compressorName != null) {
             decompressCompressed(
                     distfile,
                     source,
                     artifactDirectory.resolve(removeLastExtension(distfile.name())),
-                    artifactDirectory,
-                    method,
+                    compressorName,
                     budget);
             return;
         }
@@ -358,10 +354,11 @@ public final class RuyiImageMaterializer {
     /// Resolves the effective unpack method.
     ///
     /// @param distfile distfile metadata.
-    /// @return effective unpack method.
+    /// @return effective unpack method; unsupported `tar.auto` filenames retain that method for diagnostics.
     private static String resolveUnpackMethod(RuyiDistfile distfile) {
         @Nullable String declared = distfile.unpack();
-        if (isExplicitUnpackMethod(declared)) {
+        boolean tarOnly = "tar.auto".equals(declared);
+        if (isExplicitUnpackMethod(declared) && !tarOnly) {
             return declared;
         }
 
@@ -371,6 +368,9 @@ public final class RuyiImageMaterializer {
         }
         if (name.matches(".*\\.tar(\\.gz|\\.bz2|\\.lz4|\\.xz|\\.zst)?$")) {
             return name.substring(name.lastIndexOf(".tar") + 1);
+        }
+        if (tarOnly) {
+            return "tar.auto";
         }
         if (name.endsWith(".deb")) {
             return "deb";
@@ -443,24 +443,22 @@ public final class RuyiImageMaterializer {
         }
     }
 
-    /// Decompresses a bare single-stream compressed distfile.
+    /// Decompresses a distfile without an archive container, including concatenated members.
     ///
     /// @param distfile          distfile metadata.
     /// @param source            source path.
     /// @param target            target path.
-    /// @param artifactDirectory output artifact directory.
-    /// @param method            compression method.
+    /// @param compressorName    resolved Kala Compress compressor name.
     /// @param budget            materialization safety budget.
     /// @throws IOException when decompression fails.
     private static void decompressCompressed(
             RuyiDistfile distfile,
             Path source,
             Path target,
-            Path artifactDirectory,
-            String method,
+            String compressorName,
             MaterializationBudget budget) throws IOException {
-        LOGGER.atDebug().log(() -> "Decompressing compressed distfile. method="
-                + method
+        LOGGER.atDebug().log(() -> "Decompressing compressed distfile. compressor="
+                + compressorName
                 + ", source="
                 + source
                 + ", target="
@@ -471,10 +469,6 @@ public final class RuyiImageMaterializer {
             Files.createDirectories(parent);
         }
 
-        @Nullable String compressorName = compressorNameForMethod(method);
-        if (compressorName == null) {
-            throw unsupportedMethod(method, distfile, source, artifactDirectory);
-        }
         try (InputStream input = compressedInputStream(source, compressorName);
              OutputStream output = Files.newOutputStream(target)) {
             copyInterruptibly(input, output, distfile.name(), budget);
@@ -553,14 +547,6 @@ public final class RuyiImageMaterializer {
                     SdkMessages.get("core.materialize.compressorFailed", compressorName, source),
                     exception);
         }
-    }
-
-    /// Returns whether an unpack method is a bare single-stream compression.
-    ///
-    /// @param method unpack method.
-    /// @return whether the method is a supported bare compressor.
-    private static boolean isSingleStreamCompression(String method) {
-        return "bz2".equals(method) || "lz4".equals(method) || "xz".equals(method) || "zst".equals(method);
     }
 
     /// Maps an unpack method suffix to a Kala Compress compressor name.
@@ -795,49 +781,6 @@ public final class RuyiImageMaterializer {
             }
         }
         return false;
-    }
-
-    /// Extracts a tar archive with compression inferred from the distfile name.
-    ///
-    /// @param distfile          distfile metadata.
-    /// @param source            source path.
-    /// @param artifactDirectory output artifact directory.
-    /// @param budget            materialization safety budget.
-    /// @throws IOException when extraction fails.
-    private static void extractAutoTar(
-            RuyiDistfile distfile,
-            Path source,
-            Path artifactDirectory,
-            MaterializationBudget budget) throws IOException {
-        LOGGER.atDebug().log(() -> "Detecting tar compression. name=" + distfile.name() + ", source=" + source);
-        String name = distfile.name().toLowerCase(Locale.ROOT);
-        if (name.endsWith(".tar.gz") || name.endsWith(".tgz")) {
-            try (InputStream input = new GZIPInputStream(Files.newInputStream(source))) {
-                extractTar(input, artifactDirectory, distfile, budget);
-            }
-            return;
-        }
-
-        if (name.matches(".*\\.tar\\.(bz2|lz4|xz|zst)$")) {
-            String method = name.substring(name.lastIndexOf('.') + 1);
-            @Nullable String compressorName = compressorNameForMethod(method);
-            if (compressorName == null) {
-                throw unsupportedMethod("tar.auto", distfile, source, artifactDirectory);
-            }
-            try (InputStream input = compressedInputStream(source, compressorName)) {
-                extractTar(input, artifactDirectory, distfile, budget);
-            }
-            return;
-        }
-
-        if (name.endsWith(".tar")) {
-            try (InputStream input = Files.newInputStream(source)) {
-                extractTar(input, artifactDirectory, distfile, budget);
-            }
-            return;
-        }
-
-        throw unsupportedMethod("tar.auto", distfile, source, artifactDirectory);
     }
 
     /// Extracts the data tarball inside a Debian package.

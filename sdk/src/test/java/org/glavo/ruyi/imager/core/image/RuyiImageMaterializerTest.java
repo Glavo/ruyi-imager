@@ -437,22 +437,35 @@ public final class RuyiImageMaterializerTest {
     ///
     /// @param fileName archive name used for automatic format detection.
     /// @param compressor compression format, or null for an uncompressed TAR.
+    /// @param unpack declared unpack method, or null for automatic detection.
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when fixture files cannot be written or read.
     @ParameterizedTest
     @CsvSource({
-            "image.tar,",
-            "board.target.tar,",
-            "image.tar.backup.tar,",
-            "board.target.tar.gz,gzip",
-            "board.target.tar.bz2,bzip2",
-            "board.target.tar.lz4,lz4-framed",
-            "board.target.tar.xz,xz",
-            "board.target.tar.zst,zstd",
-            "IMAGE.TARGET.TAR.XZ,xz"
+            "image.tar,,",
+            "board.target.tar,,",
+            "image.tar.backup.tar,,",
+            "board.target.tar.gz,gzip,",
+            "board.target.tar.bz2,bzip2,",
+            "board.target.tar.lz4,lz4-framed,",
+            "board.target.tar.xz,xz,",
+            "board.target.tar.zst,zstd,",
+            "IMAGE.TARGET.TAR.XZ,xz,",
+            "image.tgz,gzip,",
+            "image.tar,,tar.auto",
+            "board.target.tar,,tar.auto",
+            "image.tar.backup.tar,,tar.auto",
+            "board.target.tar.gz,gzip,tar.auto",
+            "board.target.tar.bz2,bzip2,tar.auto",
+            "board.target.tar.lz4,lz4-framed,tar.auto",
+            "board.target.tar.xz,xz,tar.auto",
+            "board.target.tar.zst,zstd,tar.auto",
+            "IMAGE.TARGET.TAR.XZ,xz,tar.auto",
+            "image.tgz,gzip,tar.auto"
     })
     public void materializesTarDistfileByFinalSuffix(
-            String fileName, @Nullable String compressor, @TempDir Path temporaryDirectory) throws Exception {
+            String fileName, @Nullable String compressor, @Nullable String unpack,
+            @TempDir Path temporaryDirectory) throws Exception {
         byte[] content = "tar image".getBytes(StandardCharsets.UTF_8);
         Path source = temporaryDirectory.resolve("downloads").resolve(fileName);
         Files.createDirectories(source.getParent());
@@ -467,7 +480,7 @@ public final class RuyiImageMaterializerTest {
         }
 
         Path artifactDirectory = temporaryDirectory.resolve("artifacts");
-        ImageEntry image = image(fileName, null, "images/image.raw");
+        ImageEntry image = image(fileName, unpack, "images/image.raw");
         Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
 
         assertEquals(artifactDirectory.resolve("images").resolve("image.raw").toAbsolutePath().normalize(), result);
@@ -726,18 +739,22 @@ public final class RuyiImageMaterializerTest {
         assertTrue(message.contains(source.toAbsolutePath().normalize().toString()), message);
     }
 
-    /// Verifies unknown declared unpack methods are not silently copied as raw files.
+    /// Rejects unknown methods and `tar.auto` filenames that do not identify TAR archives.
     ///
+    /// @param fileName source filename.
+    /// @param unpack declared unpack method.
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when fixture files cannot be written.
-    @Test
-    public void rejectsUnknownDeclaredUnpackMethod(@TempDir Path temporaryDirectory) throws Exception {
-        Path source = temporaryDirectory.resolve("downloads").resolve("image.bin");
+    @ParameterizedTest
+    @CsvSource({"image.bin,custom", "image.bin,tar.auto", "image.zip,tar.auto", "image.gz,tar.auto", "image.xz,tar.auto"})
+    public void rejectsUnsupportedUnpackMethod(
+            String fileName, String unpack, @TempDir Path temporaryDirectory) throws Exception {
+        Path source = temporaryDirectory.resolve("downloads").resolve(fileName);
         Files.createDirectories(source.getParent());
         Files.write(source, new byte[]{1, 2, 3});
 
         Path artifactDirectory = temporaryDirectory.resolve("artifacts");
-        ImageEntry image = image("image.bin", "custom", "image.bin");
+        ImageEntry image = image(fileName, unpack, fileName);
 
         IOException exception = assertThrows(IOException.class, () -> new RuyiImageMaterializer().materialize(
                 image,
@@ -745,8 +762,8 @@ public final class RuyiImageMaterializerTest {
                 artifactDirectory,
                 NO_PROGRESS));
         String message = exception.getMessage();
-        assertTrue(message.contains("custom"), message);
-        assertTrue(message.contains("image.bin"), message);
+        assertTrue(message.contains(unpack), message);
+        assertTrue(message.contains(fileName), message);
         assertTrue(message.contains(source.toAbsolutePath().normalize().toString()), message);
         assertTrue(message.contains(artifactDirectory.toAbsolutePath().normalize().toString()), message);
     }
