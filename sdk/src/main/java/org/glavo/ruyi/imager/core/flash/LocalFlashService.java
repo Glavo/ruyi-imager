@@ -24,6 +24,7 @@ import org.jetbrains.annotations.Unmodifiable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -165,6 +166,12 @@ public final class LocalFlashService implements FlashService {
         if (image == null) {
             LOGGER.warn("Flash request has no image source.");
             return OperationResult.failure(SdkMessages.get("core.flash.noSource"));
+        }
+
+        for (ImageComponent component : image.components()) {
+            if (!ProvisionStrategies.canCombine(image.strategy(), component.strategy())) {
+                return OperationResult.failure(SdkMessages.get("core.flash.unsupportedStrategy", component.strategy()));
+            }
         }
 
         if (ProvisionStrategies.isDD(image.strategy())) {
@@ -642,7 +649,7 @@ public final class LocalFlashService implements FlashService {
         return String.join(", ", partitions.keySet());
     }
 
-    /// Flashes one materialized image through fastboot.
+    /// Flashes a materialized image after resolving all component paths and required partitions.
     ///
     /// @param image image metadata.
     /// @param target selected target.
@@ -663,29 +670,49 @@ public final class LocalFlashService implements FlashService {
         @Unmodifiable List<ImageComponent> components = image.components();
         if (components.size() <= 1) {
             @Unmodifiable Map<String, Path> partitions = resolvePartitionPaths(image, materialized);
+            @Nullable String error = ProvisionStrategies.fastbootPartitionError(image.strategy(), partitions.keySet());
+            if (error != null) {
+                return OperationResult.failure(error);
+            }
             return fastboot.flash(image.strategy(), partitions, fastbootDevice, reporter).result();
         }
 
+        List<PreparedFastbootComponent> prepared = new ArrayList<>(components.size());
         for (ImageComponent component : components) {
-            if (!ProvisionStrategies.isFastboot(component.strategy())) {
-                return OperationResult.failure(SdkMessages.get("core.fastboot.unsupportedStrategy", component.strategy()));
+            @Unmodifiable Map<String, Path> partitions =
+                    resolvePartitionPaths(component.atom(), component.partitionMap(), materialized);
+            @Nullable String error = ProvisionStrategies.fastbootPartitionError(component.strategy(), partitions.keySet());
+            if (error != null) {
+                return OperationResult.failure(error);
             }
+            prepared.add(new PreparedFastbootComponent(component, partitions));
+        }
 
+        for (PreparedFastbootComponent preparation : prepared) {
+            ImageComponent component = preparation.component();
             LOGGER.atInfo().log(() -> "Dispatching fastboot image component. atom="
                     + image.atom()
                     + ", component="
                     + component.atom()
                     + ", strategy="
                     + component.strategy());
-            @Unmodifiable Map<String, Path> partitions =
-                    resolvePartitionPaths(component.atom(), component.partitionMap(), materialized);
-            FastbootFlashResult result = fastboot.flash(component.strategy(), partitions, fastbootDevice, reporter);
+            FastbootFlashResult result = fastboot.flash(
+                    component.strategy(), preparation.partitions(), fastbootDevice, reporter);
             if (!result.result().success()) {
                 return result.result();
             }
             fastbootDevice = result.device();
         }
         return OperationResult.success(SdkMessages.get("core.fastboot.success"));
+    }
+
+    /// Holds one component's resolved partition paths for ordered execution after preflight.
+    ///
+    /// @param component component metadata.
+    /// @param partitions immutable map of resolved partition files.
+    @NotNullByDefault
+    private record PreparedFastbootComponent(
+            ImageComponent component, @Unmodifiable Map<String, Path> partitions) {
     }
 
     /// Summarizes a flash request source for logs.

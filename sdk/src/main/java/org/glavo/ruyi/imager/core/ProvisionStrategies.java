@@ -4,6 +4,11 @@
 package org.glavo.ruyi.imager.core;
 
 import org.jetbrains.annotations.NotNullByDefault;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
+
+import java.util.List;
+import java.util.Set;
 
 /// Known Ruyi device provisioning strategy identifiers.
 @NotNullByDefault
@@ -19,6 +24,10 @@ public final class ProvisionStrategies {
 
     /// SpacemiT K1 fastboot handoff and eMMC flashing strategy used by Bianbu images.
     public static final String SPACEMIT_K1_V1 = "spacemit-k1-v1";
+
+    /// Required SpacemiT K1 eMMC partitions in flashing order.
+    public static final @Unmodifiable List<String> SPACEMIT_K1_PARTITION_ORDER =
+            List.of("gpt", "bootinfo", "fsbl", "env", "opensbi", "uboot", "bootfs", "rootfs");
 
     /// Prevents construction of the strategy utility.
     private ProvisionStrategies() {
@@ -40,6 +49,42 @@ public final class ProvisionStrategies {
         return FASTBOOT_V1.equals(strategy)
                 || FASTBOOT_LPI4A_UBOOT_V1.equals(strategy)
                 || SPACEMIT_K1_V1.equals(strategy);
+    }
+
+    /// Returns whether two strategies belong to the same supported flashing family.
+    ///
+    /// @param first first strategy.
+    /// @param second second strategy.
+    /// @return true for two DD strategies or two supported fastboot strategies.
+    public static boolean canCombine(String first, String second) {
+        return isDD(first) && isDD(second) || isFastboot(first) && isFastboot(second);
+    }
+
+    /// Checks a fastboot strategy and its required partition names without accessing a device.
+    ///
+    /// This checks metadata only; it does not verify image files or device compatibility.
+    ///
+    /// @param strategy provision strategy.
+    /// @param partitions available partition names.
+    /// @return a failure message, or null when the strategy and partition names are acceptable.
+    public static @Nullable String fastbootPartitionError(String strategy, Set<String> partitions) {
+        if (partitions.isEmpty()) {
+            return SdkMessages.get("core.fastboot.noPartitions");
+        }
+        if (!isFastboot(strategy)) {
+            return SdkMessages.get("core.fastboot.unsupportedStrategy", strategy);
+        }
+        @Unmodifiable List<String> required = switch (strategy) {
+            case FASTBOOT_LPI4A_UBOOT_V1 -> List.of("uboot");
+            case SPACEMIT_K1_V1 -> SPACEMIT_K1_PARTITION_ORDER;
+            default -> List.of();
+        };
+        for (String partition : required) {
+            if (!partitions.contains(partition)) {
+                return SdkMessages.get("core.fastboot.missingPartition", partition);
+            }
+        }
+        return null;
     }
 
     /// Classifies support for a provision strategy.

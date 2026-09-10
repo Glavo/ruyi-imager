@@ -16,7 +16,7 @@ public final class RuyiRepositoryService implements RepositoryService {
     /// Repository store used to synchronize metadata.
     private final RuyiRepositoryStore store;
 
-    /// Action used to invalidate metadata caches after successful updates.
+    /// Action used to invalidate metadata caches after each update attempt.
     private final Runnable cacheInvalidator;
 
     /// Creates the repository service.
@@ -47,15 +47,29 @@ public final class RuyiRepositoryService implements RepositoryService {
 
     /// Updates local metadata repositories.
     ///
+    /// Invalidates dependent caches even when updating fails, since earlier repositories
+    /// may already have changed. If invalidation also fails, its exception is suppressed
+    /// on the update failure.
+    ///
     /// @param reporter progress reporter.
     /// @return operation result.
     /// @throws IOException when repository metadata cannot be updated.
     @Override
     public OperationResult update(ProgressReporter reporter) throws IOException {
-        OperationResult result = store.update(reporter);
-        if (result.success()) {
-            cacheInvalidator.run();
+        OperationResult result;
+        try {
+            result = store.update(reporter);
+        } catch (IOException | RuntimeException | Error failure) {
+            try {
+                cacheInvalidator.run();
+            } catch (RuntimeException | Error invalidationFailure) {
+                if (invalidationFailure != failure) {
+                    failure.addSuppressed(invalidationFailure);
+                }
+            }
+            throw failure;
         }
+        cacheInvalidator.run();
         return result;
     }
 }

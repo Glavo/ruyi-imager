@@ -10,6 +10,8 @@ import org.jetbrains.annotations.NotNullByDefault;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
 import java.nio.file.Files;
@@ -188,12 +190,15 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals(StrategySupport.SUPPORTED, image.support());
     }
 
-    /// Verifies Ruyi image-combo entities preserve per-package fastboot strategies.
+    /// Verifies combo strategies are preserved and mixed DD/fastboot combinations are unsupported.
     ///
+    /// @param systemStrategy strategy of the system image component.
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when test fixture files cannot be created or read.
-    @Test
-    public void listsImageCombosWithComponentStrategies(@TempDir Path temporaryDirectory) throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"fastboot-v1", "dd-v1", "unknown-v1"})
+    public void listsImageCombosWithComponentStrategies(
+            String systemStrategy, @TempDir Path temporaryDirectory) throws Exception {
         Path configDirectory = temporaryDirectory.resolve("config");
         Path cacheDirectory = temporaryDirectory.resolve("cache");
         Path repoDirectory = temporaryDirectory.resolve("repo");
@@ -223,12 +228,12 @@ public final class RuyiImageCatalogServiceTest {
                         size = 2048
 
                         [provisionable]
-                        strategy = "fastboot-v1"
+                        strategy = "%s"
 
                         [provisionable.partition_map]
                         boot = "boot.ext4"
                         root = "root.ext4"
-                        """);
+                        """.formatted(systemStrategy));
 
         Path ubootPackage = repoDirectory.resolve("packages").resolve("board-image").resolve("uboot-revyos-sipeed-lpi4a-8g");
         Files.createDirectories(ubootPackage);
@@ -288,12 +293,13 @@ public final class RuyiImageCatalogServiceTest {
         assertEquals("sipeed-lpi4a", combo.board());
         assertEquals("8g", combo.variant());
         assertEquals("fastboot-v1(lpi4a-uboot)", combo.strategy());
-        assertEquals(StrategySupport.SUPPORTED, combo.support());
+        assertEquals(systemStrategy.equals("fastboot-v1") ? StrategySupport.SUPPORTED : StrategySupport.UNKNOWN,
+                combo.support());
         assertEquals(List.of("uboot", "boot", "root"), List.copyOf(combo.partitionMap().keySet()));
         assertEquals(2, combo.components().size());
         assertEquals("fastboot-v1(lpi4a-uboot)", combo.components().get(0).strategy());
         assertEquals(List.of("uboot"), List.copyOf(combo.components().get(0).partitionMap().keySet()));
-        assertEquals("fastboot-v1", combo.components().get(1).strategy());
+        assertEquals(systemStrategy, combo.components().get(1).strategy());
         assertEquals(List.of("boot", "root"), List.copyOf(combo.components().get(1).partitionMap().keySet()));
         assertEquals(
                 List.of("u-boot-with-spl.bin", "boot.ext4", "root.ext4"),

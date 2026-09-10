@@ -576,7 +576,7 @@ public final class RuyiImageCatalogService implements ImageCatalogService {
 
         String strategy = components.getFirst().strategy();
         StrategySupport support = components.stream()
-                .allMatch(component -> ProvisionStrategies.classify(component.strategy()) == StrategySupport.SUPPORTED)
+                .allMatch(component -> ProvisionStrategies.canCombine(strategy, component.strategy()))
                 ? StrategySupport.SUPPORTED
                 : StrategySupport.UNKNOWN;
         String atom = "image-combo/" + name + "(" + version + ")";

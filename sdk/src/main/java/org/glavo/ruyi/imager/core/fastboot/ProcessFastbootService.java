@@ -92,10 +92,6 @@ public final class ProcessFastbootService implements FastbootService {
     private static final Pattern FASTBOOT_FAILURE_PATTERN =
             Pattern.compile("(?im)(^|\\s)FAILED(\\s|\\(|:|$)|^\\s*fastboot:\\s+error:.*$");
 
-    /// Required SpacemiT K1 eMMC partitions in the flashing order used by Ruyi.
-    private static final @Unmodifiable List<String> SPACEMIT_K1_PARTITION_ORDER =
-            List.of("gpt", "bootinfo", "fsbl", "env", "opensbi", "uboot", "bootfs", "rootfs");
-
     /// Fastboot executable name or path.
     private final String executable;
 
@@ -165,8 +161,9 @@ public final class ProcessFastbootService implements FastbootService {
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
-        if (partitions.isEmpty()) {
-            return new FastbootFlashResult(OperationResult.failure(SdkMessages.get("core.fastboot.noPartitions")), device);
+        @Nullable String error = ProvisionStrategies.fastbootPartitionError(strategy, partitions.keySet());
+        if (error != null) {
+            return new FastbootFlashResult(OperationResult.failure(error), device);
         }
 
         if (ProvisionStrategies.FASTBOOT_V1.equals(strategy)) {
@@ -276,14 +273,9 @@ public final class ProcessFastbootService implements FastbootService {
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
-        @Nullable String missingPartition = missingSpacemitPartition(partitions);
-        if (missingPartition != null) {
-            return OperationResult.failure(SdkMessages.get("core.fastboot.missingPartition", missingPartition));
-        }
-
         Path fsbl = Objects.requireNonNull(partitions.get("fsbl"));
         Path uboot = Objects.requireNonNull(partitions.get("uboot"));
-        int totalSteps = SPACEMIT_K1_PARTITION_ORDER.size() + 6;
+        int totalSteps = ProvisionStrategies.SPACEMIT_K1_PARTITION_ORDER.size() + 6;
         int completedSteps = 0;
 
         String stageFsblMessage = SdkMessages.get("core.fastboot.spacemit.stageFsbl");
@@ -340,7 +332,7 @@ public final class ProcessFastbootService implements FastbootService {
         sleepSpacemitK1Handoff();
         reporter.report(progress(waitUbootMessage, ++completedSteps, totalSteps));
 
-        for (String partition : SPACEMIT_K1_PARTITION_ORDER) {
+        for (String partition : ProvisionStrategies.SPACEMIT_K1_PARTITION_ORDER) {
             Path image = Objects.requireNonNull(partitions.get(partition));
             String flashMessage = SdkMessages.get("core.fastboot.flashingPartition", partition);
             reporter.report(progress(flashMessage, completedSteps, totalSteps));
@@ -368,11 +360,7 @@ public final class ProcessFastbootService implements FastbootService {
             @Unmodifiable Map<String, Path> partitions,
             FastbootDevice device,
             ProgressReporter reporter) throws IOException {
-        @Nullable Path uboot = partitions.get("uboot");
-        if (uboot == null) {
-            return new FastbootFlashResult(
-                    OperationResult.failure(SdkMessages.get("core.fastboot.missingPartition", "uboot")), device);
-        }
+        Path uboot = Objects.requireNonNull(partitions.get("uboot"));
 
         int totalSteps = 4;
         @Unmodifiable Set<String> preHandoffOtherSerials = readOtherFastbootSerials(device);
@@ -783,19 +771,6 @@ public final class ProcessFastbootService implements FastbootService {
             Thread.currentThread().interrupt();
             throw new IOException(SdkMessages.get("core.fastboot.outputInterrupted"), e);
         }
-    }
-
-    /// Finds the first missing SpacemiT K1 partition.
-    ///
-    /// @param partitions partition map.
-    /// @return first missing partition name, or null when all are present.
-    private static @Nullable String missingSpacemitPartition(@Unmodifiable Map<String, Path> partitions) {
-        for (String partition : SPACEMIT_K1_PARTITION_ORDER) {
-            if (!partitions.containsKey(partition)) {
-                return partition;
-            }
-        }
-        return null;
     }
 
     /// Creates a determinate fastboot progress event.

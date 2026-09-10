@@ -338,10 +338,14 @@ public final class CliApplicationTest {
         Files.createDirectories(artifactDirectory);
         Path fsbl = artifactDirectory.resolve("FSBL.bin");
         Path uboot = artifactDirectory.resolve("u-boot.itb");
-        Files.write(fsbl, new byte[]{1, 2, 3});
-        Files.write(uboot, new byte[]{4, 5, 6});
+        @Unmodifiable Map<String, String> partitions = Map.of(
+                "gpt", "gpt.bin", "bootinfo", "bootinfo.bin", "fsbl", "FSBL.bin", "env", "env.bin",
+                "opensbi", "opensbi.bin", "uboot", "u-boot.itb", "bootfs", "bootfs.img", "rootfs", "rootfs.img");
+        for (String fileName : partitions.values()) {
+            Files.write(artifactDirectory.resolve(fileName), new byte[]{1, 2, 3});
+        }
 
-        ImageEntry image = imageEntry("spacemit-k1-v1", Map.of("fsbl", "FSBL.bin", "uboot", "u-boot.itb"));
+        ImageEntry image = imageEntry("spacemit-k1-v1", partitions);
         CapturingFastbootService fastboot = new CapturingFastbootService(
                 new FastbootDevice("test-fastboot", "test-fastboot", "fastboot"));
 
@@ -365,6 +369,7 @@ public final class CliApplicationTest {
         assertEquals("complete", finalEvent.path("type").asText());
         assertTrue(finalEvent.path("success").asBoolean());
         assertEquals("spacemit-k1-v1", fastboot.strategy);
+        assertEquals(partitions.keySet(), fastboot.partitions.keySet());
         assertEquals(fsbl, fastboot.partitions.get("fsbl"));
         assertEquals(uboot, fastboot.partitions.get("uboot"));
     }

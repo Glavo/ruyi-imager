@@ -21,6 +21,8 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -571,6 +573,76 @@ public final class LocalFlashServiceTest {
         assertEquals("new456", fastboot.calls.get(1).device().serial());
         assertEquals(boot, fastboot.calls.get(1).partitions().get("boot"));
         assertEquals(root, fastboot.calls.get(1).partitions().get("root"));
+    }
+
+    /// Rejects invalid later components before either backend receives a write request.
+    ///
+    /// @param firstStrategy strategy of the valid first component.
+    /// @param secondStrategy strategy of the invalid second component.
+    /// @param secondPath second component path, or `empty` for a missing partition map.
+    /// @param pathFailure whether preflight is expected to throw an I/O exception.
+    /// @param directory isolated fixture directory.
+    /// @throws Exception when fixture files cannot be created or read.
+    @ParameterizedTest
+    @CsvSource({
+            "fastboot-v1, fastboot-v1, missing.img, true",
+            "fastboot-v1, fastboot-v1, ../outside.img, true",
+            "fastboot-v1, fastboot-v1, empty, true",
+            "fastboot-v1, fastboot-v1(lpi4a-uboot), second.img, false",
+            "fastboot-v1, spacemit-k1-v1, second.img, false",
+            "fastboot-v1, unknown-v1, second.img, false",
+            "fastboot-v1, dd-v1, second.img, false",
+            "dd-v1, fastboot-v1, second.img, false"
+    })
+    public void preflightsAllComboComponents(
+            String firstStrategy, String secondStrategy, String secondPath, boolean pathFailure,
+            @TempDir Path directory) throws Exception {
+        Path artifact = Files.createDirectories(directory.resolve("artifact"));
+        Files.write(artifact.resolve("first.img"), new byte[]{1});
+        Files.write(artifact.resolve("second.img"), new byte[]{2});
+        Files.write(directory.resolve("outside.img"), new byte[]{3});
+        @Unmodifiable Map<String, String> firstPartitions = Map.of("first", "first.img");
+        @Unmodifiable Map<String, String> secondPartitions = secondPath.equals("empty")
+                ? Map.of() : Map.of("second", secondPath);
+        LinkedHashMap<String, String> combined = new LinkedHashMap<>(firstPartitions);
+        combined.putAll(secondPartitions);
+        ImageEntry image = new ImageEntry(
+                "ruyisdk", "image-combo", "test-combo", "1.0.0", null,
+                "image-combo/test-combo(1.0.0)", "Test combo", "Test", "test", "default",
+                firstStrategy, combined, List.of(), StrategySupport.SUPPORTED,
+                List.of(
+                        new ImageComponent("board-image", "first", "1.0.0", "board-image/first(1.0.0)",
+                                firstStrategy, firstPartitions, List.of()),
+                        new ImageComponent("board-image", "second", "1.0.0", "board-image/second(1.0.0)",
+                                secondStrategy, secondPartitions, List.of())));
+        CapturingFastbootService fastboot = new CapturingFastbootService();
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+        LocalFlashService service = new LocalFlashService(
+                new FixedImageCatalogService(artifact), fastboot, BlockDevicePreparer.none(), writer);
+        FastbootDevice device = new FastbootDevice("test-fastboot", "test-fastboot", "fastboot");
+        Path blockTarget = Files.write(directory.resolve("target.raw"), new byte[16]);
+        Path secondBlockTarget = Files.write(directory.resolve("second-target.raw"), new byte[16]);
+        FlashTarget target = firstStrategy.equals("dd-v1")
+                ? FlashTarget.blockDevices(Map.of(
+                        "first", target(blockTarget, 16, false, false),
+                        "second", target(secondBlockTarget, 16, false, false)))
+                : FlashTarget.fastbootDevice(device);
+        FlashRequest request = new FlashRequest(image, null, target, false);
+
+        if (pathFailure) {
+            assertThrows(IOException.class, () -> service.flash(request, NO_PROGRESS));
+        } else {
+            OperationResult result = service.flash(request, NO_PROGRESS);
+            assertFalse(result.success(), result.message());
+            String expectedDetail = switch (secondStrategy) {
+                case "fastboot-v1(lpi4a-uboot)" -> "uboot";
+                case "spacemit-k1-v1" -> "gpt";
+                default -> secondStrategy;
+            };
+            assertTrue(result.message().contains(expectedDetail), result.message());
+        }
+        assertTrue(fastboot.calls.isEmpty(), "No component may be flashed before all components pass preflight");
+        assertTrue(writer.writeCalls.isEmpty());
     }
 
     /// Refuses to flash fastboot images to block device targets.
