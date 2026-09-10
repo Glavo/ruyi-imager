@@ -370,7 +370,7 @@ public final class RuyiImageMaterializer {
             return "tar.gz";
         }
         if (name.matches(".*\\.tar(\\.gz|\\.bz2|\\.lz4|\\.xz|\\.zst)?$")) {
-            return name.substring(name.indexOf(".tar") + 1);
+            return name.substring(name.lastIndexOf(".tar") + 1);
         }
         if (name.endsWith(".deb")) {
             return "deb";

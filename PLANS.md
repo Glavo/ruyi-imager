@@ -10,7 +10,7 @@
 
 - Modules: `:sdk`, `:app`, `:dd-flasher`, and `:launcher`.
 - Catalog support includes Ruyi repository configuration, ordered remote fallback, branch switching, image combinations, and cached metadata. Repository update attempts invalidate cached metadata even after partial failure; mixed DD/Fastboot combinations are classified as unsupported.
-- Downloads support system proxies, resumable transfers, bounded body waits, SHA-256/SHA-512 verification, and manually supplied fetch-restricted files. Materialization handles supported archives and concatenated compressor members with path and resource limits.
+- Downloads support system proxies, resumable transfers, bounded body waits, SHA-256/SHA-512 verification, and manually supplied fetch-restricted files. Materialization detects archive formats by their final filename suffix and handles supported archives and concatenated compressor members with path and resource limits.
 - Raw writes use the Rust helper for target inspection, volume handling, progress, cancellation, and optional verification. The SDK refreshes target identity and safety flags before writing.
 - Fastboot supports partition flashing, board-specific bootloader handoffs, sparse progress, duplicate-serial rejection, and propagation of the resolved device identity between components. All combo component strategies, partition paths, and strategy-required partitions are checked before the first flash command.
 - The GUI provides catalog/local image and target selection, confirmation, progress, cancellation, metadata updates, language settings, and log access. Background operations share busy state.

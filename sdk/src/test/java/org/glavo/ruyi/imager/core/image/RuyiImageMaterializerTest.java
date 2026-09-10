@@ -433,19 +433,41 @@ public final class RuyiImageMaterializerTest {
         assertArrayEquals(content, Files.readAllBytes(result));
     }
 
-    /// Verifies tar distfiles are extracted into the artifact directory.
+    /// Detects TAR compression from the final suffix even when the basename contains `.tar`.
     ///
+    /// @param fileName archive name used for automatic format detection.
+    /// @param compressor compression format, or null for an uncompressed TAR.
     /// @param temporaryDirectory temporary test directory.
     /// @throws Exception when fixture files cannot be written or read.
-    @Test
-    public void materializesTarDistfile(@TempDir Path temporaryDirectory) throws Exception {
+    @ParameterizedTest
+    @CsvSource({
+            "image.tar,",
+            "board.target.tar,",
+            "image.tar.backup.tar,",
+            "board.target.tar.gz,gzip",
+            "board.target.tar.bz2,bzip2",
+            "board.target.tar.lz4,lz4-framed",
+            "board.target.tar.xz,xz",
+            "board.target.tar.zst,zstd",
+            "IMAGE.TARGET.TAR.XZ,xz"
+    })
+    public void materializesTarDistfileByFinalSuffix(
+            String fileName, @Nullable String compressor, @TempDir Path temporaryDirectory) throws Exception {
         byte[] content = "tar image".getBytes(StandardCharsets.UTF_8);
-        Path source = temporaryDirectory.resolve("downloads").resolve("image.tar");
+        Path source = temporaryDirectory.resolve("downloads").resolve(fileName);
         Files.createDirectories(source.getParent());
-        writeTar(source, "images/image.raw", content);
+        if (compressor == null) {
+            writeTar(source, "images/image.raw", content);
+        } else if (compressor.equals("gzip")) {
+            try (OutputStream output = new GZIPOutputStream(Files.newOutputStream(source))) {
+                writeTar(output, "images/image.raw", content);
+            }
+        } else {
+            writeCompressedTar(source, compressor, "images/image.raw", content);
+        }
 
         Path artifactDirectory = temporaryDirectory.resolve("artifacts");
-        ImageEntry image = image("image.tar", null, "images/image.raw");
+        ImageEntry image = image(fileName, null, "images/image.raw");
         Path result = new RuyiImageMaterializer().materialize(image, List.of(source), artifactDirectory, NO_PROGRESS);
 
         assertEquals(artifactDirectory.resolve("images").resolve("image.raw").toAbsolutePath().normalize(), result);
