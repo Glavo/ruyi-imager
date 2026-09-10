@@ -7,6 +7,7 @@ import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.beans.property.ReadOnlyBooleanWrapper;
 import javafx.collections.FXCollections;
 import javafx.collections.transformation.FilteredList;
 import javafx.concurrent.Task;
@@ -274,7 +275,7 @@ public final class MainWindow {
     private @Nullable Thread currentBackgroundThread;
 
     /// Whether a background operation is active.
-    private boolean busy;
+    private final ReadOnlyBooleanWrapper busy = new ReadOnlyBooleanWrapper();
 
     /// Whether the active background operation is a flash operation.
     private boolean flashInProgress;
@@ -307,7 +308,7 @@ public final class MainWindow {
         loadPreferredLocale();
         this.root = createRoot();
         Messages.localeProperty().addListener((_, _, _) -> {
-            if (!busy && !statusLabel.textProperty().isBound()) {
+            if (!busy.get() && !statusLabel.textProperty().isBound()) {
                 statusLabel.setText(Messages.get("gui.status.ready"));
             }
             refreshState();
@@ -380,7 +381,7 @@ public final class MainWindow {
     ///
     /// @param startup whether the one-hour startup interval must be applied.
     private void checkApplicationUpdateAutomatically(boolean startup) {
-        if (!updateChecker.current().applicationUpdatesEnabled() || closing || busy || root.getScene() == null) {
+        if (!updateChecker.current().applicationUpdatesEnabled() || closing || busy.get() || root.getScene() == null) {
             return;
         }
         @Nullable Window owner = root.getScene().getWindow();
@@ -1049,17 +1050,24 @@ public final class MainWindow {
                 updateChecker.current(),
                 updateChecker.source(),
                 automaticUpdateChecks,
-                updateChannel);
+                updateChannel,
+                busy.getReadOnlyProperty());
         if (updateChecker.current().applicationUpdatesEnabled()) {
             settings.applicationUpdateButton().setOnAction(_ -> checkApplicationUpdate(settings));
         }
         settings.metadataUpdateButton().setOnAction(_ -> updateRepository(settings));
-        if (!showConfirmationDialog(
-                Messages.get("gui.settings.title"),
-                Messages.get("gui.settings.title"),
-                settings.root(),
-                "gui.settings.save",
-                "material-settings-dialog")) {
+        boolean accepted;
+        try {
+            accepted = showConfirmationDialog(
+                    Messages.get("gui.settings.title"),
+                    Messages.get("gui.settings.title"),
+                    settings.root(),
+                    "gui.settings.save",
+                    "material-settings-dialog");
+        } finally {
+            settings.root().disableProperty().unbind();
+        }
+        if (!accepted) {
             return;
         }
 
@@ -1095,7 +1103,7 @@ public final class MainWindow {
     ///
     /// @param settings active settings dialog.
     private void checkApplicationUpdate(SettingsDialog settings) {
-        if (!updateChecker.current().applicationUpdatesEnabled()) {
+        if (!updateChecker.current().applicationUpdatesEnabled() || busy.get() || closing) {
             return;
         }
         settings.applicationUpdateStarted();
@@ -1216,6 +1224,9 @@ public final class MainWindow {
     ///
     /// @param settings active settings dialog.
     private void updateRepository(SettingsDialog settings) {
+        if (busy.get() || closing) {
+            return;
+        }
         settings.metadataUpdateStarted();
         Task<OperationResult> task = new Task<>() {
             /// Updates local repository metadata outside the JavaFX application thread.
@@ -1904,12 +1915,16 @@ public final class MainWindow {
     /// @param task task to run.
     /// @param onSuccess action executed on the JavaFX application thread when the task succeeds.
     /// @param onFailure action executed on the JavaFX application thread when the task fails.
+    /// @throws IllegalStateException if another background task is already active.
     private <T> void startBackgroundTask(
             Task<T> task,
             Consumer<T> onSuccess,
             Consumer<@Nullable Throwable> onFailure) {
+        if (busy.get()) {
+            throw new IllegalStateException("A background operation is already running.");
+        }
         LOGGER.debug("Starting GUI background task.");
-        busy = true;
+        busy.set(true);
         cancellationRequested = false;
         refreshState();
         progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
@@ -2070,7 +2085,7 @@ public final class MainWindow {
         flashInProgress = false;
         cancellationRequested = false;
         currentBackgroundThread = null;
-        busy = false;
+        busy.set(false);
         refreshState();
         if (closeAction != null) {
             LOGGER.info("Closing main window after the flash operation stopped.");
@@ -2264,15 +2279,15 @@ public final class MainWindow {
         selectionControlsBox.setManaged(!showActiveFlashBox);
         activeFlashBox.setVisible(showActiveFlashBox);
         activeFlashBox.setManaged(showActiveFlashBox);
-        settingsButton.setDisable(busy);
-        manufacturerButton.setDisable(busy);
-        boardButton.setDisable(busy || state.localImage() != null || state.manufacturerName() == null);
-        osButton.setDisable(busy
+        settingsButton.setDisable(busy.get());
+        manufacturerButton.setDisable(busy.get());
+        boardButton.setDisable(busy.get() || state.localImage() != null || state.manufacturerName() == null);
+        osButton.setDisable(busy.get()
                 || state.localImage() != null
                 || state.manufacturerName() == null
                 || state.boardName() == null);
-        localImageButton.setDisable(busy);
-        storageButton.setDisable(busy || !hasImageSource());
+        localImageButton.setDisable(busy.get());
+        storageButton.setDisable(busy.get() || !hasImageSource());
         flashButton.setDisable(!canFlash());
         cancelFlashButton.setDisable(!flashInProgress || cancellationRequested);
     }
@@ -2291,7 +2306,7 @@ public final class MainWindow {
     ///
     /// @return whether flashing can start.
     private boolean canFlash() {
-        if (busy || !hasImageSource()) {
+        if (busy.get() || !hasImageSource()) {
             return false;
         }
 

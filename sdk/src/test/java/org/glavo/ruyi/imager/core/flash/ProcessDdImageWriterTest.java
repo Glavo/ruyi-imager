@@ -229,49 +229,118 @@ public final class ProcessDdImageWriterTest {
         assertFalse(Files.exists(cancel));
     }
 
+    /// Deletes piped-helper cancellation only after exit is confirmed, preserving cleanup failures and interruption.
+    ///
+    /// @param directory temporary cancellation directory.
+    /// @throws Exception when the helper adapter or temporary file operations fail.
+    @Test
+    public void retainsPipedCancellationUntilExit(@TempDir Path directory) throws Exception {
+        for (boolean interrupted : List.of(false, true)) {
+            for (boolean confirmsTermination : List.of(false, true)) {
+                Path cancel = directory.resolve("cancel");
+                var process = new TestElevationLauncher(false, confirmsTermination);
+                try {
+                    if (interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    Class<? extends Exception> expectedType = interrupted ? IOException.class : IllegalStateException.class;
+                    Exception failure = assertThrows(expectedType,
+                            () -> ProcessDdImageWriter.runPipedElevated("write", Map.of(),
+                                    List.of("test-helper"), process, cancel, NO_PROGRESS));
+                    Throwable cause = interrupted ? java.util.Objects.requireNonNull(failure.getCause()) : failure;
+                    assertEquals(interrupted, Thread.currentThread().isInterrupted());
+                    assertTrue(process.destroyed);
+                    assertEquals(2, process.timedWaits);
+                    assertEquals(!confirmsTermination, Files.exists(cancel));
+                    assertEquals(confirmsTermination ? 0 : 1, cause.getSuppressed().length);
+                } finally {
+                    Thread.interrupted();
+                    Files.deleteIfExists(cancel);
+                }
+            }
+        }
+    }
+
+    /// Removes a piped-helper cancellation path after normal process completion.
+    ///
+    /// @param directory temporary cancellation directory.
+    /// @throws Exception when the helper adapter or temporary file operations fail.
+    @Test
+    public void cleansPipedCancellationAfterCompletion(@TempDir Path directory) throws Exception {
+        Path cancel = Files.createFile(directory.resolve("cancel"));
+        assertTrue(ProcessDdImageWriter.runPipedElevated("write", Map.of(), List.of("test-helper"),
+                new TestElevationLauncher(true), cancel, NO_PROGRESS));
+        assertFalse(Files.exists(cancel));
+    }
+
     /// Models a launcher whose termination gives no information about its elevated child.
     @NotNullByDefault
     private static final class TestElevationLauncher extends Process {
         /// Whether the launcher completed without intervention.
         private final boolean completed;
 
+        /// Whether a termination request is followed by observed process exit.
+        private final boolean confirmsTermination;
+
+        /// Number of bounded waits requested by cleanup.
+        private int timedWaits;
+
         /// Whether forceful termination was requested.
         private boolean destroyed;
 
         /// Creates a completed or unresponsive launcher.
         private TestElevationLauncher(boolean completed) {
+            this(completed, true);
+        }
+
+        /// Creates a process whose termination may remain unconfirmed.
+        private TestElevationLauncher(boolean completed, boolean confirmsTermination) {
             this.completed = completed;
+            this.confirmsTermination = confirmsTermination;
         }
 
         /// Discards launcher input.
         @Override
         public OutputStream getOutputStream() { return OutputStream.nullOutputStream(); }
 
-        /// Returns empty launcher output.
+        /// Returns a completion event for a normally exited process.
         @Override
-        public InputStream getInputStream() { return InputStream.nullInputStream(); }
+        public InputStream getInputStream() {
+            return completed ? new java.io.ByteArrayInputStream(
+                    "{\"type\":\"complete\",\"success\":true}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                    : InputStream.nullInputStream();
+        }
 
         /// Returns empty launcher diagnostics.
         @Override
         public InputStream getErrorStream() { return InputStream.nullInputStream(); }
 
-        /// Rejects unbounded waits in this fixture.
+        /// Simulates a completed, interrupted, or failed helper wait.
         @Override
-        public int waitFor() { throw new AssertionError("Unbounded wait."); }
+        public int waitFor() throws InterruptedException {
+            if (Thread.interrupted()) {
+                throw new InterruptedException();
+            }
+            if (completed) {
+                return 0;
+            }
+            throw new IllegalStateException("Wait failed.");
+        }
 
         /// Simulates interruption or an expired wait without delaying the test.
         @Override
         public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+            timedWaits++;
             if (Thread.interrupted()) {
                 throw new InterruptedException();
             }
-            return completed || destroyed;
+            return completed || (destroyed && confirmsTermination);
         }
 
         /// Returns a successful launcher exit only when it has stopped.
         @Override
         public int exitValue() {
-            if (!completed && !destroyed) { throw new IllegalThreadStateException(); }
+            if (!completed && !(destroyed && confirmsTermination)) { throw new IllegalThreadStateException(); }
             return 0;
         }
 

@@ -414,6 +414,26 @@ public final class ProcessDdImageWriter implements DdImageWriter {
             throw new IOException(SdkMessages.get("core.dd.elevationFailed", commandText(command)), exception);
         }
 
+        return runPipedElevated(operation, progressSinks, command, process, cancelFile, reporter);
+    }
+
+    /// Reads piped events from a helper that replaces its elevation launcher and owns its cancellation path.
+    ///
+    /// @param operation helper operation.
+    /// @param progressSinks progress sinks keyed by helper operation.
+    /// @param command launcher command for diagnostics.
+    /// @param process running helper process.
+    /// @param cancelFile helper cancellation signal path.
+    /// @param reporter progress reporter.
+    /// @return whether the helper completed successfully.
+    /// @throws IOException when waiting, event parsing, or the helper operation fails.
+    static boolean runPipedElevated(
+            String operation,
+            Map<String, ProgressSink> progressSinks,
+            List<String> command,
+            Process process,
+            Path cancelFile,
+            ProgressReporter reporter) throws IOException {
         HelperEventState state = new HelperEventState(progressSinks, reporter);
         ProcessEventCollector stdout = ProcessEventCollector.start(
                 process.getInputStream(),
@@ -422,18 +442,31 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         ProcessStreamCollector stderr = ProcessStreamCollector.start(
                 process.getErrorStream(),
                 "dd-flasher-elevated-stderr");
+        boolean exited = false;
         try {
-            int exitCode = waitForElevatedProcess(process, cancelFile, command);
+            int exitCode = process.waitFor();
+            exited = true;
             stdout.await(command);
             stderr.await(command);
             return finish(operation, state, exitCode, stderr.text());
+        } catch (InterruptedException exception) {
+            exited = cleanupElevatedProcess(process, cancelFile, exception);
+            Thread.currentThread().interrupt();
+            stdout.awaitQuietly();
+            stderr.awaitQuietly();
+            throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
         } catch (IOException | RuntimeException exception) {
-            cleanupElevatedProcess(process, cancelFile, exception);
+            exited = cleanupElevatedProcess(process, cancelFile, exception) || exited;
             stdout.awaitQuietly();
             stderr.awaitQuietly();
             throw exception;
         } finally {
-            deleteCancelFile(cancelFile);
+            if (exited) {
+                deleteCancelFile(cancelFile);
+            } else {
+                LOGGER.warn("Elevated helper exit could not be confirmed; retaining cancellation signal at {}.",
+                        cancelFile);
+            }
         }
     }
 
@@ -538,19 +571,41 @@ public final class ProcessDdImageWriter implements DdImageWriter {
     /// @param process elevated helper process.
     /// @param cancelFile helper cancellation signal path.
     /// @param failure failure that triggered cleanup.
-    private static void cleanupElevatedProcess(
+    /// @return whether this process exited; launcher exit does not establish descendant exit.
+    private static boolean cleanupElevatedProcess(
             Process process,
             Path cancelFile,
             Throwable failure) {
         signalCancelFile(cancelFile);
+        boolean interrupted = Thread.interrupted();
         try {
-            if (!process.waitFor(10L, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
+            try {
+                if (process.waitFor(10L, TimeUnit.SECONDS)) {
+                    return true;
+                }
+            } catch (InterruptedException cleanupException) {
+                interrupted = true;
+                failure.addSuppressed(cleanupException);
+            } catch (RuntimeException cleanupException) {
+                failure.addSuppressed(cleanupException);
             }
-        } catch (InterruptedException cleanupException) {
-            failure.addSuppressed(cleanupException);
-            process.destroyForcibly();
-            Thread.currentThread().interrupt();
+            try {
+                process.destroyForcibly();
+                if (process.waitFor(10L, TimeUnit.SECONDS)) {
+                    return true;
+                }
+                failure.addSuppressed(new IOException("Elevated helper did not exit after termination was requested."));
+            } catch (InterruptedException cleanupException) {
+                interrupted = true;
+                failure.addSuppressed(cleanupException);
+            } catch (RuntimeException cleanupException) {
+                failure.addSuppressed(cleanupException);
+            }
+            return false;
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -742,34 +797,6 @@ public final class ProcessDdImageWriter implements DdImageWriter {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
-            throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
-        }
-    }
-
-    /// Waits for an elevated helper process and signals cancellation before forceful termination on interruption.
-    ///
-    /// @param process elevated helper process.
-    /// @param cancelFile helper cancellation signal path.
-    /// @param command command line.
-    /// @return process exit code.
-    /// @throws IOException when the wait is interrupted.
-    private static int waitForElevatedProcess(
-            Process process,
-            Path cancelFile,
-            List<String> command) throws IOException {
-        try {
-            return process.waitFor();
-        } catch (InterruptedException exception) {
-            signalCancelFile(cancelFile);
-            try {
-                if (!process.waitFor(10L, TimeUnit.SECONDS)) {
-                    process.destroyForcibly();
-                }
-            } catch (InterruptedException cleanupException) {
-                exception.addSuppressed(cleanupException);
-                process.destroyForcibly();
-            }
-            Thread.currentThread().interrupt();
             throw new IOException(SdkMessages.get("core.dd.interrupted", commandText(command)), exception);
         }
     }

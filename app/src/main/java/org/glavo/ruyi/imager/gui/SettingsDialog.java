@@ -6,6 +6,7 @@ package org.glavo.ruyi.imager.gui;
 import io.github.palexdev.materialfx.controls.MFXButton;
 import io.github.palexdev.materialfx.controls.MFXComboBox;
 import javafx.application.Platform;
+import javafx.beans.value.ObservableBooleanValue;
 import javafx.collections.FXCollections;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -67,12 +68,14 @@ final class SettingsDialog {
     /// @param updateSource local or HTTPS update manifest location.
     /// @param automaticUpdateChecks whether startup and periodic update checks are enabled.
     /// @param updateChannel         selected update channel.
+    /// @param busy shared background-operation state; the caller must unbind the root's disable property on disposal.
     SettingsDialog(
             Locale locale,
             BuildInfo buildInfo,
             UpdateSource updateSource,
             boolean automaticUpdateChecks,
-            UpdateChannel updateChannel) {
+            UpdateChannel updateChannel,
+            ObservableBooleanValue busy) {
         this.languageSelector = createLanguageSelector(locale);
         this.automaticUpdateChecks = new CheckBox(Messages.get("gui.settings.automaticUpdateChecks"));
         this.automaticUpdateChecks.setSelected(automaticUpdateChecks);
@@ -129,6 +132,7 @@ final class SettingsDialog {
         }
         this.root.getChildren().add(metadataSection);
         this.root.getStyleClass().add("settings-content");
+        this.root.disableProperty().bind(busy);
     }
 
     /// Returns the settings content node.

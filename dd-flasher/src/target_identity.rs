@@ -278,7 +278,7 @@ mod linux {
         parse_target(&output.stdout)
     }
 
-    /// Decodes one whole disk and preserves system mount checks across its descendants.
+    /// Decodes one whole disk, preserving system protection and rejecting other active mounts.
     fn parse_target(output: &[u8]) -> Result<TargetObservation, String> {
         let root: Value = serde_json::from_slice(output)
             .map_err(|error| format!("failed to parse lsblk JSON: {error}"))?;
@@ -297,6 +297,10 @@ mod linux {
             return Err("target is not a whole disk".to_string());
         }
 
+        let system = has_system_mount_point(device);
+        if !system && has_mount_point(device) {
+            return Err("target or its descendants still have mounted filesystems".to_string());
+        }
         let bus_type = text_value(device, "tran");
         let removable = bool_value(device, "rm")
             || (bool_value(device, "hotplug")
@@ -307,7 +311,7 @@ mod linux {
             size_bytes: integer_value(device, "size")
                 .ok_or_else(|| "lsblk did not report a target size".to_string())?,
             removable,
-            system: has_system_mount_point(device),
+            system,
             read_only: bool_value(device, "ro"),
             model: text_value(device, "model"),
             bus_type,
@@ -369,6 +373,21 @@ mod linux {
                 .is_some_and(|children| children.iter().any(has_system_mount_point))
     }
 
+    /// Returns whether the disk or any descendant has an active filesystem or swap mount.
+    fn has_mount_point(node: &Value) -> bool {
+        node.get("mountpoints")
+            .and_then(Value::as_array)
+            .is_some_and(|mounts| {
+                mounts
+                    .iter()
+                    .any(|mount| mount.as_str().is_some_and(|value| !value.is_empty()))
+            })
+            || node
+                .get("children")
+                .and_then(Value::as_array)
+                .is_some_and(|children| children.iter().any(has_mount_point))
+    }
+
     /// Builds the same stable identity used by the Java Linux enumerator.
     fn hardware_id(node: &Value) -> Option<String> {
         let serial = text_value(node, "serial");
@@ -396,13 +415,37 @@ mod linux {
             assert!(!command.get_args().any(|argument| argument == "--nodeps"));
         }
 
+        /// Rejects mounts on the disk, partitions, and nested device-mapper descendants after elevation.
+        #[test]
+        fn rejects_remounted_targets() {
+            for pointer in [
+                "/blockdevices/0/mountpoints",
+                "/blockdevices/0/children/0/mountpoints",
+                "/blockdevices/0/children/0/children/0/mountpoints",
+            ] {
+                for mount in ["/media/data", "/run/media/user/disk", "[SWAP]"] {
+                    let mut root = json!({"blockdevices": [{
+                        "type": "disk", "size": 1048576, "rm": true, "mountpoints": [null],
+                        "children": [{"type": "part", "mountpoints": [],
+                            "children": [{"type": "crypt", "mountpoints": [null]}]}]
+                    }]});
+                    assert!(parse_target(&serde_json::to_vec(&root).unwrap()).is_ok());
+                    *root.pointer_mut(pointer).unwrap() = json!([null, mount]);
+                    let error = parse_target(&serde_json::to_vec(&root).unwrap())
+                        .err()
+                        .unwrap();
+                    assert!(error.contains("mounted filesystems"));
+                }
+            }
+        }
+
         /// Accepts partitioned disks while retaining recursive protection of system mounts.
         #[test]
         fn inspects_partitioned_disk_and_nested_system_mounts() {
             let mut root = json!({"blockdevices": [{
                 "path": "/dev/sdb", "type": "disk", "size": 1048576,
                 "rm": true, "ro": false, "tran": "usb", "mountpoints": [null],
-                "children": [{"type": "part", "mountpoints": ["/media/data"],
+                "children": [{"type": "part", "mountpoints": [null],
                     "children": [{"type": "crypt", "mountpoints": [null]}]}]
             }]});
             let observation = parse_target(&serde_json::to_vec(&root).unwrap()).unwrap();

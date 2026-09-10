@@ -10,6 +10,8 @@
 
 ### Current Status
 
+- Linux piped elevation cleanup confirms process exit after cancellation or forceful termination before deleting its cancellation signal; unconfirmed exits retain the signal and cleanup failures remain suppressed on the original failure. Linux helper inspection also rejects ordinary mounts and active swap on the disk or any descendant while preserving system-disk protection.
+- Settings content follows the main window's shared background-operation state, preventing metadata or application-update actions from replacing an active installer preparation task. Settings bindings are released when the dialog closes, and failed or completed background tasks restore controls.
 - Application update entry points are disabled by the tracked `ruyiApplicationUpdatesEnabled=false` build setting for 1.0. GUI update settings, background checks, and the CLI `check-update` command are gated; implementation and tests remain available in explicitly enabled builds. Repository metadata updates are unaffected.
 - Update manifests and dialogs do not expose release notes; the protocol contains release selection, compatibility, and installer metadata only.
 - The project is split into `:sdk`, `:app`, `:dd-flasher`, and `:launcher`; CLI and GUI share the SDK service graph.

@@ -8,6 +8,9 @@ import io.github.palexdev.materialfx.enums.FloatMode;
 import javafx.animation.Animation;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.beans.property.ReadOnlyBooleanProperty;
+import javafx.beans.property.SimpleBooleanProperty;
+import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
@@ -68,10 +71,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -134,7 +139,7 @@ public final class MainWindowJavaFxSmokeTest {
                 assertNull(checker.target());
                 assertNull(windowField(window, "updatePackageManager"));
                 window.showStartupActions();
-                assertEquals(false, windowField(window, "busy"));
+                assertFalse(windowBusy(window).get());
             } finally {
                 window.shutdown();
             }
@@ -308,7 +313,7 @@ public final class MainWindowJavaFxSmokeTest {
         runOnJavaFxThread(() -> {
             SettingsDialog settings = new SettingsDialog(Locale.ENGLISH,
                     new BuildInfo("1.0.0", enabled), UpdateSource.of(directory.resolve("update.json")),
-                    true, UpdateChannel.STABLE);
+                    true, UpdateChannel.STABLE, new SimpleBooleanProperty());
             Scene scene = new Scene((Parent) settings.root());
             assertEquals(enabled, settings.applicationUpdateButton().getScene() == scene);
             assertSame(scene, settings.metadataUpdateButton().getScene());
@@ -319,6 +324,74 @@ public final class MainWindowJavaFxSmokeTest {
             assertEquals(enabled, settings.applicationUpdateButton().getScene() == scene);
             return null;
         });
+    }
+
+    /// Prevents settings operations from replacing an active preparation task and restores controls on completion.
+    ///
+    /// @param successful whether the controlled preparation task succeeds.
+    /// @param directory isolated application directory.
+    /// @throws Exception when fixture setup, reflection, or JavaFX execution fails.
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void blocksSettingsDuringPreparation(boolean successful, @TempDir Path directory) throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        CompletableFuture<Boolean> finished = new CompletableFuture<>();
+        MainWindow window = runOnJavaFxThread(() -> new MainWindow(testServices(directory)));
+        SettingsDialog settings = runOnJavaFxThread(() -> {
+            SettingsDialog result = new SettingsDialog(Locale.ENGLISH, new BuildInfo("1.0.0", true),
+                    UpdateSource.of(directory.resolve("update.json")), true, UpdateChannel.STABLE, windowBusy(window));
+            new Scene((Parent) result.root());
+            return result;
+        });
+        try {
+            runOnJavaFxThread(() -> {
+                Task<Boolean> task = new Task<>() {
+                    /// Waits without touching an installer or disk device.
+                    @Override
+                    protected Boolean call() throws Exception {
+                        if (!release.await(FX_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                            throw new IOException("Fixture timed out.");
+                        }
+                        if (!successful) {
+                            throw new IOException("Preparation failed.");
+                        }
+                        return true;
+                    }
+                };
+                var start = MainWindow.class.getDeclaredMethod("startBackgroundTask", Task.class, Consumer.class, Consumer.class);
+                start.setAccessible(true);
+                start.invoke(window, task, (Consumer<Boolean>) finished::complete,
+                        (Consumer<@Nullable Throwable>) _ -> finished.complete(false));
+                Object worker = windowField(window, "currentBackgroundThread");
+                settings.applicationUpdateFinished(true, "Update available");
+                assertTrue(settings.applicationUpdateButton().isDisabled());
+                assertTrue(settings.metadataUpdateButton().isDisabled());
+                for (String name : List.of("checkApplicationUpdate", "updateRepository")) {
+                    var action = MainWindow.class.getDeclaredMethod(name, SettingsDialog.class);
+                    action.setAccessible(true);
+                    action.invoke(window, settings);
+                    assertSame(worker, windowField(window, "currentBackgroundThread"));
+                    assertTrue(windowBusy(window).get());
+                }
+                return null;
+            });
+            release.countDown();
+            assertEquals(successful, finished.get(FX_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            runOnJavaFxThread(() -> {
+                assertFalse(windowBusy(window).get());
+                assertFalse(settings.applicationUpdateButton().isDisabled());
+                assertFalse(settings.metadataUpdateButton().isDisabled());
+                assertNull(windowField(window, "currentBackgroundThread"));
+                return null;
+            });
+        } finally {
+            release.countDown();
+            runOnJavaFxThread(() -> {
+                settings.root().disableProperty().unbind();
+                window.shutdown();
+                return null;
+            });
+        }
     }
 
     /// Keeps startup and timer callbacks inactive even with saved opt-in and a configured update source.
@@ -352,7 +425,7 @@ public final class MainWindowJavaFxSmokeTest {
                     timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
                     window.showStartupActions();
                     assertEquals(Animation.Status.STOPPED, timer.getStatus());
-                    assertEquals(false, windowField(window, "busy"));
+                    assertFalse(windowBusy(window).get());
                     assertNull(windowField(window, "currentBackgroundThread"));
                     assertNull(windowField(window, "updatePackageManager"));
                     assertNull(preferences.readApplicationUpdateCheckedAt(UpdateChannel.STABLE));
@@ -403,13 +476,13 @@ public final class MainWindowJavaFxSmokeTest {
                 assertEquals(Animation.Status.RUNNING, timer.getStatus());
                 assertEquals(Animation.INDEFINITE, timer.getCycleCount());
                 assertEquals(javafx.util.Duration.hours(4), timer.getKeyFrames().getFirst().getTime());
-                assertEquals(false, windowField(window, "busy"));
+                assertFalse(windowBusy(window).get());
                 window.showStartupActions();
                 assertEquals(previousCheck, preferences.readApplicationUpdateCheckedAt(UpdateChannel.STABLE));
 
                 preferences.writeSettings(Locale.ENGLISH, false, UpdateChannel.STABLE);
                 timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
-                assertEquals(false, windowField(window, "busy"));
+                assertFalse(windowBusy(window).get());
                 preferences.writeSettings(Locale.ENGLISH, true, UpdateChannel.NIGHTLY);
 
                 Stage dialog = new Stage();
@@ -418,13 +491,13 @@ public final class MainWindowJavaFxSmokeTest {
                 dialog.show();
                 try {
                     timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
-                    assertEquals(false, windowField(window, "busy"));
+                    assertFalse(windowBusy(window).get());
                 } finally {
                     dialog.hide();
                 }
 
                 timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
-                assertEquals(true, windowField(window, "busy"));
+                assertTrue(windowBusy(window).get());
                 Thread first = assertInstanceOf(Thread.class, windowField(window, "currentBackgroundThread"));
                 timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
                 assertSame(first, windowField(window, "currentBackgroundThread"));
@@ -433,7 +506,7 @@ public final class MainWindowJavaFxSmokeTest {
             assertTrue(worker.join(Duration.ofSeconds(FX_TIMEOUT_SECONDS)));
 
             Thread failingWorker = runOnJavaFxThread(() -> {
-                assertEquals(false, windowField(window, "busy"));
+                assertFalse(windowBusy(window).get());
                 assertNotNull(preferences.readApplicationUpdateCheckedAt(UpdateChannel.NIGHTLY));
                 assertEquals(previousCheck, preferences.readApplicationUpdateCheckedAt(UpdateChannel.STABLE));
                 Files.writeString(manifest, "invalid JSON");
@@ -443,7 +516,7 @@ public final class MainWindowJavaFxSmokeTest {
             });
             assertTrue(failingWorker.join(Duration.ofSeconds(FX_TIMEOUT_SECONDS)));
             runOnJavaFxThread(() -> {
-                assertEquals(false, windowField(window, "busy"));
+                assertFalse(windowBusy(window).get());
                 assertEquals(1, javafx.stage.Window.getWindows().size());
                 Timeline timer = assertInstanceOf(Timeline.class, windowField(window, "applicationUpdateTimer"));
                 assertEquals(Animation.Status.RUNNING, timer.getStatus());
@@ -451,7 +524,7 @@ public final class MainWindowJavaFxSmokeTest {
                 assertEquals(Animation.Status.STOPPED, timer.getStatus());
                 timer.getKeyFrames().getFirst().getOnFinished().handle(new ActionEvent());
                 window.showStartupActions();
-                assertEquals(false, windowField(window, "busy"));
+                assertFalse(windowBusy(window).get());
                 assertEquals(Animation.Status.STOPPED, timer.getStatus());
                 return null;
             });
@@ -462,6 +535,15 @@ public final class MainWindowJavaFxSmokeTest {
                 return null;
             });
         }
+    }
+
+    /// Reads the shared background-operation state on the JavaFX thread.
+    ///
+    /// @param window inspected main window.
+    /// @return observable busy state.
+    /// @throws ReflectiveOperationException when the field is unavailable.
+    private static ReadOnlyBooleanProperty windowBusy(MainWindow window) throws ReflectiveOperationException {
+        return assertInstanceOf(ReadOnlyBooleanProperty.class, windowField(window, "busy"));
     }
 
     /// Reads lifecycle state without exposing mutable test hooks in the window API.
