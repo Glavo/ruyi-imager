@@ -152,3 +152,11 @@
 - Isolated JavaFX probing reproduced `MFXProgressBar.progress : A bound value cannot be set.` when an enabled settings operation is triggered during simulated installer preparation. A simulated elevated process confirmed that cancellation cleanup can return while the helper remains alive. Neither probe accessed a real device or launched an installer.
 - Unresolved: Linux piped elevation deletes its cancellation signal without confirming helper exit; native Linux validation does not reject ordinary mounts appearing after Java-side preparation; manual update installation leaves settings operation buttons enabled during preparation.
 - This review records findings only; the identified implementation issues remain unfixed. Linux/macOS physical-device behavior and release packaging were not exercised.
+
+### Repository Review Follow-up (2026-09-10)
+
+- Reviewed repository synchronization, image materialization, and their catalog and flash consumers at `d71844c`, following the fixes for the three findings above.
+- Reused the unchanged revision's preceding validation baseline: `cleanTest check` passed with 375 Java tests, zero failures or errors, two skipped, and all 23 `dd-flasher` Rust tests passing. This follow-up did not rerun that suite.
+- Isolated concatenated-stream fixtures reproduced successful but truncated XZ, BZip2, and LZ4 image materialization: `FIRSTSECOND` became `FIRST`. Explicit concatenated decoding recovered the complete contents; Zstandard materialization also retained both members. Flash verification uses the materialized file and cannot detect this loss.
+- An isolated local Git fixture reproduced switching the configured repository branch from `main` to `stable`: synchronization succeeded by merging into the existing `main` checkout, retaining metadata absent from `stable` and leaving HEAD different from the selected remote branch.
+- These two findings remain unresolved. Probes used temporary files and fixture repositories only; no physical devices or installers were exercised, and no implementation changes were made.
