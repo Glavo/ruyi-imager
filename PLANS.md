@@ -1,172 +1,34 @@
 # Plans
 
-## Java 25 Ruyi Imager CLI/GUI
+## Scope
 
-### Goal
+- Build a Java 25 CLI/JavaFX GUI for catalog and local-image flashing without invoking the external `ruyi` command.
+- Share metadata, download, materialization, and flashing services between the CLI and GUI.
+- Support `dd-v1`, `fastboot-v1`, `fastboot-v1(lpi4a-uboot)`, and SpacemiT K1 eMMC fastboot workflows.
 
-- Build a Java 25 CLI/JavaFX GUI image flashing application for catalog images and local images.
-- Reuse Ruyi catalog semantics for metadata, downloads, verification, artifact materialization, flashing, logging, and packaging without invoking the external `ruyi` command.
-- Support `dd-v1`, `fastboot-v1`, `fastboot-v1(lpi4a-uboot)`, and SpacemiT K1 eMMC fastboot flows with testable SDK, app, helper, and packaging modules.
+## Current Status
 
-### Current Status
+- Modules: `:sdk`, `:app`, `:dd-flasher`, and `:launcher`.
+- Catalog support includes Ruyi repository configuration, ordered remote fallback, branch switching, image combinations, and cached metadata.
+- Downloads support system proxies, resumable transfers, bounded body waits, SHA-256/SHA-512 verification, and manually supplied fetch-restricted files. Materialization handles supported archives and concatenated compressor members with path and resource limits.
+- Raw writes use the Rust helper for target inspection, volume handling, progress, cancellation, and optional verification. The SDK refreshes target identity and safety flags before writing.
+- Fastboot supports partition flashing, board-specific bootloader handoffs, sparse progress, duplicate-serial rejection, and propagation of the resolved device identity between components.
+- The GUI provides catalog/local image and target selection, confirmation, progress, cancellation, metadata updates, language settings, and log access. Background operations share busy state.
+- Packaging includes JLink distributions, bundled helpers, Windows setup executables, Linux Debian packages, macOS archives, and nightly/versioned release workflows. Linux ARM64 and RISC-V 64 require fastboot on `PATH`.
+- Application updates are disabled for 1.0 through `ruyiApplicationUpdatesEnabled=false`. Local/HTTPS manifests, compatibility selection, verified installer caching, and installer handoff remain available in explicitly enabled builds; see [docs/updates.md](docs/updates.md).
 
-- Image materialization decodes concatenated compressor members, including TAR content split across members, while enforcing output limits across the full stream. Repository updates fetch and check out a newly configured tracking branch before pulling, and refuse branch switches with local checkout changes.
-- Linux piped elevation cleanup confirms process exit after cancellation or forceful termination before deleting its cancellation signal; unconfirmed exits retain the signal and cleanup failures remain suppressed on the original failure. Linux helper inspection also rejects ordinary mounts and active swap on the disk or any descendant while preserving system-disk protection.
-- Settings content follows the main window's shared background-operation state, preventing metadata or application-update actions from replacing an active installer preparation task. Settings bindings are released when the dialog closes, and failed or completed background tasks restore controls.
-- Application update entry points are disabled by the tracked `ruyiApplicationUpdatesEnabled=false` build setting for 1.0. GUI update settings, background checks, and the CLI `check-update` command are gated; implementation and tests remain available in explicitly enabled builds. Repository metadata updates are unaffected.
-- Update manifests and dialogs do not expose release notes; the protocol contains release selection, compatibility, and installer metadata only.
-- The project is split into `:sdk`, `:app`, `:dd-flasher`, and `:launcher`; CLI and GUI share the SDK service graph.
-- Ruyi metadata, `image-combo`, distfile download/cache, checksum verification, artifact materialization, and system proxy discovery are implemented. Automatic distfile downloads require SHA-256 or SHA-512 metadata; manually supplied fetch-restricted files remain supported. In `Asia/Shanghai`, metadata synchronization tries the ISCAS mirror before the official GitHub repository; user config can override the ordered remote list, branch, or local repository.
-- Distfile and artifact extraction paths are hardened against unsafe names, cache corruption, path escape, conflicting declarations, missing single-partition ZIP artifacts, excessive archive entry counts, oversized entries, aggregate expansion, filesystem exhaustion, unbounded TAR parser metadata, invalid TAR checksums, and unsupported sparse TAR extensions. Distfile responses are also rejected before any bytes beyond their declared size are written.
-- Distfile response bodies use bounded, interruptible chunk waits. A 60-second body wait timeout cancels the current response and tries the next source with existing partial-download handling; local writes and progress reporting do not consume the wait budget.
-- `dd-flasher` handles destructive raw writes, declared byte limits, same-helper write/verify, target display-name validation, NDJSON progress reporting, and post-elevation inspection of the final target handle.
-- Before destructive `dd-v1` writes, the SDK refreshes and validates target id, path, hardware identity, size, model, bus, and removable status. Windows Storage Management boot/system flags and Linux `/`, `/boot`, `/boot/efi`, and `/efi` mounts protect system disks. The elevated helper opens the final target once, validates whole-device type, capacity, removable/system state, available read-only/model/bus fields, and overlapping hardware identity against that handle, and uses the same handle for the operation. Linux and macOS additionally verify the opened device identity around path-based platform metadata inspection.
-- Windows raw physical-drive writes validate the final target handle before locking/dismounting related volumes inside `dd-flasher`; Windows UAC uses Java FFM `ShellExecuteExW` instead of a PowerShell launcher. Native termination and handle closure check their return values. Exceptional cleanup waits after termination, preserves the original failure with suppressed cleanup errors, and retains cancellation files unless process exit is confirmed.
-- Linux `pkexec` elevated `dd-flasher` reads NDJSON progress directly from stdout; Windows UAC and macOS administrator script paths use private temporary event logs with bounded pending data and line lengths.
-- macOS cancellation, event parsing failures, and progress callback failures retain the cancellation marker because terminating `osascript` does not confirm the elevated helper's exit. Linux helper inspection explicitly requests a single-root `lsblk` JSON tree and recursively checks child partitions for protected system mounts.
-- Windows/Linux/macOS block-device and fastboot enumeration are implemented with concurrent stdout/stderr draining.
-- Linux and macOS mounted removable targets are automatically unmounted before writing, then re-enumerated before destructive access.
-- Fastboot flows cover ordinary partition flashing, LPi4A/Meles U-Boot handoff, SpacemiT K1 stage/continue, sparse progress parsing, duplicate serial rejection, and post-handoff ambiguity checks. Flash results propagate the last resolved device so later image-combo components use the post-handoff serial.
-- Logging is initialized before application-directory and service diagnostics. Informational CLI commands keep standard error clean, and GUI launch failures retain bootstrap logging until the failure has been recorded.
-- GUI supports catalog/local image selection, automatic metadata updates when catalog data is missing or older than 24 hours, target selection, safety confirmation, progress, cancellation, log path display, a settings dialog for language, application update channel and automatic-check policy, and manual metadata updates, Chinese vendor display names, window icons, consistent bundled-font use in MaterialFX text controls, vertically centered selectors without unused floating-label space, and short progress status text without trailing full stops. Closing the main window during a flash requests cancellation and waits for helper cleanup before allowing JavaFX to exit. Local application update manifests support stable/nightly releases, WiX Burn-compatible precedence for one to four numeric components and prerelease identifiers, channel metadata independent from prerelease conventions, per-platform installer packages, exact skipped-release state, a one-hour startup check interval and four-hour runtime checks with workflow exclusion and shutdown cleanup, size and SHA-256 verification, content-addressed package caching, fixed Windows/Linux installer handoffs including Linux RISC-V 64, and macOS package or disk-image handoffs.
-- Packaging supports bundled fastboot, bundled `dd-flasher`, Windows Rust native launchers, JLink runtime images, Debian packages, WiX MSI packages, WiX Burn setup executables, nightly releases, and manually dispatched versioned GitHub Releases. Windows JLink packages are `.zip`; Linux/macOS packages are `.tar.gz` with explicit Unix executable modes for launchers, JDK binaries, `jspawnhelper`, fastboot, and `dd-flasher`. The universal Darwin fastboot is packaged for both macOS architectures, and both release workflows validate its x86_64 and arm64 slices using `lipo`'s input-file-first syntax; Linux ARM64 and RISC-V 64 explicitly fall back to a user-provided fastboot on `PATH`. Fastboot and JLink JDK archives are verified by declared size and SHA-256 before extraction. The bundled Alibaba PuHuiTi font is downloaded from Alibaba's official font host, verified by size and SHA-256, and packaged with its legal notice. Linux RISC-V 64 jlink images add verified OpenJFX 25.0.4 JMODs to the target JDK module path and include the GUI modules in the generated runtime. Fastboot verification/extraction, JLink runtime and launcher generation, Debian package metadata/assembly, WiX MSI source/build orchestration, and WiX Burn bundle source/build orchestration are implemented as Java tasks/helpers in `buildSrc`; WiX MSI packages default to per-user installation under `LocalAppDataFolder`, include a directory selection UI, permit replacement when two builds share the same three-field MSI version, and require Burn for initial installation. The Burn bundle forwards the required installation marker so first-time MSI installation satisfies that policy. Windows setup executables use a single Burn package with the full project version for upgrade ordering, a custom no-license bootstrapper theme, embedded bootstrapper UI localization payloads, a bootstrapper window titlebar icon payload, and a matching display version variable. The tracked `gradle/project.properties` contains only the three-part release base; builds may supply prerelease qualifiers and build metadata independently, while the legacy full-version property remains available as an override. The formal release workflow accepts optional qualifier and metadata inputs, creates an immutable `v<version>` tag, marks qualified versions as prereleases, and refuses dispatches outside `main`. Linux x86-64, AArch64, and RISC-V 64 releases publish `.deb` and `.tar.gz` packages, Windows releases publish setup `.exe` bundles, and nightly artifacts use a `1.0.0-nightly.<UTC timestamp>.<short-sha>` project version whose fixed-width timestamp participates in project-defined ordering. Every released OS/architecture runs Gradle verification, Rust tests, formatting checks, and Clippy before artifacts can be published.
-- The root README gives users a concise overview of catalog and local-image workflows, device safety checks, supported platforms, release artifacts, and destructive-write precautions.
+## Remaining Work
 
-- Application update sources now support local files and HTTPS without signatures or a schema version bump. Manifest parsing tolerates optional extensions and unknown installer variants, while unknown installation requirements fail closed. Selection chooses the newest compatible release using explicit application/OS requirements and installer preferences. Windows OS detection includes the native build number. Downloads enforce size limits, bounded redirects, total timeouts, interruption, exact size and SHA-256 verification, temporary-file cleanup, and verified offline cache reuse. The protocol and deployment boundary are documented in `docs/updates.md`. Unrecognized update platforms retain GUI startup and informational version checks, while installer initialization follows the existing unsupported-platform fallback.
-
-### Remaining
-
+- Validate all image-combo component strategies before the first write, and reject unsupported Fastboot/DD combinations during catalog classification.
+- Invalidate the in-memory catalog when a repository update fails after modifying local metadata.
 - Run read-only Linux/macOS block-device enumeration smoke tests on real machines.
-- Continue real Windows removable-device validation for raw physical-drive write, volume lock/dismount, cancellation, and verification.
-- Install and validate linker or `cross` support for non-host `dd-flasher` release targets; the current Windows environment lacks the Linux linker/Docker setup.
-- After the next real-device pass, remove or downgrade any diagnostics that are still only useful for troubleshooting.
-- Validate update installation with real Windows setup, Debian, and macOS package artifacts.
-- Publish update manifests and immutable packages over HTTPS, automate release-manifest publication, and configure the public default endpoint; local and HTTPS transport are already implemented.
+- Continue real Windows removable-device validation for raw writes, volume lock/dismount, cancellation, and verification.
+- Validate non-host `dd-flasher` release builds with an appropriate linker or `cross` environment.
+- After real-device validation, remove or downgrade diagnostics that are only useful for troubleshooting.
+- Before enabling application updates, validate installation using real Windows setup, Debian, and macOS package artifacts.
+- Before enabling application updates, publish immutable packages and manifests over HTTPS, automate manifest publication, and configure the public default endpoint.
 
-### Recent Verification
+## Known Limits
 
-- Targeted SDK regression tests cover elevated-launcher cancellation retention, fastboot serial propagation, stalled-body source fallback and resume, and download interruption. Rust tests cover Linux tree arguments and recursive system-mount protection on partitioned disks.
-- `cargo check --locked --manifest-path dd-flasher/Cargo.toml --target x86_64-unknown-linux-gnu --tests`
-- `./gradlew -g .gradle-user-home :app:compileJava`
-- `./gradlew -g .gradle-user-home :app:prepareBundledFastboot --rerun-tasks`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkRuntime --rerun-tasks`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:writeJlinkLaunchers :app:writeJlinkDebMetadata :app:jlinkDeb -x :app:installJlinkDist --rerun-tasks`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkArchive -x :app:installJlinkDist --rerun-tasks`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:help --task :app:jlinkArchive`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkArchive`
-- Linux `.tar.gz` archive mode check using a minimal generated JLink image: executable entries are `0755`; regular files are `0644`.
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkDeb -x :app:installJlinkDist --rerun-tasks`
-- Debian package structure check: ar members are `debian-binary`, `control.tar.gz`, and `data.tar.gz`; control metadata and data archive modes are valid.
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:writeJlinkWixSource --rerun-tasks`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkMsi`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkMsi --dry-run`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:help --task :app:jlinkSetupExe`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkSetupExe --dry-run`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:writeJlinkWixBundleSource -x :app:jlinkMsi --rerun-tasks`
-- `./gradlew -g .gradle-user-home :buildSrc:compileJava --rerun-tasks`
-- Generated WiX source XML smoke check: package metadata, Burn-only initial-install condition, same-version major upgrades, main feature, application icon, GUI shortcut, per-user scope, custom no-license InstallDir UI, `WIXUI_INSTALLDIR`, architecture-specific path validation, Browse dialog OK events, and Exit dialog Finish event are present.
-- Generated WiX Burn source XML smoke check: bundle metadata, WixStdBA with custom no-license theme, setup icon, bootstrapper UI logo, default install folder variable, default English localization and Simplified Chinese LCID localization payload, compressed embedded MSI package, hidden MSI ARP entry, and `INSTALLFOLDER` MSI property forwarding are present.
-- WiX bootstrapper theme/localization XML check: theme, default localization, Simplified Chinese localization, generated MSI source, and generated setup source parse as XML; all `#(loc.*)` theme references exist in both localization files.
-- `./gradlew -g .gradle-user-home -q properties`
-- `./gradlew -g .gradle-user-home -q "-Pruyi.version=1.0.0-nightly.20260716T143052Z.3921d84" properties`
-- `./gradlew -g .gradle-user-home "-Pruyi.version=1.0.0-nightly.20260716T143052Z.3921d84" "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkArchive :app:jlinkMsi :app:jlinkSetupExe --dry-run`
-- `./gradlew -g .gradle-user-home "-Pruyi.version=1.0.0-nightly.20260716T143052Z.3921d84" "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkArchive :app:jlinkDeb --dry-run`
-- `./gradlew -g .gradle-user-home :buildSrc:compileJava`
-- WiX Burn version XML check: `Bundle/@Version` and `RuyiImagerDisplayVersion` contain the full nightly version, and default and Simplified Chinese setup localization use the display version variable.
-- `./gradlew -g .gradle-user-home "-Pruyi.version=1.0.0-nightly.20260716T143052Z.3921d84" "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkSetupExe --dry-run`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:writeJlinkWixBundleSource -x :app:jlinkMsi --rerun-tasks`
-- WiX Burn window-icon XML check: the bootstrapper theme references `icon.ico`, and the generated setup source embeds `icon.ico` from `resources/ruyi-logo.ico` as a bootstrapper application payload.
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkSetupExe --dry-run`
-- `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.repo.RuyiRepositoryStoreTest --tests org.glavo.ruyi.imager.core.repo.RuyiRepositoryServiceTest`
-- `./gradlew -g .gradle-user-home :app:compileJava :app:compileTestJava`
-- `./gradlew -g .gradle-user-home :app:processResources`
-- GUI short-status punctuation check: no `gui.progress.*` or `gui.status.*` localization values end with `.` or `。`.
-- `cargo clippy --target x86_64-unknown-linux-gnu -- -D warnings`
-- `cargo clippy --target x86_64-apple-darwin -- -D warnings`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=windows-x86_64" :app:verifyJlinkJdk`
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-x86_64" :app:verifyJlinkJdk`
-- Custom `jlink.jdk.url` configuration without `jlink.jdk.sha256` fails during Gradle configuration.
-- `./gradlew -g .gradle-user-home test`
-- `./gradlew -g .gradle-user-home cleanTest test`
-- `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.update.UpdateCheckerTest --tests org.glavo.ruyi.imager.update.BuildInfoTest`
-- `./gradlew -g .gradle-user-home :app:run --args='check-update'`
-- Local update manifest CLI check: `1.1.0` is reported as newer than `1.0.0-dev`.
-- `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.update.* --tests org.glavo.ruyi.imager.gui.GuiPreferencesTest`
-- `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.gui.MainWindowJavaFxSmokeTest`
-- Local update manifest CLI channel check: `check-update --channel nightly` selects `1.1.0-nightly.20260716T143052Z.3921d84`.
-- `./gradlew -g .gradle-user-home cleanTest check`
-- `./gradlew -g .gradle-user-home :sdk:test --tests org.glavo.ruyi.imager.core.image.RuyiImageMaterializerTest`
-- `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.MainTest --tests org.glavo.ruyi.imager.update.ApplicationVersionTest --tests org.glavo.ruyi.imager.update.UpdateCheckerTest`
-- `cargo fmt --manifest-path dd-flasher/Cargo.toml --all -- --check`
-- `cargo clippy --locked --manifest-path dd-flasher/Cargo.toml --all-targets -- -D warnings`
-- `cargo fmt --manifest-path launcher/Cargo.toml --all -- --check`
-- `cargo clippy --locked --manifest-path launcher/Cargo.toml --all-targets -- -D warnings`
-- PowerShell parser check for `list-windows-block-devices.ps1` completed without syntax errors.
-- Read-only Windows CIM disk enumeration completed successfully with Storage Management system flags.
-- `./gradlew -g .gradle-user-home '-Pjlink.jdk.platform=windows-x86_64' :app:jlinkArchive`; packaged Windows fastboot contains `fastboot.exe`, `AdbWinApi.dll`, and `AdbWinUsbApi.dll`.
-- Independent subagent reviews found no remaining device/materialization safety, Burn ordering, update packaging, or bootstrap logging issues.
-- `./gradlew -g .gradle-user-home -q properties`; the tracked base resolves to `1.0.0`.
-- `./gradlew -g .gradle-user-home -q "-PruyiVersionQualifier=alpha.1" "-PruyiVersionMetadata=build.42+sha" properties`; the composed version resolves to `1.0.0-alpha.1+build.42+sha`.
-- `./gradlew -g .gradle-user-home -q "-Pruyi.version=2.0.0-rc.1" "-PruyiVersionQualifier=ignored" properties`; the legacy full-version override remains authoritative.
-- `./gradlew -g .gradle-user-home "-PruyiVersionQualifier=alpha.1" "-Pjlink.jdk.platform=linux-x86_64" :app:writeJlinkDebControl -x :app:installJlinkDist --rerun-tasks`; generated Debian version is `1.0.0~alpha.1`.
-- `./gradlew -g .gradle-user-home "-PruyiVersionQualifier=nightly.20260723T120000Z.41bb42e" "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkArchive :app:jlinkMsi :app:jlinkSetupExe --dry-run`
-- `./gradlew -g .gradle-user-home "-Pruyi.version=1.0.0+nightly.3921d84" "-Pjlink.jdk.platform=windows-x86_64" :app:writeJlinkWixBundleSource -x :app:jlinkMsi --rerun-tasks`
-- Generated WiX Burn source XML check: the embedded `MsiPackage` forwards both `INSTALLFOLDER=[InstallFolder]` and `BURNMSIINSTALL=1`.
-- GitHub Release workflow YAML, IntelliJ inspection, and ten embedded Bash script syntax checks completed without errors.
-- Nightly release run `30024186791` inspection confirmed that both macOS jobs reached `jlinkArchive` and failed only because `lipo -verify_arch` parsed the trailing input path as an architecture.
-- Nightly and formal release workflow YAML parse successfully after changing both macOS fastboot checks to `lipo <input_file> -verify_arch x86_64 arm64`; IntelliJ reports no workflow problems.
-- Root README Markdown inspection completed without warnings, and its local logo reference resolves to the tracked 128-pixel application icon.
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-riscv64" :app:jlinkRuntime --rerun-tasks`; the generated Java launcher and JavaFX native library are RISC-V ELF files, and the runtime contains `javafx.base`, `javafx.controls`, and `javafx.graphics`.
-- A second Linux RISC-V 64 `jlinkRuntime` invocation completed up-to-date, and the existing Windows x86-64 runtime still includes all three JavaFX modules.
-- `./gradlew -g .gradle-user-home "-Pjlink.jdk.platform=linux-riscv64" :app:jlinkArchive :app:jlinkDeb --dry-run`; the task graph includes the RISC-V `dd-flasher`, archive, and Debian package tasks.
-- Nightly and formal release workflow YAML parse successfully with the Linux RISC-V 64 matrix entry, cross-toolchain setup, runtime assertions, and formal release asset checks.
-- Nightly release run `32432776964` showed that `--no-install-recommends` omitted the RISC-V glibc startup objects required by Cargo; both release workflows now install `libc6-dev-riscv64-cross` explicitly alongside the cross compiler.
-- Default jlink bundles now use Liberica JDK `25.0.4.1+1`; all seven archive names, sizes, and SHA-256 digests match the official BellSoft GitHub Release metadata.
-- Settings dialogs now resize their containing stage after asynchronous status text changes, preserving wrapped messages above the MaterialFX action pane without fixed-height placeholders.
-- `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.update.UpdatePackageManagerTest -x :app:downloadAlibabaPuhuitiFont`; Linux RISC-V 64 platform detection, manifest parsing, Debian package support, and installer handoff pass.
-- `./gradlew -g .gradle-user-home -q "-PruyiVersionQualifier=alpha.1" properties`; the workflow input resolves to `1.0.0-alpha.1`.
-- `./gradlew -g .gradle-user-home "-PruyiVersionQualifier=alpha.1" "-Pjlink.jdk.platform=windows-x86_64" :app:jlinkArchive :app:jlinkMsi :app:jlinkSetupExe --dry-run`
-- `./gradlew -g .gradle-user-home "-PruyiVersionQualifier=alpha.1" "-Pjlink.jdk.platform=linux-x86_64" :app:jlinkArchive :app:jlinkDeb --dry-run`
-- `./gradlew -g .gradle-user-home "-PruyiVersionQualifier=alpha.1" "-Pjlink.jdk.platform=macos-aarch64" :app:jlinkArchive --dry-run`
-- `./gradlew -g .gradle-user-home :app:test --tests org.glavo.ruyi.imager.gui.MainWindowJavaFxSmokeTest.centersMaterialFxSelectorText`
-- `./gradlew -g .gradle-user-home cleanTest check`
-- `git diff --check`
-- `./gradlew -g .gradle-user-home :app:verifyAlibabaPuhuitiFont --rerun-tasks`; the official Alibaba font download matches the pinned size and SHA-256.
-- `./gradlew -g .gradle-user-home cleanTest check :app:jar`; the application JAR contains both the verified font and its legal notice.
-- `cargo fmt --manifest-path dd-flasher/Cargo.toml --all -- --check`
-- `cargo clippy --locked --manifest-path dd-flasher/Cargo.toml --all-targets -- -D warnings`
-- `cargo check --locked --manifest-path dd-flasher/Cargo.toml --target x86_64-unknown-linux-gnu`
-- `cargo check --locked --manifest-path dd-flasher/Cargo.toml --target x86_64-apple-darwin`
-- `./gradlew -g .gradle-user-home check`; repository fallback tests compare parsed TOML values instead of platform-dependent checkout line endings.
-- Windows native process regression tests terminate an unprivileged Java child, confirm its exit, exercise idempotent handle closure and rejection of operations after closure, and verify that invalid-handle failures propagate. The verified update installer launch test uses the harmless argument-free Java executable and covers standard-input pipe closure.
-
-- Update refactor verification: `cleanTest check` and the final `check` passed; 357 Java tests reported no failures or errors, with one skipped, and all 20 `dd-flasher` Rust tests passed. HTTPS loopback tests cover bounded bodies, redirects, timeouts, cancellation, and callback failures. Local CLI checking of the example feed reports no compatible installer without initiating installation. Independent review confirmed the Windows build-number fix and found no remaining actionable update issues.
-
-### Known Limits
-
-- Full Linux/macOS release packaging from Windows still depends on a working non-host `dd-flasher` toolchain.
-
-### Repository Review (2026-09-10)
-
-- Reviewed flash orchestration, native target validation, cancellation, image downloads and materialization, GUI background operations, application updates, and build configuration.
-- `./gradlew -g .gradle-user-home cleanTest check` passed on Windows: 371 Java tests, zero failures or errors, two skipped; all 22 `dd-flasher` Rust tests passed.
-- Isolated JavaFX probing reproduced `MFXProgressBar.progress : A bound value cannot be set.` when an enabled settings operation is triggered during simulated installer preparation. A simulated elevated process confirmed that cancellation cleanup can return while the helper remains alive. Neither probe accessed a real device or launched an installer.
-- Unresolved: Linux piped elevation deletes its cancellation signal without confirming helper exit; native Linux validation does not reject ordinary mounts appearing after Java-side preparation; manual update installation leaves settings operation buttons enabled during preparation.
-- This review records findings only; the identified implementation issues remain unfixed. Linux/macOS physical-device behavior and release packaging were not exercised.
-
-### Repository Review Follow-up (2026-09-10)
-
-- Reviewed repository synchronization, image materialization, and their catalog and flash consumers at `d71844c`, following the fixes for the three findings above.
-- Reused the unchanged revision's preceding validation baseline: `cleanTest check` passed with 375 Java tests, zero failures or errors, two skipped, and all 23 `dd-flasher` Rust tests passing. This follow-up did not rerun that suite.
-- Isolated concatenated-stream fixtures reproduced successful but truncated XZ, BZip2, and LZ4 image materialization: `FIRSTSECOND` became `FIRST`. Explicit concatenated decoding recovered the complete contents; Zstandard materialization also retained both members. Flash verification uses the materialized file and cannot detect this loss.
-- An isolated local Git fixture reproduced switching the configured repository branch from `main` to `stable`: synchronization succeeded by merging into the existing `main` checkout, retaining metadata absent from `stable` and leaving HEAD different from the selected remote branch.
-- Both follow-up findings are fixed. Regression fixtures cover concatenated XZ, BZip2, LZ4, and Zstandard streams, cross-member TAR entries and output limits, divergent branch switching with short and fully qualified branch names, local-edit preservation, remote fallback, and switching back to an existing branch. Tests use temporary files and fixture repositories only; no physical devices or installers are exercised.
-- Post-fix validation: `./gradlew -g .gradle-user-home cleanTest check` passed with 385 Java tests, zero failures or errors, two skipped, and all 23 `dd-flasher` Rust tests passing. `git diff --check` passed.
-
-### Repository State Boundary Review (2026-09-10)
-
-- Reviewed download integrity and resumption, fastboot process handling, multi-component flash dispatch, repository synchronization, and catalog caching at `35a545d`.
-- An isolated catalog fixture combining `fastboot-v1(lpi4a-uboot)` and `dd-v1` was classified as supported; a recording fastboot backend received one component write before the flash service rejected the second component. No device command was launched.
-- An isolated two-repository update reproduced stale catalog state after a partial failure: the first repository received version `2.0.0`, the unavailable overlay caused an exception, and the existing catalog still selected `1.0.0` while a fresh catalog selected `2.0.0`.
-- Targeted `:sdk:test` coverage for `RuyiImageCatalogServiceTest`, `LocalFlashServiceTest`, and the repository tests passed: 52 tests, zero failures, errors, or skips. The full suite was not rerun in this review.
-- Both state boundary findings remain unresolved. Only review documentation and ignored local probes were added; implementation code and physical devices were not modified.
+- Full Linux/macOS release packaging from Windows depends on a working non-host `dd-flasher` toolchain; the reviewed Windows environment lacked the required Linux linker/Docker setup.
+- Automated tests and local fixtures do not replace the outstanding physical-device and installer validation.
