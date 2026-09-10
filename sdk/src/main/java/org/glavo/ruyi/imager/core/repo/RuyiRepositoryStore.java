@@ -3,13 +3,16 @@
 
 package org.glavo.ruyi.imager.core.repo;
 
+import org.eclipse.jgit.api.CreateBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.InvalidRemoteException;
 import org.eclipse.jgit.api.errors.RefNotAdvertisedException;
 import org.eclipse.jgit.api.errors.RefNotFoundException;
 import org.eclipse.jgit.api.errors.TransportException;
+import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.StoredConfig;
+import org.eclipse.jgit.transport.RefSpec;
 import org.glavo.ruyi.imager.core.AppDirectories;
 import org.glavo.ruyi.imager.core.NetworkDefaults;
 import org.glavo.ruyi.imager.core.OperationResult;
@@ -421,7 +424,7 @@ public final class RuyiRepositoryStore {
         }
     }
 
-    /// Pulls one existing repository, retrying source-related failures.
+    /// Updates an existing checkout on the configured branch, retrying source-related failures.
     ///
     /// @param entry repository entry.
     /// @param root local checkout root.
@@ -455,6 +458,7 @@ public final class RuyiRepositoryStore {
                 config.save();
 
                 try {
+                    checkoutConfiguredBranch(git, entry.branch());
                     if (!git.pull()
                             .setRemote("origin")
                             .setRemoteBranchName(entry.branch())
@@ -488,6 +492,38 @@ public final class RuyiRepositoryStore {
         }
 
         throw sourcesFailed("core.repo.updateSourcesFailed", entry, failures);
+    }
+
+    /// Fetches and checks out the configured branch before pulling, without discarding local changes.
+    ///
+    /// @param git opened checkout.
+    /// @param configuredBranch branch name, optionally prefixed with `refs/heads/`.
+    /// @throws IOException when a branch switch would carry local changes or Git state cannot be read or saved.
+    /// @throws GitAPIException when fetching or checking out the selected branch fails.
+    private static void checkoutConfiguredBranch(Git git, String configuredBranch) throws IOException, GitAPIException {
+        String branch = configuredBranch.startsWith(Constants.R_HEADS)
+                ? configuredBranch.substring(Constants.R_HEADS.length()) : configuredBranch;
+        String localRef = Constants.R_HEADS + branch;
+        if (localRef.equals(git.getRepository().getFullBranch())) {
+            return;
+        }
+        if (!git.status().call().isClean()) {
+            throw new IOException("Cannot switch repository branch while the checkout has local changes.");
+        }
+        String remoteRef = Constants.R_REMOTES + "origin/" + branch;
+        git.fetch().setRemote("origin")
+                .setRefSpecs(new RefSpec("+" + localRef + ":" + remoteRef))
+                .call();
+        if (git.getRepository().exactRef(localRef) == null) {
+            git.checkout().setCreateBranch(true).setName(branch).setStartPoint(remoteRef)
+                    .setUpstreamMode(CreateBranchCommand.SetupUpstreamMode.TRACK).call();
+        } else {
+            git.checkout().setName(branch).call();
+        }
+        StoredConfig config = git.getRepository().getConfig();
+        config.setString("branch", branch, "remote", "origin");
+        config.setString("branch", branch, "merge", localRef);
+        config.save();
     }
 
     /// Returns whether a pull failure can depend on the selected remote source.

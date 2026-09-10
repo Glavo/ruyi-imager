@@ -14,6 +14,8 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -23,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -572,6 +575,67 @@ public final class RuyiImageMaterializerTest {
 
         assertEquals(artifactDirectory.resolve("image.raw").toAbsolutePath().normalize(), result);
         assertArrayEquals(content, Files.readAllBytes(result));
+    }
+
+    /// Decodes every compressed member and applies the output limit across member boundaries.
+    ///
+    /// @param suffix distfile compression suffix.
+    /// @param compressor compressor factory identifier.
+    /// @param directory isolated test directory.
+    /// @throws Exception when compression or materialization fails unexpectedly.
+    @ParameterizedTest
+    @CsvSource({"xz,xz", "bz2,bzip2", "lz4,lz4-framed", "zst,zstd"})
+    public void materializesConcatenatedStreams(String suffix, String compressor, @TempDir Path directory) throws Exception {
+        byte[] content = "FIRSTSECOND".getBytes(StandardCharsets.UTF_8);
+        Path source = directory.resolve("image.raw." + suffix);
+        writeConcatenatedStream(source, compressor, content, 5);
+        ImageEntry image = image(source.getFileName().toString(), null, "image.raw");
+        Path result = new RuyiImageMaterializer().materialize(
+                image, List.of(source), directory.resolve("artifacts"), NO_PROGRESS);
+        assertArrayEquals(content, Files.readAllBytes(result));
+
+        Path limited = directory.resolve("limited");
+        assertThrows(IOException.class, () -> new RuyiImageMaterializer(6L, 1024L, 10, 0L)
+                .materialize(image, List.of(source), limited, NO_PROGRESS));
+        assertFalse(Files.exists(limited));
+    }
+
+    /// Extracts a TAR entry whose data crosses a compressed-member boundary.
+    ///
+    /// @param suffix distfile compression suffix.
+    /// @param compressor compressor factory identifier.
+    /// @param directory isolated test directory.
+    /// @throws Exception when compression or materialization fails unexpectedly.
+    @ParameterizedTest
+    @CsvSource({"xz,xz", "bz2,bzip2", "lz4,lz4-framed", "zst,zstd"})
+    public void materializesTarAcrossCompressedMembers(String suffix, String compressor, @TempDir Path directory)
+            throws Exception {
+        byte[] content = "FIRSTSECOND".getBytes(StandardCharsets.UTF_8);
+        ByteArrayOutputStream tar = new ByteArrayOutputStream();
+        writeTar(tar, "image.raw", content);
+        Path source = directory.resolve("image.tar." + suffix);
+        writeConcatenatedStream(source, compressor, tar.toByteArray(), 512 + 5);
+        Path result = new RuyiImageMaterializer().materialize(
+                image(source.getFileName().toString(), null, "image.raw"),
+                List.of(source), directory.resolve("artifacts"), NO_PROGRESS);
+        assertArrayEquals(content, Files.readAllBytes(result));
+    }
+
+    /// Writes two independently compressed members that jointly contain the supplied bytes.
+    ///
+    /// @param source output file.
+    /// @param compressor compressor factory identifier.
+    /// @param content uncompressed contents.
+    /// @param split byte offset of the second member.
+    /// @throws Exception when compression or writing fails.
+    private static void writeConcatenatedStream(Path source, String compressor, byte[] content, int split) throws Exception {
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        for (byte[] member : List.of(Arrays.copyOfRange(content, 0, split), Arrays.copyOfRange(content, split, content.length))) {
+            try (OutputStream output = compressorOutputStream(compressed, compressor)) {
+                output.write(member);
+            }
+        }
+        Files.write(source, compressed.toByteArray());
     }
 
     /// Verifies Debian package distfiles are extracted through their data tarball.

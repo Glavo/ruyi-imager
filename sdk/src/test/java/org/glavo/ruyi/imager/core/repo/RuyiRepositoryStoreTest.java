@@ -9,6 +9,8 @@ import org.glavo.ruyi.imager.core.AppDirectories;
 import org.jetbrains.annotations.NotNullByDefault;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.tomlj.Toml;
 
 import java.io.IOException;
@@ -171,6 +173,76 @@ public final class RuyiRepositoryStoreTest {
                 assertEquals(
                         remoteDirectory.toUri().toString(),
                         checkoutRepository.getRepository().getConfig().getString("remote", "origin", "url"));
+            }
+        }
+    }
+
+    /// Switches divergent tracking branches without merging into the previous branch or discarding local edits.
+    ///
+    /// @param configuredBranch short or fully qualified target branch.
+    /// @param directory isolated repository fixture directory.
+    /// @throws Exception when fixture repositories cannot be created or synchronized.
+    @ParameterizedTest
+    @ValueSource(strings = {"stable", "refs/heads/stable"})
+    public void switchesConfiguredBranch(String configuredBranch, @TempDir Path directory) throws Exception {
+        Path config = Files.createDirectories(directory.resolve("config"));
+        Path cache = directory.resolve("cache");
+        Path remotePath = directory.resolve("remote");
+        Path missing = directory.resolve("missing");
+        try (Git remote = Git.init().setDirectory(remotePath.toFile()).setInitialBranch("main").call()) {
+            commitRepositoryVersion(remote, "base");
+            var base = remote.getRepository().resolve("HEAD");
+            Files.writeString(remotePath.resolve("main-only.txt"), "Main metadata");
+            remote.add().addFilepattern("main-only.txt").call();
+            commitRepositoryVersion(remote, "main-v1");
+            var mainHead = remote.getRepository().resolve("HEAD");
+            writeRemoteConfig(config, missing, remotePath);
+            RuyiRepositoryStore store = new RuyiRepositoryStore(new AppDirectories(config, cache));
+            store.update(_ -> {});
+            Path checkout = cache.resolve("repos").resolve(RuyiRepositoryStore.DEFAULT_REPO_ID);
+
+            remote.checkout().setCreateBranch(true).setName("stable").setStartPoint(base.name()).call();
+            Files.writeString(remotePath.resolve("stable-only.txt"), "Stable metadata");
+            remote.add().addFilepattern("stable-only.txt").call();
+            commitRepositoryVersion(remote, "stable-v1");
+            Files.writeString(config.resolve("config.toml"), """
+                    [repo]
+                    remotes = ["%s", "%s"]
+                    branch = "%s"
+                    """.formatted(missing.toUri(), remotePath.toUri(), configuredBranch));
+            Path localEdit = checkout.resolve("local-note.txt");
+            Files.writeString(localEdit, "Keep local edits");
+            assertThrows(IOException.class, () -> store.update(_ -> {}));
+            assertEquals("Keep local edits", Files.readString(localEdit));
+            try (Git local = Git.open(checkout.toFile())) {
+                assertEquals("main", local.getRepository().getBranch());
+                assertEquals(mainHead, local.getRepository().resolve("HEAD"));
+            }
+            Files.delete(localEdit);
+
+            store.update(_ -> {});
+            try (Git local = Git.open(checkout.toFile())) {
+                assertEquals("stable", local.getRepository().getBranch());
+                assertEquals(remote.getRepository().resolve("HEAD"), local.getRepository().resolve("HEAD"));
+                assertEquals(mainHead, local.getRepository().resolve("refs/heads/main"));
+                assertEquals("origin", local.getRepository().getConfig().getString("branch", "stable", "remote"));
+                assertEquals("refs/heads/stable", local.getRepository().getConfig().getString("branch", "stable", "merge"));
+                assertFalse(Files.exists(checkout.resolve("main-only.txt")));
+                assertTrue(Files.exists(checkout.resolve("stable-only.txt")));
+            }
+            commitRepositoryVersion(remote, "stable-v2");
+            store.update(_ -> {});
+            assertEquals("stable-v2", Toml.parse(checkout.resolve("config.toml")).getString("ruyi-repo"));
+
+            remote.checkout().setName("main").call();
+            commitRepositoryVersion(remote, "main-v2");
+            writeRemoteConfig(config, missing, remotePath);
+            store.update(_ -> {});
+            try (Git local = Git.open(checkout.toFile())) {
+                assertEquals("main", local.getRepository().getBranch());
+                assertEquals(remote.getRepository().resolve("HEAD"), local.getRepository().resolve("HEAD"));
+                assertTrue(Files.exists(checkout.resolve("main-only.txt")));
+                assertFalse(Files.exists(checkout.resolve("stable-only.txt")));
             }
         }
     }

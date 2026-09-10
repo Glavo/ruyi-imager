@@ -519,7 +519,7 @@ public final class RuyiImageMaterializer {
         }
     }
 
-    /// Opens a compressed input stream with a Kala Compress compressor.
+    /// Opens a compressed input stream that decodes all concatenated members.
     ///
     /// @param source         source path.
     /// @param compressorName Kala Compress compressor name.
@@ -530,7 +530,7 @@ public final class RuyiImageMaterializer {
         return compressedInputStream(input, compressorName, source);
     }
 
-    /// Opens a compressed input stream with a Kala Compress compressor.
+    /// Opens a compressed input stream that decodes all concatenated members.
     ///
     /// @param input          backing compressed stream.
     /// @param compressorName Kala Compress compressor name.
@@ -542,7 +542,7 @@ public final class RuyiImageMaterializer {
             String compressorName,
             Object source) throws IOException {
         try {
-            return COMPRESSOR_STREAMS.createCompressorInputStream(compressorName, input);
+            return COMPRESSOR_STREAMS.createCompressorInputStream(compressorName, input, true);
         } catch (CompressorException exception) {
             try {
                 input.close();
