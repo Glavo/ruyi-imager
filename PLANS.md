@@ -142,3 +142,11 @@
 ### Known Limits
 
 - Full Linux/macOS release packaging from Windows still depends on a working non-host `dd-flasher` toolchain.
+
+### Repository Review (2026-09-10)
+
+- Reviewed flash orchestration, native target validation, cancellation, image downloads and materialization, GUI background operations, application updates, and build configuration.
+- `./gradlew -g .gradle-user-home cleanTest check` passed on Windows: 371 Java tests, zero failures or errors, two skipped; all 22 `dd-flasher` Rust tests passed.
+- Isolated JavaFX probing reproduced `MFXProgressBar.progress : A bound value cannot be set.` when an enabled settings operation is triggered during simulated installer preparation. A simulated elevated process confirmed that cancellation cleanup can return while the helper remains alive. Neither probe accessed a real device or launched an installer.
+- Unresolved: Linux piped elevation deletes its cancellation signal without confirming helper exit; native Linux validation does not reject ordinary mounts appearing after Java-side preparation; manual update installation leaves settings operation buttons enabled during preparation.
+- This review records findings only; the identified implementation issues remain unfixed. Linux/macOS physical-device behavior and release packaging were not exercised.
