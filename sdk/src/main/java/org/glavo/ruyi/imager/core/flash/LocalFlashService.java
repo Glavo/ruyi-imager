@@ -379,6 +379,7 @@ public final class LocalFlashService implements FlashService {
     ///
     /// @param source source image path.
     /// @param blockDevice target block device.
+    /// @param allowMounted whether a mounted target is acceptable during this validation pass.
     /// @return failure message, or null when source and target are acceptable.
     /// @throws IOException when source or target metadata cannot be read.
     private static @Nullable String validateBlockImage(
@@ -393,6 +394,9 @@ public final class LocalFlashService implements FlashService {
             return SdkMessages.get("core.flash.localImageMissing", source);
         }
         long sourceSize = Files.size(source);
+        if (sourceSize == 0L) {
+            return SdkMessages.get("core.flash.emptyImage", source);
+        }
         if (blockDevice.sizeBytes() > 0L && sourceSize > blockDevice.sizeBytes()) {
             return SdkMessages.get("core.flash.imageTooLarge");
         }
@@ -831,6 +835,9 @@ public final class LocalFlashService implements FlashService {
             if (!realPath.startsWith(realRoot)) {
                 throw new IOException(SdkMessages.get("core.materialize.partitionEscape", entry.getValue()));
             }
+            if (Files.size(realPath) == 0L) {
+                throw new IOException(SdkMessages.get("core.flash.emptyImage", realPath));
+            }
             result.put(entry.getKey(), realPath);
         }
         return Collections.unmodifiableMap(result);
@@ -846,6 +853,9 @@ public final class LocalFlashService implements FlashService {
         Path normalizedPath = materialized.toAbsolutePath().normalize();
         if (!Files.isRegularFile(normalizedPath)) {
             throw new IOException(SdkMessages.get("core.materialize.partitionMissing", normalizedPath));
+        }
+        if (Files.size(normalizedPath) == 0L) {
+            throw new IOException(SdkMessages.get("core.flash.emptyImage", normalizedPath));
         }
 
         @Nullable Path normalizedParent = normalizedPath.getParent();

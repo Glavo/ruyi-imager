@@ -355,6 +355,9 @@ jobs:
           release_created=false
           cleanup_failed_release() {
             exit_code=$?
+            if [ "${exit_code}" -eq 0 ]; then
+              return
+            fi
             if [ "${release_created}" = "true" ]; then
               gh release delete "${RELEASE_TAG}" --cleanup-tag --yes || true
             elif [ "${tag_created}" = "true" ]; then
@@ -362,7 +365,7 @@ jobs:
             fi
             exit "${exit_code}"
           }
-          trap cleanup_failed_release ERR
+          trap cleanup_failed_release EXIT
 
           tag_args=(
             --method POST
@@ -387,16 +390,16 @@ jobs:
           release_created=true
 
           gh release upload "${RELEASE_TAG}" release-assets/*
-          mapfile -t local_assets < <(find release-assets -maxdepth 1 -type f -printf '%f\n' | sort)
-          mapfile -t remote_assets < <(
+          local_assets=$(find release-assets -maxdepth 1 -type f -printf '%f\n' | sort)
+          remote_assets=$(
             gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name' | sort
           )
-          if [ "${local_assets[*]}" != "${remote_assets[*]}" ]; then
+          if [ "${local_assets}" != "${remote_assets}" ]; then
             printf 'Published asset set does not match local release assets\n' >&2
-            printf 'Local: %s\n' "${local_assets[*]}" >&2
-            printf 'Remote: %s\n' "${remote_assets[*]}" >&2
+            printf 'Local: %s\n' "${local_assets}" >&2
+            printf 'Remote: %s\n' "${remote_assets}" >&2
             exit 1
           fi
 
           gh release edit "${RELEASE_TAG}" --draft=false
-          trap - ERR
+          trap - EXIT

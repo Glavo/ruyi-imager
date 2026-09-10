@@ -71,6 +71,43 @@ public final class LocalFlashServiceTest {
         assertArrayEquals(imageBytes, Arrays.copyOf(Files.readAllBytes(target), imageBytes.length));
     }
 
+    /// Rejects empty local and single-file catalog images before preparing or writing a target.
+    ///
+    /// @param sourceKind local input or catalog provision strategy.
+    /// @param verify whether verification was requested.
+    /// @param directory isolated fixture directory.
+    /// @throws Exception when fixture files cannot be created or read.
+    @ParameterizedTest
+    @CsvSource({"local,false", "local,true", "dd-v1,false", "fastboot-v1,false"})
+    public void refusesEmptyImage(String sourceKind, boolean verify, @TempDir Path directory) throws Exception {
+        Path source = Files.createFile(directory.resolve("empty.img"));
+        Path targetPath = Files.write(directory.resolve("target.raw"), new byte[]{1, 2, 3});
+        CapturingDdImageWriter writer = new CapturingDdImageWriter(true);
+        CapturingFastbootService fastboot = new CapturingFastbootService();
+        AlwaysPreparingBlockDevicePreparer preparer = new AlwaysPreparingBlockDevicePreparer();
+        LocalFlashService service = new LocalFlashService(
+                new FixedImageCatalogService(source), fastboot, preparer, writer);
+        FlashTarget target = sourceKind.equals("fastboot-v1")
+                ? FlashTarget.fastbootDevice(new FastbootDevice("test", "test", "fastboot"))
+                : FlashTarget.blockDevice(target(targetPath, 3, false, false));
+        String expected = "Refusing to write an empty image: " + source;
+        if (sourceKind.equals("local")) {
+            OperationResult result = service.flash(new FlashRequest(null, source, target, verify), NO_PROGRESS);
+            assertFalse(result.success());
+            assertEquals(expected, result.message());
+        } else {
+            ImageEntry image = imageEntry(sourceKind, Map.of("disk", "empty.img"));
+            IOException failure = assertThrows(IOException.class,
+                    () -> service.flash(new FlashRequest(image, null, target, verify), NO_PROGRESS));
+            assertEquals(expected, failure.getMessage());
+        }
+        assertEquals(0, preparer.calls);
+        assertTrue(writer.writeCalls.isEmpty());
+        assertTrue(writer.verifyCalls.isEmpty());
+        assertTrue(fastboot.calls.isEmpty());
+        assertArrayEquals(new byte[]{1, 2, 3}, Files.readAllBytes(targetPath));
+    }
+
     /// Writes a local image through an injected dd image writer.
     ///
     /// @param temporaryDirectory temporary test directory.
@@ -588,6 +625,8 @@ public final class LocalFlashServiceTest {
             "fastboot-v1, fastboot-v1, missing.img, true",
             "fastboot-v1, fastboot-v1, ../outside.img, true",
             "fastboot-v1, fastboot-v1, empty, true",
+            "fastboot-v1, fastboot-v1, empty.img, true",
+            "dd-v1, dd-v1, empty.img, true",
             "fastboot-v1, fastboot-v1(lpi4a-uboot), second.img, false",
             "fastboot-v1, spacemit-k1-v1, second.img, false",
             "fastboot-v1, unknown-v1, second.img, false",
@@ -600,6 +639,7 @@ public final class LocalFlashServiceTest {
         Path artifact = Files.createDirectories(directory.resolve("artifact"));
         Files.write(artifact.resolve("first.img"), new byte[]{1});
         Files.write(artifact.resolve("second.img"), new byte[]{2});
+        Files.createFile(artifact.resolve("empty.img"));
         Files.write(directory.resolve("outside.img"), new byte[]{3});
         @Unmodifiable Map<String, String> firstPartitions = Map.of("first", "first.img");
         @Unmodifiable Map<String, String> secondPartitions = secondPath.equals("empty")
