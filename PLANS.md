@@ -162,3 +162,11 @@
 - An isolated local Git fixture reproduced switching the configured repository branch from `main` to `stable`: synchronization succeeded by merging into the existing `main` checkout, retaining metadata absent from `stable` and leaving HEAD different from the selected remote branch.
 - Both follow-up findings are fixed. Regression fixtures cover concatenated XZ, BZip2, LZ4, and Zstandard streams, cross-member TAR entries and output limits, divergent branch switching with short and fully qualified branch names, local-edit preservation, remote fallback, and switching back to an existing branch. Tests use temporary files and fixture repositories only; no physical devices or installers are exercised.
 - Post-fix validation: `./gradlew -g .gradle-user-home cleanTest check` passed with 385 Java tests, zero failures or errors, two skipped, and all 23 `dd-flasher` Rust tests passing. `git diff --check` passed.
+
+### Repository State Boundary Review (2026-09-10)
+
+- Reviewed download integrity and resumption, fastboot process handling, multi-component flash dispatch, repository synchronization, and catalog caching at `35a545d`.
+- An isolated catalog fixture combining `fastboot-v1(lpi4a-uboot)` and `dd-v1` was classified as supported; a recording fastboot backend received one component write before the flash service rejected the second component. No device command was launched.
+- An isolated two-repository update reproduced stale catalog state after a partial failure: the first repository received version `2.0.0`, the unavailable overlay caused an exception, and the existing catalog still selected `1.0.0` while a fresh catalog selected `2.0.0`.
+- Targeted `:sdk:test` coverage for `RuyiImageCatalogServiceTest`, `LocalFlashServiceTest`, and the repository tests passed: 52 tests, zero failures, errors, or skips. The full suite was not rerun in this review.
+- Both state boundary findings remain unresolved. Only review documentation and ignored local probes were added; implementation code and physical devices were not modified.
