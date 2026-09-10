@@ -24,12 +24,3 @@ These rules apply to code and workflow changes in this repository.
 
 - Use heap `long[]` pages as the default backing allocation, but store backing as an Unsafe base object plus byte offset.
 - Access page backing through `jdk.internal.misc.Unsafe`.
-
-## Workflow
-
-- After completing a task, update `PLANS.md` only for work that is actually done, and preserve active or still-relevant plans.
-
-## Commit Messages
-
-- After each completed modification, generate a commit message for the user, but do not create the commit.
-- Leave one blank line after the commit message body, then add `Assisted-by: codex:gpt-5.5`.
